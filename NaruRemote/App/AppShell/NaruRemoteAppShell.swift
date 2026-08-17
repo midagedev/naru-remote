@@ -17,6 +17,7 @@ public struct NaruRemoteAppShell: View {
     @State private var showsOperationSurface = false
     @State private var pendingPublicConnection: ConnectionProfile?
     @State private var showsDiagnosticDetail = false
+    @State private var showsGridDiagnosticDetail = false
     /// When non-nil, an "Edit Profile" sheet is presented for this
     /// profile.  Using `Identifiable` here means SwiftUI will tear
     /// down and re-create the editor's state on each invocation, so
@@ -260,100 +261,44 @@ public struct NaruRemoteAppShell: View {
         showsOperationSurface = false
     }
 
-    @ViewBuilder
-    private func operationRecoveryCard(snapshot: NaruRemoteAppSnapshot) -> some View {
-        if Self.showsOperationRecovery(
+    /// Leaves remote control without calling `model.disconnect()`, so
+    /// `session.lastError` remains available for the host-card annotation.
+    private func leaveOperationSurfacePreservingSession() {
+        composeFieldFocused = false
+        composeExpansionRequested = false
+        liveSessionLayoutSessionID = nil
+        showsDiagnosticDetail = false
+        showsOperationSurface = false
+    }
+
+    private func applySessionSurfaceRouting(snapshot: NaruRemoteAppSnapshot) {
+        let shouldLeave = SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
             sessionState: snapshot.session?.state,
-            hasFramebuffer: snapshot.latestFramebuffer != nil
-        ) {
-            VStack(spacing: 14) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.title2)
-                    .foregroundStyle(NaruColors.warning)
-
-                VStack(spacing: 4) {
-                    Text("Connection needs attention")
-                        .font(.headline)
-                        .accessibilityIdentifier("naru.operation.recovery")
-                    Text("Retry, update this computer, or inspect the safe diagnostic summary.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { operationRecoveryButtons }
-                    VStack(spacing: 8) { operationRecoveryButtons }
-                }
-            }
-            .padding(18)
-            .frame(maxWidth: 360)
-            .background(NaruColors.surface, in: RoundedRectangle(cornerRadius: 16))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(NaruColors.hairline, lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
-            .padding(20)
+            hasFramebuffer: snapshot.latestFramebuffer != nil,
+            isOperationSurfaceVisible: showsOperationSurface,
+            isPinnedForTesting: Self.forcesInputDockForTesting
+        )
+        if shouldLeave {
+            leaveOperationSurfacePreservingSession()
         }
     }
 
-    @ViewBuilder
-    private var operationRecoveryButtons: some View {
-        Button {
-            Task { await model.connectSelectedProfile() }
-        } label: {
-            Label("Retry", systemImage: "arrow.clockwise")
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("naru.operation.retry")
-
-        Button {
-            if let profile = model.snapshot.selectedProfile {
-                editProfile(id: profile.id)
+    private func openDiagnostics(for profileID: ConnectionProfile.ID) {
+        let snapshot = model.snapshot
+        let hasRowsForProfile = snapshot.diagnosticRun?.profileID == profileID
+            && !snapshot.diagnosticRows.isEmpty
+        // Existing results win: re-selecting a profile resets the run, so
+        // running checks unconditionally would throw away the rows the user
+        // asked to see. Only a profile with no results of its own needs a
+        // fresh run, and `runConnectionChecks()` works on the *selected*
+        // profile, so that card has to become the selection first.
+        if !hasRowsForProfile {
+            if snapshot.selectedProfile?.id != profileID {
+                model.selectProfile(id: profileID)
             }
-        } label: {
-            Label("Edit", systemImage: "pencil")
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 44)
+            model.runConnectionChecks()
         }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("naru.operation.edit")
-
-        Button {
-            showsDiagnosticDetail = true
-        } label: {
-            Label("Diagnostics", systemImage: "waveform.path.ecg")
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("naru.operation.diagnostics")
-
-        Button {
-            returnToConnections()
-        } label: {
-            Label("Connections", systemImage: "square.grid.2x2")
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("naru.operation.recovery.connections")
-    }
-
-    nonisolated static func showsOperationRecovery(
-        sessionState: RemoteSessionState?,
-        hasFramebuffer: Bool
-    ) -> Bool {
-        guard !hasFramebuffer, let sessionState else { return false }
-        switch sessionState {
-        case .failed, .closed:
-            return true
-        case .connecting, .authenticating, .active, .degraded, .reconnecting:
-            return false
-        }
+        showsGridDiagnosticDetail = true
     }
 
     nonisolated static func requiresPublicConnectionConfirmation(
@@ -377,7 +322,7 @@ public struct NaruRemoteAppShell: View {
         return forcesInputDockForTesting
     }
 
-    static func sessionWarrantsInputDock(_ state: RemoteSessionState?) -> Bool {
+    nonisolated static func sessionWarrantsInputDock(_ state: RemoteSessionState?) -> Bool {
         guard let state else {
             return false
         }
@@ -387,6 +332,12 @@ public struct NaruRemoteAppShell: View {
         case .connecting, .authenticating, .active, .degraded, .reconnecting:
             return true
         }
+    }
+
+    /// Same live-or-connecting cases as the input dock. Failed and closed
+    /// no longer occur on this surface after automatic return.
+    nonisolated static func showsDiagnosticCapsule(sessionState: RemoteSessionState?) -> Bool {
+        sessionWarrantsInputDock(sessionState)
     }
 
     nonisolated static func shouldShowConnectionGrid(
@@ -458,6 +409,7 @@ public struct NaruRemoteAppShell: View {
                         cards: snapshot.connectionGridCards,
                         onSelect: openConnection,
                         onAddProfile: { showsProfileEditor = true },
+                        onDiagnostics: openDiagnostics,
                         onEdit: editProfile,
                         onDelete: performProfileDeletion
                     )
@@ -469,13 +421,9 @@ public struct NaruRemoteAppShell: View {
                 }
             }
         }
-        .overlay {
-            if !isEmptyHome && !showsConnectionGrid {
-                operationRecoveryCard(snapshot: snapshot)
-            }
-        }
         .overlay(alignment: .topTrailing) {
-            if !isEmptyHome && !showsConnectionGrid {
+            if !isEmptyHome && !showsConnectionGrid
+                && Self.showsDiagnosticCapsule(sessionState: snapshot.session?.state) {
                 SessionDiagnosticCornerView(
                     session: snapshot.session,
                     connectionQuality: model.connectionQuality,
@@ -658,6 +606,24 @@ public struct NaruRemoteAppShell: View {
                 liveSessionLayoutSessionID = currentSessionID
             }
         }
+        .onChange(of: snapshot.session?.state, initial: true) { _, _ in
+            applySessionSurfaceRouting(snapshot: snapshot)
+        }
+        .onChange(of: snapshot.latestFramebuffer != nil, initial: true) { _, _ in
+            applySessionSurfaceRouting(snapshot: snapshot)
+        }
+        .sheet(isPresented: $showsGridDiagnosticDetail) {
+            // Hosted in its own observing view: a run started by
+            // `openDiagnostics` fills in after presentation, and a value
+            // captured at presentation time would freeze the sheet on
+            // "No diagnostics yet".
+            GridDiagnosticSheetHost(
+                model: model,
+                buildVersion: buildVersion
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView(
                 onTest: { host, port, password in
@@ -765,6 +731,31 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
+}
+
+/// Diagnostics sheet opened from a host card (spec 013 US2-1). Observes the
+/// model so rows appear as `runConnectionChecks()` progresses.
+private struct GridDiagnosticSheetHost: View {
+    @ObservedObject var model: NaruRemoteAppModel
+    let buildVersion: String?
+
+    var body: some View {
+        SessionDiagnosticDetailSheet(
+            rows: rows,
+            shareTextProvider: { [buildVersion] in
+                model.makeDiagnosticExport()
+                    .renderSharePayload(buildVersion: buildVersion)
+            }
+        )
+    }
+
+    /// The capsule sheet renders `snapshot.diagnosticRows` directly; this
+    /// one does the same. `openDiagnostics` is what guarantees the run
+    /// belongs to the tapped host — re-filtering here only produced an
+    /// empty sheet whenever the two disagreed for a moment.
+    private var rows: [DiagnosticSummaryRow] {
+        model.snapshot.diagnosticRows
+    }
 }
 
 struct RemoteInputAccessoryChromeState: Equatable, Sendable {

@@ -339,7 +339,9 @@ public struct SessionDiagnosticCornerView: View {
     }
 }
 
-private struct SessionDiagnosticDetailSheet: View {
+/// Shared by the session capsule and the host-card Diagnostics menu
+/// item (spec 013 US2-1); internal so both call sites render one sheet.
+struct SessionDiagnosticDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let rows: [DiagnosticSummaryRow]

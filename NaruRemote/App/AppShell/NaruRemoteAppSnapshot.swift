@@ -1362,7 +1362,12 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                     state: helperVideoProfileState[profile.id]
                 ),
                 verdict: lastDiagnosticVerdict[profile.id] ?? .unknown,
-                isSelected: selectedProfile?.id == profile.id
+                isSelected: selectedProfile?.id == profile.id,
+                failure: ConnectionGridCardFailure.derived(
+                    profileID: profile.id,
+                    session: session,
+                    hasFramebuffer: latestFramebuffer != nil
+                )
             )
         }
     }
@@ -1511,6 +1516,42 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     }
 }
 
+public struct ConnectionGridCardFailure: Equatable, Sendable {
+    public let message: String
+
+    public init(message: String) {
+        self.message = message
+    }
+
+    /// Copies `RemoteSession.lastError` for a terminal session that left no
+    /// framebuffer. Other profiles and in-flight sessions stay `nil` so the
+    /// grid layout does not change.
+    ///
+    /// `hudMessage` is deliberately NOT a fallback: a user-initiated
+    /// disconnect ends as `.closed` with `hudMessage = "Disconnected"` and
+    /// `lastError = nil` (`NaruRemoteAppModel.disconnect()`), and annotating
+    /// the card for that would report a normal exit as a failure.
+    public static func derived(
+        profileID: ConnectionProfile.ID,
+        session: RemoteSession?,
+        hasFramebuffer: Bool
+    ) -> ConnectionGridCardFailure? {
+        guard let session, session.profileID == profileID, !hasFramebuffer else {
+            return nil
+        }
+        switch session.state {
+        case .failed, .closed:
+            break
+        case .connecting, .authenticating, .active, .degraded, .reconnecting:
+            return nil
+        }
+        guard let lastError = session.lastError, !lastError.isEmpty else {
+            return nil
+        }
+        return ConnectionGridCardFailure(message: lastError)
+    }
+}
+
 public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let id: ConnectionProfile.ID
     public let displayName: String
@@ -1521,6 +1562,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let helperVideoReadiness: ConnectionGridHelperVideoReadiness
     public let verdict: DiagnosticVerdict
     public let isSelected: Bool
+    public let failure: ConnectionGridCardFailure?
 
     public init(
         id: ConnectionProfile.ID,
@@ -1535,7 +1577,8 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
             accessibilityLabel: "helper video not configured, VNC visual fallback"
         ),
         verdict: DiagnosticVerdict,
-        isSelected: Bool
+        isSelected: Bool,
+        failure: ConnectionGridCardFailure? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -1546,6 +1589,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         self.helperVideoReadiness = helperVideoReadiness
         self.verdict = verdict
         self.isSelected = isSelected
+        self.failure = failure
     }
 }
 

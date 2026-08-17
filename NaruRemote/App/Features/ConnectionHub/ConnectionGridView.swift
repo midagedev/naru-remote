@@ -5,6 +5,7 @@ public struct ConnectionGridView: View {
     private let cards: [ConnectionGridCard]
     private let onSelect: (ConnectionGridCard.ID) -> Void
     private let onAddProfile: () -> Void
+    private let onDiagnostics: ((ConnectionGridCard.ID) -> Void)?
     private let onEdit: ((ConnectionGridCard.ID) -> Void)?
     private let onDelete: ((ConnectionGridCard.ID) -> Void)?
     @State private var pendingDeleteCard: ConnectionGridCard?
@@ -13,12 +14,14 @@ public struct ConnectionGridView: View {
         cards: [ConnectionGridCard],
         onSelect: @escaping (ConnectionGridCard.ID) -> Void,
         onAddProfile: @escaping () -> Void,
+        onDiagnostics: ((ConnectionGridCard.ID) -> Void)? = nil,
         onEdit: ((ConnectionGridCard.ID) -> Void)? = nil,
         onDelete: ((ConnectionGridCard.ID) -> Void)? = nil
     ) {
         self.cards = cards
         self.onSelect = onSelect
         self.onAddProfile = onAddProfile
+        self.onDiagnostics = onDiagnostics
         self.onEdit = onEdit
         self.onDelete = onDelete
     }
@@ -38,18 +41,11 @@ public struct ConnectionGridView: View {
             ) {
                 ForEach(cards) { card in
                     ZStack(alignment: .topTrailing) {
-                        Button {
+                        ConnectionGridCardView(card: card) {
                             onSelect(card.id)
-                        } label: {
-                            ConnectionGridCardView(card: card)
                         }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
-                        .accessibilityLabel(Self.cardAccessibilityLabel(for: card))
-                        .accessibilityHint(Self.cardAccessibilityHint(for: card))
-                        .accessibilityIdentifier("naru.connection.grid.card")
 
-                        if onEdit != nil || onDelete != nil {
+                        if onDiagnostics != nil || onEdit != nil || onDelete != nil {
                             profileActionsMenu(for: card)
                                 .padding(8)
                         }
@@ -129,7 +125,11 @@ public struct ConnectionGridView: View {
             hostDescription = "Public address, advanced public endpoint warning"
         }
 
-        return "\(card.displayName), \(card.endpoint), \(hostDescription), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
+        var label = "\(card.displayName), \(card.endpoint), \(hostDescription), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
+        if let failure = card.failure {
+            label += ", \(failure.message)"
+        }
+        return label
     }
 
     nonisolated static func cardAccessibilityHint(for card: ConnectionGridCard) -> String {
@@ -143,6 +143,15 @@ public struct ConnectionGridView: View {
 
     private func profileActionsMenu(for card: ConnectionGridCard) -> some View {
         Menu {
+            if let onDiagnostics {
+                Button {
+                    onDiagnostics(card.id)
+                } label: {
+                    Label("Diagnostics", systemImage: "waveform.path.ecg")
+                }
+                .accessibilityIdentifier("naru.connection.grid.diagnostics")
+            }
+
             if let onEdit {
                 Button {
                     onEdit(card.id)
@@ -175,55 +184,90 @@ public struct ConnectionGridView: View {
 
 private struct ConnectionGridCardView: View {
     let card: ConnectionGridCard
+    let onSelect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            preview
+            Button(action: onSelect) {
+                VStack(alignment: .leading, spacing: 0) {
+                    preview
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(card.displayName)
-                        .font(.headline.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(card.displayName)
+                                .font(.headline.weight(.semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
-                    Spacer(minLength: 8)
+                            Spacer(minLength: 8)
 
-                    statusBadge
-                }
+                            statusBadge
+                        }
 
-                // Host / MagicDNS / IP:port is a technical identifier —
-                // SF Mono per BRANDING.md §8 so it reads as an address,
-                // not prose, and digits/dots stay column-aligned.
-                Text(card.endpoint)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                        // Host / MagicDNS / IP:port is a technical identifier —
+                        // SF Mono per BRANDING.md §8 so it reads as an address,
+                        // not prose, and digits/dots stay column-aligned.
+                        Text(card.endpoint)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
-                if card.hostKind == .advancedManualPublicEndpoint {
-                    Label("Public address", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(NaruColors.coral)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("naru.connection.grid.publicWarning")
-                } else {
-                    Label(card.hostKind.gridLabel, systemImage: card.hostKind.symbolName)
+                        if card.hostKind == .advancedManualPublicEndpoint {
+                            Label("Public address", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(NaruColors.coral)
+                                .lineLimit(1)
+                                .accessibilityIdentifier("naru.connection.grid.publicWarning")
+                        } else {
+                            Label(card.hostKind.gridLabel, systemImage: card.hostKind.symbolName)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Label(
+                            card.helperVideoReadiness.label,
+                            systemImage: card.helperVideoReadiness.symbolName
+                        )
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(card.helperVideoReadiness.tint)
                         .lineLimit(1)
-                }
+                        .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
 
-                Label(
-                    card.helperVideoReadiness.label,
-                    systemImage: card.helperVideoReadiness.symbolName
-                )
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(card.helperVideoReadiness.tint)
-                .lineLimit(1)
-                .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
+                        if let failure = card.failure {
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(NaruColors.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(12)
+                }
             }
-            .padding(12)
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityLabel(ConnectionGridView.cardAccessibilityLabel(for: card))
+            .accessibilityHint(ConnectionGridView.cardAccessibilityHint(for: card))
+            .accessibilityIdentifier("naru.connection.grid.card")
+            .accessibilityElement(children: .combine)
+            // Combining children drops the button trait, and every UI test
+            // (and VoiceOver) reaches this card through `app.buttons[...]`
+            // — the same regression class as the 2026-07-12 dock finding.
+            .accessibilityAddTraits(.isButton)
+
+            if card.failure != nil {
+                Button(action: onSelect) {
+                    Label("Reconnect", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("naru.connection.grid.reconnect")
+            }
         }
         .background(NaruColors.surface)
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -231,7 +275,6 @@ private struct ConnectionGridCardView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(NaruColors.hairline, lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
