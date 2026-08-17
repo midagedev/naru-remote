@@ -90,11 +90,8 @@ public struct NaruRemoteAppShell: View {
         }
     }
 
-    private var compactWindowWidth: CGFloat? {
+    private var currentWindowWidth: CGFloat? {
         #if os(iOS) && canImport(UIKit)
-        guard horizontalSizeClass == .compact else {
-            return nil
-        }
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else {
                 continue
@@ -104,6 +101,30 @@ public struct NaruRemoteAppShell: View {
             }
         }
         return nil
+        #else
+        return nil
+        #endif
+    }
+
+    private var compactWindowWidth: CGFloat? {
+        #if os(iOS) && canImport(UIKit)
+        guard horizontalSizeClass == .compact else {
+            return nil
+        }
+        return currentWindowWidth
+        #else
+        return nil
+        #endif
+    }
+
+    /// Pinned dock column (spec 012 US3-1). Regular width caps at
+    /// orca `CONTENT_MAX_WIDTH` (720) and centers; compact is unchanged.
+    private var pinnedDockColumnMaxWidth: CGFloat? {
+        #if os(iOS) && canImport(UIKit)
+        RemoteInputDockWidthPolicy.pinnedColumnMaxWidth(
+            isCompactSizeClass: horizontalSizeClass == .compact,
+            windowWidth: currentWindowWidth
+        )
         #else
         return nil
         #endif
@@ -529,7 +550,8 @@ public struct NaruRemoteAppShell: View {
 
                         remoteInputDockHost(state: dockState)
                     }
-                    .frame(width: compactWindowWidth, alignment: .center)
+                    .frame(maxWidth: pinnedDockColumnMaxWidth, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
         }

@@ -104,6 +104,21 @@ public enum AccessoryKey: String, Sendable, Equatable, CaseIterable, Codable {
         }
     }
 
+    /// Whether a hold on this strip key auto-repeats (spec 012 US2-1).
+    /// True only for the four arrows and Del — the orca-measured
+    /// repeatable set. Backspace is not on this strip. Every other
+    /// key fires once: holding Esc/Tab/Fn keys is treated as
+    /// destructive.
+    public var repeatable: Bool {
+        switch self {
+        case .arrowUp, .arrowDown, .arrowLeft, .arrowRight, .delete:
+            return true
+        case .escape, .tab, .home, .end, .pageUp, .pageDown, .insert,
+             .f1, .f2, .f3, .f4, .f5, .f6, .f7, .f8, .f9, .f10, .f11, .f12:
+            return false
+        }
+    }
+
     /// The X11 keysym this strip key emits. Sticky modifiers are merged
     /// by the caller (`NaruRemoteAppModel.sendAccessoryKey(_:)`).
     public var keysym: UInt32 {

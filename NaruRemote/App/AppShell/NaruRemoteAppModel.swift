@@ -318,6 +318,11 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// window's pending buffer and drain when the chunk completes.
     private var liveChunkInFlight = false
 
+    /// Waiters for spec 012 US2-3: strip/quick-key emission waits for
+    /// the current helper/clipboard insert to finish, then emits or
+    /// drops. Resumed from `completeLiveInsert` / live-state reset.
+    private var liveInsertFlushWaiters: [CheckedContinuation<Bool, Never>] = []
+
     /// `liveWindow.deliveredText` as it was immediately before the in-flight
     /// chunk's optimistic `takePending()` fold. On a failed async delivery the
     /// window is rolled back to this baseline so the failed chunk re-enters the
@@ -6058,6 +6063,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func activateLiveTypeThroughMode() {
+        resolveLiveInsertFlushWaiters(succeeded: false)
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
@@ -6073,6 +6079,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func deactivateLiveTypeThroughMode() {
+        resolveLiveInsertFlushWaiters(succeeded: false)
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
@@ -6094,6 +6101,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// user mode choice deliberately survives this reset — the promotion
     /// consumes it at activation.
     private func resetLiveTypeThroughState() {
+        resolveLiveInsertFlushWaiters(succeeded: false)
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
@@ -6586,6 +6594,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         let preFoldBaseline = liveInFlightBaseline
         liveInFlightBaseline = nil
         guard isCurrentLiveTarget(streamID: streamID, sessionID: sessionID, profileID: profileID) else {
+            resolveLiveInsertFlushWaiters(succeeded: false)
             return
         }
         guard succeeded else {
@@ -6606,6 +6615,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             } else {
                 sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
             }
+            resolveLiveInsertFlushWaiters(succeeded: false)
             return
         }
         liveTypeThroughMode.lastStatus = status
@@ -6618,10 +6628,12 @@ public final class NaruRemoteAppModel: ObservableObject {
                 profileID: profileID
             )
             openFreshLiveWindowAfterNewline()
+            resolveLiveInsertFlushWaiters(succeeded: true)
             return
         }
         // Drain any commits that coalesced while this chunk was in flight.
         dispatchLivePendingWork()
+        resolveLiveInsertFlushWaiters(succeeded: true)
     }
 
     /// Drive a logical key event from the custom soft keyboard.
@@ -6800,7 +6812,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// Constitution §IV: the keysym is NOT logged anywhere persistent;
     /// the diagnostic safe-detail catalog is unaffected.
     public func sendComposeQuickKey(_ key: ComposeQuickKey) async {
-        guard let emitter = keystrokeEmitter else {
+        guard keystrokeEmitter != nil else {
+            return
+        }
+        let flushed = await flushPendingLiveInsertBeforeControl()
+        guard AccessoryControlFlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
+              let emitter = keystrokeEmitter
+        else {
             return
         }
         markTransientFrameDeliveryInteractionActivity()
@@ -6832,7 +6850,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// (`keystrokeEmitter == nil`). Constitution §IV: the keysym is
     /// never logged; the diagnostic safe-detail catalog is unaffected.
     public func sendAccessoryKey(_ key: AccessoryKey) async {
-        guard let emitter = keystrokeEmitter else {
+        guard keystrokeEmitter != nil else {
+            return
+        }
+        let flushed = await flushPendingLiveInsertBeforeControl()
+        guard AccessoryControlFlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
+              let emitter = keystrokeEmitter
+        else {
             return
         }
         markTransientFrameDeliveryInteractionActivity()
@@ -6846,6 +6870,50 @@ public final class NaruRemoteAppModel: ObservableObject {
             try await emitter.emit(keysym: key.keysym, modifiers: modifiers)
         }
         stickyModifierState.consumeAfterNonModifierEmission()
+    }
+
+    /// Spec 012 US2-3 model layer: wait for an in-flight helper/clipboard
+    /// insert (and drain any not-yet-dispatched live work) before a
+    /// strip/quick-key keysym is enqueued. Key-lane inserts share
+    /// `OutboundInputEventDispatcher`, so once they are enqueued the
+    /// control naturally follows. Flush failure drops the control and
+    /// leaves sticky / draft state untouched.
+    private func flushPendingLiveInsertBeforeControl() async -> Bool {
+        guard liveTypeThroughMode.isActive else {
+            return true
+        }
+        while liveWindow.hasPendingWork || liveChunkInFlight {
+            if liveWindow.hasPendingWork, !liveChunkInFlight {
+                dispatchLivePendingWork()
+            }
+            if liveChunkInFlight {
+                let succeeded = await waitForCurrentLiveInsertChunk()
+                if !succeeded {
+                    return false
+                }
+            } else if liveWindow.hasPendingWork {
+                // Key-lane-only batch: already enqueued ahead of us.
+                break
+            }
+        }
+        return keystrokeEmitter != nil
+    }
+
+    private func waitForCurrentLiveInsertChunk() async -> Bool {
+        if !liveChunkInFlight {
+            return true
+        }
+        return await withCheckedContinuation { continuation in
+            liveInsertFlushWaiters.append(continuation)
+        }
+    }
+
+    private func resolveLiveInsertFlushWaiters(succeeded: Bool) {
+        let waiters = liveInsertFlushWaiters
+        liveInsertFlushWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: succeeded)
+        }
     }
 
     /// Send a Mac-aware session control through the normal VNC
