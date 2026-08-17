@@ -35,8 +35,8 @@
 | 3 | Profile editor (add/edit, 검증·reachability 테스트) | ✅ |
 | 4 | Diagnostics (DNS/TCP/RFB/auth 단계 + 안전 export) | ✅ |
 | 5 | Live session viewport (Metal 렌더, zoom-fill, trackpad/direct) | ✅ |
-| 6 | Remote Input Dock (Compose / Live / Direct) | ✅ 코드·단위 테스트, 키보드-up XCUITest 재실행 잔여 |
-| 7 | Incoming clipboard 리뷰 배너 | ✅ |
+| 6 | Remote Input Dock (Type / Compose) | ✅ 코드·단위 테스트, 키보드-up XCUITest 재실행 잔여 |
+| 7 | Incoming clipboard 리뷰 배너 | ⚠️ **프로덕션 세션에서 비활성** — 배너·리뷰 UI와 단위 테스트는 완비지만, 설치 앱이 쓰는 스트리밍 경로에서는 `startIncomingClipboardReceive`가 호출되지 않는다(`NaruRemoteAppModel.swift:3765-3786` 주석의 task #30: 클립보드 리더와 프레임 펌프가 같은 `NWConnection`에서 경쟁 → 단일 RFB 멀티플렉서 전까지 의도적 차단). 2026-08-17 코드 감사 P1-4. 스토어 카피·스크린샷에서 원격→로컬 클립보드 리뷰를 주장하지 말 것 |
 | 8 | Helper video / PiP Watch 레이어 (옵션) | ✅ (PiP는 watch-only, 실기기 검증 잔여) |
 
 ## 3. App Store Connect 실행 현황
