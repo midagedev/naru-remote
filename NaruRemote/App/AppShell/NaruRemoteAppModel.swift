@@ -277,10 +277,24 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// off all clear the state (FR-012).
     @Published public private(set) var stickyModifierState: StickyModifierState = .init()
 
-    /// Live type-through mode state (spec 009). Peer to
-    /// `directKeystrokeMode`; resets to the Compose default on every
-    /// fresh session (FR-016) and seals on the FR-011 transitions.
+    /// Live type-through mode state (spec 009 / spec 011). Peer to
+    /// `directKeystrokeMode`; resets on every fresh session (FR-016)
+    /// and seals on the FR-011 transitions. Spec 011 promotes Type
+    /// (= Live type-through) to the default dock mode on session
+    /// activation, so this starts `isActive` when the first frame of a
+    /// fresh session lands unless the user already picked a mode.
     @Published public private(set) var liveTypeThroughMode: LiveTypeThroughMode = .init()
+
+    /// Whether the Type (type-through) default has been applied for the
+    /// current session (spec 011 US1). One-shot per session activation so
+    /// later frames / reconnects inside the same session never flip the
+    /// user's explicit mode choice.
+    private var hasAppliedTypeThroughDefaultForCurrentSession = false
+
+    /// Whether the user explicitly chose a dock mode for the current
+    /// session (spec 011 US1). Suppresses the one-shot Type default when
+    /// the session activates.
+    private var hasUserSelectedDockModeThisSession = false
 
     /// Authoritative local mirror of the current Live editing line
     /// (spec 009). The dock editor renders from this in Live mode; the
@@ -3597,6 +3611,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                     startIncomingClipboardReceive(receive: Self.makeReceive(connector: connector))
                 }
                 session = nextSession
+                promoteTypeThroughDefaultOnSessionActivationIfNeeded()
                 diagnosticRun = ConnectionDiagnosticRun(
                     profileID: profile.id,
                     startedAt: diagnosticStartedAt,
@@ -4802,12 +4817,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             if !updatedSession.hasReceivedFrame || updatedSession.state != .active {
                 updatedSession.markFirstFrameReceived(at: frame.capturedAt)
                 session = updatedSession
+                promoteTypeThroughDefaultOnSessionActivationIfNeeded()
             }
             activeSession = updatedSession
         } else {
             var updatedSession = RemoteSession(profileID: profile.id)
             updatedSession.markFirstFrameReceived(at: frame.capturedAt)
             session = updatedSession
+            promoteTypeThroughDefaultOnSessionActivationIfNeeded()
             activeSession = updatedSession
         }
         // A frame arriving after a reconnect window means the new
@@ -4909,6 +4926,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         if var updatedSession = session, !updatedSession.hasReceivedFrame {
             updatedSession.markFirstFrameReceived(at: capturedAt)
             session = updatedSession
+            promoteTypeThroughDefaultOnSessionActivationIfNeeded()
         }
     }
 
@@ -5185,6 +5203,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
         currentSession.markFirstFrameReceived()
         session = currentSession
+        promoteTypeThroughDefaultOnSessionActivationIfNeeded()
         publishSessionFrame(
             framebuffer: framebuffer,
             dirtyRectangles: nil,
@@ -5944,35 +5963,40 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
-    // MARK: - Live type-through mode (spec 009)
+    // MARK: - Dock mode selection (spec 011)
 
-    /// The three coexisting Remote Input Dock modes (spec 009 FR-001):
-    /// Compose & Send (default), Live type-through, Direct Keystroke.
+    /// The two Remote Input Dock modes (spec 011): **Type**
+    /// (type-through — the surface Live type-through shipped as, spec
+    /// 009) and **Compose** (buffered local composition). The legacy
+    /// third mode Direct Keystroke (spec 002) is retired as a user
+    /// surface; its sticky modifiers and hardware-key responder live
+    /// on inside the accessory strip and Type mode.
     public enum RemoteInputDockMode: String, Sendable, Equatable, CaseIterable {
         case compose
         case live
-        case direct
     }
 
-    /// The currently active dock mode, derived from the mutually
-    /// exclusive mode flags. Compose is the default when neither Direct
-    /// nor Live is active (constitution §I / FR-016).
+    /// The currently active dock mode. Type (Live) is the default for
+    /// an active session (spec 011 US1); Compose is the buffered
+    /// opt-in.
     public var remoteInputDockMode: RemoteInputDockMode {
-        if directKeystrokeMode.isActive { return .direct }
         if liveTypeThroughMode.isActive { return .live }
         return .compose
     }
 
-    /// One-tap switch among the three dock modes (FR-001). Switching is
-    /// non-destructive (FR-012): the Compose draft is untouched, Direct
-    /// sticky state clears on exit, and leaving Live seals its window so
-    /// no delete crosses the seal (FR-011). Resets the per-window Live
-    /// state when entering Live.
+    /// One-tap switch between the two dock modes. Switching is
+    /// non-destructive (FR-012): the Compose draft is untouched, and
+    /// leaving Type seals its window so no delete crosses the seal
+    /// (FR-011). Resets the per-window Live state when entering Type.
     public func setRemoteInputDockMode(_ mode: RemoteInputDockMode) {
+        // Record explicit intent even when re-selecting the active mode —
+        // a pre-connect Compose tap must suppress the Type default
+        // promotion even though Compose is already the resting mode.
+        hasUserSelectedDockModeThisSession = true
         guard mode != remoteInputDockMode else { return }
         markTransientFrameDeliveryInteractionActivity()
 
-        // Leaving Live seals the current window; delivered text stays at the
+        // Leaving Type seals the current window; delivered text stays at the
         // remote and only marked/uncommitted text is discarded (FR-011/FR-012).
         if liveTypeThroughMode.isActive, mode != .live {
             sealLiveWindow(reason: .modeSwitch)
@@ -5989,16 +6013,31 @@ public final class NaruRemoteAppModel: ObservableObject {
                 deactivateDirectKeystrokeModeClearingStickyState()
             }
             activateLiveTypeThroughMode()
-        case .direct:
-            if !directKeystrokeMode.isActive {
-                directKeystrokeMode = DirectKeystrokeMode(
-                    isActive: true,
-                    page: .qwerty,
-                    inputSurface: directKeystrokeMode.inputSurface,
-                    hasShownEntryWarningThisSession: directKeystrokeMode.hasShownEntryWarningThisSession
-                )
-            }
         }
+    }
+
+    /// Promote Type (type-through) to the active dock mode the first
+    /// time a fresh session reaches `.active` (spec 011 US1 — founder
+    /// D3). One-shot per session: explicit user mode choices — including
+    /// a pre-connect choice made on the detail surface — and subsequent
+    /// frames/reconnects inside the same session are never overridden.
+    private func promoteTypeThroughDefaultOnSessionActivationIfNeeded() {
+        guard session?.state == .active,
+              !hasAppliedTypeThroughDefaultForCurrentSession
+        else {
+            return
+        }
+        hasAppliedTypeThroughDefaultForCurrentSession = true
+        // The pre-activation choice flag is consumed here — after the
+        // activation decision, later mode picks are tracked fresh.
+        defer { hasUserSelectedDockModeThisSession = false }
+        guard !hasUserSelectedDockModeThisSession,
+              !liveTypeThroughMode.isActive,
+              !directKeystrokeMode.isActive
+        else {
+            return
+        }
+        activateLiveTypeThroughMode()
     }
 
     private func deactivateDirectKeystrokeModeClearingStickyState() {
@@ -6042,9 +6081,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         )
     }
 
-    /// Full reset to the Compose default (FR-016) applied at every fresh
-    /// session start / disconnect / profile change, in lockstep with the
-    /// Direct-mode reset. Also drops any open Live window.
+    /// Full reset applied at every fresh session start / disconnect /
+    /// profile change, in lockstep with the Direct-mode reset. Also
+    /// drops any open Live window and re-arms the one-shot Type default
+    /// (spec 011 US1) for the next session activation. A pre-activation
+    /// user mode choice deliberately survives this reset — the promotion
+    /// consumes it at activation.
     private func resetLiveTypeThroughState() {
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
@@ -6052,6 +6094,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         liveReachedWindowStart = false
         liveFieldText = ""
         liveTypeThroughMode = .composeDefault
+        hasAppliedTypeThroughDefaultForCurrentSession = false
     }
 
     /// Marks the per-session Live transport disclosure as shown (peer to
@@ -6201,12 +6244,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         if !insertPayload.isEmpty {
             let kind = LiveInsertPayloadKind.classify(insertPayload)
             if let locked = liveTypeThroughMode.selectedTier {
-                if locked == .keyEvent, kind == .unicode {
-                    // Locked to the ASCII last resort but a Unicode unit arrived —
-                    // no mid-window insert-adapter switch (FR-006). Seal + retain.
-                    sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
-                    return
-                }
                 insertTier = locked
             } else if let chosen = LiveDeliveryLadder.insertTier(
                 for: kind,
@@ -6215,8 +6252,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 insertTier = chosen
                 liveTypeThroughMode.selectedTier = chosen
             } else {
-                // Unicode with neither a helper nor a confirmed UTF-8 clipboard —
-                // never emit Unicode keysyms (FR-005). Retain the text (US4.2).
+                // Unreachable since spec 011 (the keysym stream is a universal
+                // fallback), kept as a defensive retain.
                 sealLiveWindow(reason: .adapterFailure, status: .retainedFailure)
                 return
             }
@@ -6418,8 +6455,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let emitter = keystrokeEmitter, !text.isEmpty else {
             return
         }
-        for character in text {
-            guard let keysym = KeysymMapping.keysym(for: character) else {
+        // Same scalar-level transcoding as Compose keystrokeStream (spec 011):
+        // ASCII rides its Latin-1 keysym, Hangul/CJK ride the X11 Unicode
+        // keysym convention `0x01000000 | scalar` — live-verified to render on
+        // macOS Screen Sharing (2026-07-13). Return scalars inside the insert
+        // payload stay inserts here; the line boundary emits its own Return.
+        for scalar in text.unicodeScalars {
+            guard let keysym = TextKeystrokeTranscoder.keysym(for: scalar) else {
                 continue
             }
             enqueueKeyEventEmission(
@@ -6696,12 +6738,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         modifiers: Set<DirectKeystrokeModifier>,
         isDown: Bool
     ) async {
-        // FR-007 — hardware path only fires while the user has
-        // opted into Direct mode.  Stale press events that arrive
-        // during a mode toggle (e.g. the user releases a key just
-        // after toggling out) drop silently rather than leaking a
-        // press onto the wire.
-        guard directKeystrokeMode.isActive,
+        // Spec 011: the hardware path belongs to Type (type-through)
+        // mode — the successor of Direct's hardware surface. Stale
+        // press events that arrive during a mode toggle (e.g. the user
+        // releases a key just after switching) drop silently rather
+        // than leaking a press onto the wire.
+        guard liveTypeThroughMode.isActive,
               let emitter = keystrokeEmitter
         else {
             return
@@ -6768,6 +6810,36 @@ public final class NaruRemoteAppModel: ObservableObject {
                 modifiers: emission.modifiers
             )
         }
+    }
+
+    /// Send a discrete remote key from the shared accessory strip
+    /// (spec 011 US2) — the orca-style key row above the editor in
+    /// both Type and Compose modes.
+    ///
+    /// Unlike the retired Compose quick keys, strip emissions wrap in
+    /// the caller's active sticky modifiers (armed or locked) and
+    /// consume armed slots after the emission, mirroring the retired
+    /// Direct soft-keyboard envelope exactly (⌃ arm + `c` →
+    /// `Ctrl down → c down → c up → Ctrl up`).
+    ///
+    /// Drops silently when there is no active session
+    /// (`keystrokeEmitter == nil`). Constitution §IV: the keysym is
+    /// never logged; the diagnostic safe-detail catalog is unaffected.
+    public func sendAccessoryKey(_ key: AccessoryKey) async {
+        guard let emitter = keystrokeEmitter else {
+            return
+        }
+        markTransientFrameDeliveryInteractionActivity()
+        let modifiers = stickyModifierState.activeModifiers
+        enqueueKeyEventEmission(
+            emitter: emitter,
+            streamID: activeFrameStreamID,
+            sessionID: session?.id,
+            profileID: selectedProfileID
+        ) {
+            try await emitter.emit(keysym: key.keysym, modifiers: modifiers)
+        }
+        stickyModifierState.consumeAfterNonModifierEmission()
     }
 
     /// Send a Mac-aware session control through the normal VNC

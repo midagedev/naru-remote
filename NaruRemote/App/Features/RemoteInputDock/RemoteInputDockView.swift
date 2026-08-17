@@ -52,6 +52,8 @@ public struct RemoteInputDockView: View {
     /// its own keyboard, so the focus signal is only meaningful for
     /// the Compose path.
     @State private var composeFieldFocused: Bool = false
+    /// Fn expansion state of the shared accessory key strip (spec 011).
+    @State private var showsAccessoryFnExpansion: Bool = false
 
     private let initialText: String
     private let statusText: String
@@ -73,6 +75,9 @@ public struct RemoteInputDockView: View {
     private let onSetDirectKeystrokePage: (KeyboardPage) -> Void
     private let onSetDirectInputSurface: (DirectKeystrokeInputSurface) -> Void
     private let onTapDirectKey: (DirectKey) -> Void
+    /// Sends a shared accessory strip key (spec 011 US2). Sticky
+    /// modifiers wrap the emission model-side.
+    private let onSendAccessoryKey: (AccessoryKey) -> Void
     private let onHardwareKey: (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void
     private let onMacSessionControl: (MacSessionControl) -> Void
     private let onComposeQuickKey: (ComposeQuickKey) -> Void
@@ -121,6 +126,7 @@ public struct RemoteInputDockView: View {
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
         onSetDirectInputSurface: @escaping (DirectKeystrokeInputSurface) -> Void = { _ in },
         onTapDirectKey: @escaping (DirectKey) -> Void = { _ in },
+        onSendAccessoryKey: @escaping (AccessoryKey) -> Void = { _ in },
         onHardwareKey: @escaping (UInt32, Set<DirectKeystrokeModifier>, Bool) -> Void = { _, _, _ in },
         onMacSessionControl: @escaping (MacSessionControl) -> Void = { _ in },
         onComposeQuickKey: @escaping (ComposeQuickKey) -> Void = { _ in },
@@ -155,6 +161,7 @@ public struct RemoteInputDockView: View {
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
         self.onSetDirectInputSurface = onSetDirectInputSurface
         self.onTapDirectKey = onTapDirectKey
+        self.onSendAccessoryKey = onSendAccessoryKey
         self.onHardwareKey = onHardwareKey
         self.onMacSessionControl = onMacSessionControl
         self.onComposeQuickKey = onComposeQuickKey
@@ -167,10 +174,10 @@ public struct RemoteInputDockView: View {
         self.onRequestComposeExpansion = onRequestComposeExpansion
     }
 
-    /// The dock mode derived from the two mutually exclusive flags. Compose is
-    /// the default; Live and Direct are opt-ins (FR-001/FR-016).
+    /// The dock mode derived from the mutually exclusive flags. Type
+    /// (type-through) is the session default (spec 011 US1); Compose is
+    /// the buffered opt-in.
     private var currentDockMode: NaruRemoteAppModel.RemoteInputDockMode {
-        if directKeystrokeMode.isActive { return .direct }
         if liveTypeThroughActive { return .live }
         return .compose
     }
@@ -217,24 +224,7 @@ public struct RemoteInputDockView: View {
             await runPendingComposeTextPropagation()
         }
         .onChange(of: composeFieldFocused) { _, newValue in
-            // Only meaningful when Compose is the visible mode —
-            // Direct mode swaps the editor for the soft keyboard,
-            // so its focus signal is irrelevant.  Forward an
-            // explicit `false` whenever we're not in Compose so a
-            // stale focus from a previous mode-switch never leaks
-            // into a future keyboard-aware overlay.
-            onComposeFocusChange(directKeystrokeMode.isActive ? false : newValue)
-        }
-        .onChange(of: directKeystrokeMode.isActive) { _, isDirect in
-            // Switching to Direct mode hides the editor entirely;
-            // explicitly clear the focus signal so the app shell
-            // can restore the full checklist.
-            if isDirect {
-                flushComposeTextToModelIfNeeded(currentComposeTextSnapshot(), force: true)
-                composeFieldFocused = false
-                onRequestComposeExpansion(false)
-                onComposeFocusChange(false)
-            }
+            onComposeFocusChange(newValue)
         }
         // Compose-reveal fix (2026-07-05): the expansion request is
         // hoisted to the shell, and granting it can swap the dock's
@@ -252,13 +242,6 @@ public struct RemoteInputDockView: View {
         .onDisappear {
             cancelPendingComposeTextPropagation()
         }
-        // FR-009 — first-entry warning dialog attached at the dock
-        // level so the alert chrome sits over the dock and feels
-        // anchored to the mode picker the user just tapped.
-        .directModeEntryWarning(
-            mode: directKeystrokeMode,
-            onDismiss: onDismissDirectModeWarning
-        )
     }
 
     private var compactWindowWidth: CGFloat? {
@@ -291,38 +274,25 @@ public struct RemoteInputDockView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
-                // Dock-side Direct-mode badge.  Sits next to the
-                // dock title so the cue is always visible whenever
-                // the keyboard is on screen — FR-010 first sentence.
-                DirectModeBadge(
-                    isVisible: directKeystrokeMode.isActive,
-                    accessibilityID: "naru.direct.badge.dock"
-                )
-
                 Spacer()
 
                 // Mission control / Mac window controls collapse into a
                 // single header menu so they no longer occupy a full row
                 // above the editor (frees vertical space for typing).
-                if showsMacSessionControls, !directKeystrokeMode.isActive {
+                if showsMacSessionControls {
                     compactMacControlMenu
                 }
 
-                if !directKeystrokeMode.isActive {
-                    statusBlock
-                }
+                statusBlock
             }
 
             modePicker
 
-            if directKeystrokeMode.isActive {
-                directKeyboard
-            } else {
-                liveDisclosureBadge
-                composeRow
-                composeActionRow
-                liveStatusLine
-            }
+            liveDisclosureBadge
+            accessoryKeyStrip
+            composeRow
+            composeActionRow
+            liveStatusLine
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -341,14 +311,10 @@ public struct RemoteInputDockView: View {
 
     private var compactAccessoryBody: some View {
         VStack(spacing: 8) {
-            if directKeystrokeMode.isActive {
-                compactDirectHeader
-                directKeyboard
-            } else {
-                compactComposeRow
-                if let compactStatusText {
-                    compactStatusLine(compactStatusText)
-                }
+            accessoryKeyStrip
+            compactComposeRow
+            if let compactStatusText {
+                compactStatusLine(compactStatusText)
             }
         }
         .padding(.horizontal, 10)
@@ -364,53 +330,59 @@ public struct RemoteInputDockView: View {
 
     @ViewBuilder
     private var floatingAccessoryBody: some View {
-        if showsCompactComposeEditor || directKeystrokeMode.isActive {
+        if showsCompactComposeEditor {
             compactAccessoryBody
         } else {
             floatingControlStrip
         }
     }
 
+    /// The idle live-session floating pill row (spec 011): one tap to
+    /// raise the keyboard in Type mode, one tap for the buffered
+    /// Compose editor, Mac window controls in a menu. While the pill
+    /// row is visible (keyboard down), the hidden hardware-key
+    /// responder captures Bluetooth-keyboard presses so a Type-mode
+    /// session is typeable without ever opening the software keyboard.
     private var floatingControlStrip: some View {
         HStack(spacing: 6) {
-            Button {
-                onToggleDirectMode()
-            } label: {
-                Label("Direct mode", systemImage: "keyboard")
-                    .labelStyle(.iconOnly)
-                    .frame(
-                        width: Self.minimumFloatingModeTargetDiameter,
-                        height: Self.minimumFloatingModeTargetDiameter
-                    )
-            }
-            .buttonStyle(.plain)
-            .background(NaruColors.surfaceMuted)
-            .clipShape(Circle())
-            .accessibilityElement(children: .ignore)
-            // `children: .ignore` synthesizes a NEW element that drops the
-            // Button's own trait — without re-adding `.isButton` VoiceOver
-            // reads a plain label and XCUI `buttons[...]` queries miss it
-            // (2026-07-12 compose-reveal E2E finding).
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Direct mode")
-            .accessibilityIdentifier("naru.input.direct-toggle")
-
-            liveModeToggleButton(diameter: Self.minimumFloatingModeTargetDiameter)
+            #if canImport(UIKit)
+            DirectKeystrokeResponderView(
+                isActive: liveTypeThroughActive,
+                onHardwareKey: onHardwareKey
+            )
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            #endif
 
             Button {
+                onSelectMode(.live)
                 onRequestComposeExpansion(true)
             } label: {
                 // Primary action of the idle live HUD: tap to type.
-                // Labelled (not icon-only) so the floating pill reads
-                // as "Compose" instead of a guessable glyph — the
-                // Direct toggle + menus stay compact icons beside it.
-                Label("Compose", systemImage: "text.cursor")
+                Label("Type", systemImage: "keyboard")
                     .font(.subheadline.weight(.semibold))
                     .labelStyle(.titleAndIcon)
                     .padding(.horizontal, 14)
                     .frame(height: 38)
             }
             .buttonStyle(.borderedProminent)
+            .clipShape(Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Type")
+            .accessibilityIdentifier("naru.input.type-reveal")
+
+            Button {
+                onSelectMode(.compose)
+                onRequestComposeExpansion(true)
+            } label: {
+                Label("Compose", systemImage: "text.cursor")
+                    .font(.subheadline.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 14)
+                    .frame(height: 38)
+            }
+            .buttonStyle(.bordered)
             .clipShape(Capsule())
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
@@ -433,54 +405,43 @@ public struct RemoteInputDockView: View {
         .padding(.bottom, 8)
     }
 
-    /// Compact/floating Live-mode toggle (spec 009 FR-001), sitting beside the
-    /// Direct toggle so Live is one tap away on the phone-first live-session
-    /// accessory where the segmented mode picker does not render.
-    private func liveModeToggleButton(diameter: CGFloat) -> some View {
-        Button {
-            onSelectMode(liveTypeThroughActive ? .compose : .live)
+    /// Compact Type⇄Compose switch (spec 011): reads as the mode a tap
+    /// will switch TO — "Compose" while Type is active, "Type" while
+    /// Compose is active. One button, one intent, no third mode.
+    private func modeToggleButton(compact: Bool) -> some View {
+        let isTypeActive = liveTypeThroughActive
+        return Button {
+            onSelectMode(isTypeActive ? .compose : .live)
         } label: {
-            Label("Live type-through", systemImage: "dot.radiowaves.left.and.right")
-                .labelStyle(.iconOnly)
-                .frame(width: diameter, height: diameter)
+            Label(
+                isTypeActive ? "Compose" : "Type",
+                systemImage: isTypeActive ? "text.cursor" : "keyboard"
+            )
+            .font(.subheadline.weight(.semibold))
+            .labelStyle(compact ? .titleAndIcon : .titleAndIcon)
+            .padding(.horizontal, 12)
+            .frame(height: 36)
         }
-        .buttonStyle(.plain)
-        .background(NaruColors.surfaceMuted)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(liveTypeThroughActive ? Color.accentColor : Color.clear, lineWidth: 2)
-        )
+        .buttonStyle(.bordered)
+        .clipShape(Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(liveTypeThroughActive ? "Exit Live type-through" : "Live type-through")
-        .accessibilityIdentifier("naru.input.live-toggle")
+        .accessibilityLabel(isTypeActive ? "Switch to Compose" : "Switch to Type")
+        .accessibilityIdentifier("naru.input.mode-toggle")
     }
 
     private var compactComposeRow: some View {
         VStack(spacing: 8) {
-            // Mission control row on top — Direct + Live toggles + Mac window
-            // controls — so the editor + action row below own the space. Keep
-            // the controls trailing while the system keyboard is visible:
-            // iOS can place its AutoFill affordance over the leading edge above
-            // the keyboard, and that overlay must not cover the one-tap input
-            // mode switches required by spec 009 FR-001.
+            // Mission-control row on top — the Type⇄Compose switch + Mac
+            // window controls — so the editor + action row below own the
+            // space. Keep the controls trailing while the system keyboard
+            // is visible: iOS can place its AutoFill affordance over the
+            // leading edge above the keyboard, and that overlay must not
+            // cover the one-tap input mode switch.
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
 
-                Button {
-                    onToggleDirectMode()
-                } label: {
-                    Label("Direct mode", systemImage: "keyboard")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .background(NaruColors.surfaceMuted)
-                .clipShape(Circle())
-                .accessibilityIdentifier("naru.input.direct-toggle")
-
-                liveModeToggleButton(diameter: 44)
+                modeToggleButton(compact: true)
 
                 if showsMacSessionControls {
                     compactMacControlMenu
@@ -593,52 +554,6 @@ public struct RemoteInputDockView: View {
         .accessibilityIdentifier("naru.input.compose-reveal")
     }
 
-    private var compactDirectHeader: some View {
-        ViewThatFits(in: .horizontal) {
-            compactDirectHeaderRow(showsComposeTitle: true, usesShortSurfaceLabel: false)
-            compactDirectHeaderRow(showsComposeTitle: false, usesShortSurfaceLabel: false)
-            compactDirectHeaderRow(showsComposeTitle: false, usesShortSurfaceLabel: true)
-        }
-    }
-
-    private func compactDirectHeaderRow(
-        showsComposeTitle: Bool,
-        usesShortSurfaceLabel: Bool
-    ) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                onToggleDirectMode()
-            } label: {
-                if showsComposeTitle {
-                    Label("Compose", systemImage: "text.cursor")
-                } else {
-                    Label("Compose", systemImage: "text.cursor")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 38, height: 32)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Compose")
-            .accessibilityIdentifier("naru.input.compose-toggle")
-
-            if showsMacSessionControls {
-                compactMacControlMenu
-            }
-
-            directInputSurfaceControl(usesShortLabel: usesShortSurfaceLabel)
-
-            Spacer(minLength: 0)
-
-            DirectModeBadge(
-                isVisible: directKeystrokeMode.isActive,
-                accessibilityID: "naru.direct.badge.dock"
-            )
-        }
-    }
-
     private var statusBlock: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(statusText)
@@ -676,10 +591,11 @@ public struct RemoteInputDockView: View {
             .accessibilityIdentifier("naru.input.compact-status")
     }
 
-    /// Segmented picker that switches among the three coexisting dock modes
-    /// (spec 009 FR-001): Compose & Send (default), Live type-through, and
-    /// Direct Keystroke. The model is the single source of truth for mode
-    /// state; every change dispatches `onSelectMode`.
+    /// Segmented picker between the two dock modes (spec 011):
+    /// Type (type-through — the default for an active session) and
+    /// Compose (buffered local composition). The model is the single
+    /// source of truth for mode state; every change dispatches
+    /// `onSelectMode`.
     private var modePicker: some View {
         Picker(
             "Input mode",
@@ -692,9 +608,8 @@ public struct RemoteInputDockView: View {
                 }
             )
         ) {
+            Text("Type").tag(NaruRemoteAppModel.RemoteInputDockMode.live)
             Text("Compose").tag(NaruRemoteAppModel.RemoteInputDockMode.compose)
-            Text("Live").tag(NaruRemoteAppModel.RemoteInputDockMode.live)
-            Text("Direct").tag(NaruRemoteAppModel.RemoteInputDockMode.direct)
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("naru.input.mode-picker")
@@ -735,41 +650,6 @@ public struct RemoteInputDockView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("naru.input.live-status")
         }
-    }
-
-    /// Mac-aware session controls similar to the buttons users
-    /// expect in Apple-oriented remote desktop clients. They emit
-    /// documented macOS keyboard shortcuts over the existing VNC
-    /// `KeyEvent` path; no Compose text is changed.
-    private var macSessionControlStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(MacSessionControl.allCases, id: \.self) { control in
-                    Button {
-                        onMacSessionControl(control)
-                    } label: {
-                        Label(control.label, systemImage: control.systemImageName)
-                            .font(.system(size: 13, weight: .semibold))
-                            .labelStyle(.titleAndIcon)
-                            .lineLimit(1)
-                            .frame(minHeight: 38)
-                            .padding(.horizontal, 12)
-                            .background(NaruColors.surfaceKey)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(NaruColors.hairline, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .accessibilityLabel(control.accessibilityLabel)
-                    .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
-                }
-            }
-            .padding(.vertical, 2)
-        }
-        .accessibilityIdentifier("naru.input.mac-controls")
     }
 
     /// Compact live sessions keep the remote screen dominant: Mac window
@@ -912,156 +792,100 @@ public struct RemoteInputDockView: View {
             .composeEditorShellAccessibility()
     }
 
-    /// Direct-mode body: hides the Compose TextEditor + Send and
-    /// switches among the available Direct input surfaces. The
-    /// default `.customKeyboard` surface preserves FR-001; the
-    /// `.systemKeyboard` and `.hardwareKeyboard` surfaces are
-    /// explicit opt-ins for native iOS typing and screen-space
-    /// recovery with Bluetooth keyboards.
-    @ViewBuilder
-    private var directKeyboard: some View {
-        VStack(spacing: 8) {
-            if Self.shouldShowPersistentDirectInputSurfacePicker(layoutStyle: layoutStyle) {
-                HStack(spacing: 10) {
-                    Text("Keyboard")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    directInputSurfaceControl()
-                    Spacer(minLength: 0)
-                }
-            }
-            if Self.shouldShowPersistentMacControlStrip(
-                showsMacSessionControls: showsMacSessionControls,
-                layoutStyle: layoutStyle
-            ) {
-                macSessionControlStrip
-            }
+    /// Shared accessory key strip (spec 011 US2), modeled on orca
+    /// mobile's terminal accessory keys: sticky modifiers + terminal
+    /// keys one tap above the editor in BOTH dock modes. The primary
+    /// row stays narrow (no scroll needed on iPhone); the Fn toggle
+    /// reveals the function-row expansion.
+    private var accessoryKeyStrip: some View {
+        VStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
+                        ModifierKeyButton(
+                            label: modifier.stripLabel,
+                            modifier: modifier,
+                            slot: stickyModifierState.slot(for: modifier),
+                            widthUnits: 1.6,
+                            unitWidth: 24
+                        ) {
+                            onTapDirectKey(.modifier(modifier))
+                        }
+                        .disabled(!showsComposeQuickKeys)
+                    }
 
-            switch directKeystrokeMode.inputSurface {
-            case .customKeyboard:
-                customDirectKeyboard
-            case .systemKeyboard:
-                systemDirectKeyboard
-            case .hardwareKeyboard:
-                hardwareDirectKeyboard
+                    accessoryKeyButton(.escape)
+                    accessoryKeyButton(.tab)
+                    accessoryKeyButton(.arrowLeft)
+                    accessoryKeyButton(.arrowUp)
+                    accessoryKeyButton(.arrowDown)
+                    accessoryKeyButton(.arrowRight)
+                    accessoryKeyButton(.delete)
+
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            showsAccessoryFnExpansion.toggle()
+                        }
+                    } label: {
+                        Text("Fn")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 44, height: 36)
+                            .background(
+                                showsAccessoryFnExpansion
+                                    ? Color.accentColor.opacity(0.22)
+                                    : NaruColors.surfaceKey
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(NaruColors.hairline, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Function keys")
+                    .accessibilityIdentifier("naru.input.accessory.fn")
+                }
+                .padding(.vertical, 2)
+            }
+            .accessibilityIdentifier("naru.input.accessory.strip")
+
+            if showsAccessoryFnExpansion {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(AccessoryKey.expandedStripKeys, id: \.self) { key in
+                            accessoryKeyButton(key)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .accessibilityIdentifier("naru.input.accessory.fn-row")
             }
         }
     }
 
-    /// Single, self-explanatory keyboard-source control used in both
-    /// the standard dock and the compact live header.  Replaces the
-    /// old cryptic three-segment "Naru | iOS | HW" picker that stacked
-    /// a second segmented control under Compose|Direct: a user now
-    /// reads "Naru keyboard ▾" and the menu spells out each option in
-    /// full, instead of guessing what three abbreviations mean.
-    private func directInputSurfaceControl(usesShortLabel: Bool = false) -> some View {
-        Menu {
-            ForEach(DirectKeystrokeInputSurface.allCases, id: \.self) { surface in
-                Button {
-                    onSetDirectInputSurface(surface)
-                } label: {
-                    Label(
-                        Self.directInputSurfaceLabel(for: surface),
-                        systemImage: Self.directInputSurfaceSystemImageName(for: surface)
-                    )
-                }
-                .accessibilityIdentifier("naru.direct.input-surface-menu.\(surface.rawValue)")
-            }
+    private func accessoryKeyButton(_ key: AccessoryKey) -> some View {
+        Button {
+            onSendAccessoryKey(key)
         } label: {
-            let surfaceLabel = usesShortLabel
-                ? Self.directInputSurfaceShortLabel(for: directKeystrokeMode.inputSurface)
-                : Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface)
-            HStack(spacing: 6) {
-                Image(systemName: Self.directInputSurfaceSystemImageName(for: directKeystrokeMode.inputSurface))
-                Text(surfaceLabel)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .font(.subheadline.weight(.semibold))
-            .frame(minHeight: 38)
-            .padding(.horizontal, 12)
-            .fixedSize(horizontal: true, vertical: false)
-            // Decorative icon + chevron must not surface as separate
-            // "chevron.down" / glyph buttons in the accessibility tree —
-            // the menu carries its own combined label below.
-            .accessibilityElement(children: .ignore)
+            Text(key.label)
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 40, maxWidth: 52, minHeight: 36)
+                .background(NaruColors.surfaceKey)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
         }
-        .buttonStyle(.bordered)
-        .accessibilityLabel(
-            "Keyboard, \(Self.directInputSurfaceLabel(for: directKeystrokeMode.inputSurface))"
-        )
-        .accessibilityIdentifier("naru.direct.input-surface-menu")
-    }
-
-    @ViewBuilder
-    private var customDirectKeyboard: some View {
-        VStack(spacing: 8) {
-            #if canImport(UIKit)
-            DirectKeystrokeResponderView(
-                isActive: true,
-                onHardwareKey: onHardwareKey
-            )
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-            #endif
-
-            DirectKeystrokeKeyboardView(
-                page: directKeystrokeMode.page,
-                stickyModifierState: stickyModifierState,
-                onTapKey: onTapDirectKey
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var systemDirectKeyboard: some View {
-        #if canImport(UIKit)
-        DirectKeystrokeSystemKeyboardView(
-            isActive: true,
-            onTextInput: { insertedText in
-                for key in Self.directKeys(fromSystemKeyboardText: insertedText) {
-                    onTapDirectKey(key)
-                }
-            },
-            onBackspace: {
-                onTapDirectKey(.named(.backspace))
-            }
-        )
-        .frame(width: 1, height: 1)
-        .accessibilityHidden(true)
-        #else
-        customDirectKeyboard
-        #endif
-    }
-
-    @ViewBuilder
-    private var hardwareDirectKeyboard: some View {
-        #if canImport(UIKit)
-        DirectKeystrokeResponderView(
-            isActive: true,
-            onHardwareKey: onHardwareKey
-        )
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
-        #endif
-    }
-
-    nonisolated static func directKeys(fromSystemKeyboardText text: String) -> [DirectKey] {
-        text.compactMap { character in
-            switch character {
-            case "\n", "\r":
-                return .named(.return)
-            case "\t":
-                return .named(.tab)
-            default:
-                guard KeysymMapping.keysym(for: character) != nil else {
-                    return nil
-                }
-                return .character(character)
-            }
-        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        // Strip keys need a live wire; stay visible but inert pre-connect.
+        .disabled(!showsComposeQuickKeys)
+        .accessibilityLabel(key.accessibilityLabel)
+        .accessibilityIdentifier("naru.input.accessory.\(key.rawValue)")
     }
 
     private func updateComposeFocus(_ focused: Bool) {
@@ -1659,85 +1483,6 @@ public struct RemoteInputDockView: View {
     ) -> Bool {
         let trimmed = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         return hasStatus && !trimmed.isEmpty
-    }
-
-    nonisolated static func shouldShowPersistentMacControlStrip(
-        showsMacSessionControls: Bool,
-        layoutStyle: RemoteInputDockLayoutStyle
-    ) -> Bool {
-        showsMacSessionControls && layoutStyle == .standard
-    }
-
-    nonisolated static func shouldInlineDirectInputSurfacePicker(
-        layoutStyle: RemoteInputDockLayoutStyle,
-        availableWidth: CGFloat? = nil,
-        showsMacSessionControls: Bool = false
-    ) -> Bool {
-        guard layoutStyle == .compactAccessory else {
-            return false
-        }
-        guard let availableWidth else {
-            return true
-        }
-        let minimumWidth: CGFloat = showsMacSessionControls ? 430 : 360
-        return availableWidth >= minimumWidth
-    }
-
-    nonisolated static func shouldShowCompactDirectInputSurfaceMenu(
-        layoutStyle: RemoteInputDockLayoutStyle,
-        availableWidth: CGFloat?,
-        showsMacSessionControls: Bool
-    ) -> Bool {
-        layoutStyle == .compactAccessory && !shouldInlineDirectInputSurfacePicker(
-            layoutStyle: layoutStyle,
-            availableWidth: availableWidth,
-            showsMacSessionControls: showsMacSessionControls
-        )
-    }
-
-    nonisolated static func shouldShowPersistentDirectInputSurfacePicker(
-        layoutStyle: RemoteInputDockLayoutStyle
-    ) -> Bool {
-        layoutStyle == .standard
-    }
-
-    nonisolated static func directInputSurfaceLabel(
-        for surface: DirectKeystrokeInputSurface
-    ) -> String {
-        switch surface {
-        case .customKeyboard:
-            return "Naru keyboard"
-        case .systemKeyboard:
-            return "iOS keyboard"
-        case .hardwareKeyboard:
-            return "Hardware keyboard"
-        }
-    }
-
-    nonisolated static func directInputSurfaceShortLabel(
-        for surface: DirectKeystrokeInputSurface
-    ) -> String {
-        switch surface {
-        case .customKeyboard:
-            return "Naru"
-        case .systemKeyboard:
-            return "iOS"
-        case .hardwareKeyboard:
-            return "HW"
-        }
-    }
-
-    nonisolated static func directInputSurfaceSystemImageName(
-        for surface: DirectKeystrokeInputSurface
-    ) -> String {
-        switch surface {
-        case .customKeyboard:
-            return "keyboard"
-        case .systemKeyboard:
-            return "text.cursor"
-        case .hardwareKeyboard:
-            return "command"
-        }
     }
 
     nonisolated static func resolvedCompactStatusText(

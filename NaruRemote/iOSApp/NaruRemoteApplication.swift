@@ -715,16 +715,13 @@ struct NaruRemoteApplication: App {
         _ modifiers: [StickyModifierState.Modifier],
         to model: NaruRemoteAppModel
     ) {
-        // Open Direct mode so the special-keys page is reachable
-        // when the test takes the screenshot.
-        if !model.directKeystrokeMode.isActive {
-            model.toggleDirectKeystrokeMode()
-        }
-
+        // Spec 011: the sticky modifiers render on the shared accessory
+        // strip in both dock modes, so no mode switch is needed to reach
+        // them — only an active session.
         for modifier in modifiers {
             // Back-to-back taps in the same `Task` land < 400 ms
             // apart (same `@MainActor` continuation), which is the
-            // double-tap window — idle → armed → locked.  Bypasses
+            // double-tap window — idle → armed → locked. Bypasses
             // the XCUITest tap-cadence gap (~600 ms between real
             // taps).
             Task { @MainActor in

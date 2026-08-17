@@ -143,40 +143,6 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertEqual(model.directKeystrokeMode.inputSurface, .systemKeyboard)
     }
 
-    // MARK: - iOS system keyboard surface mapping
-
-    func testSystemKeyboardTextMapsPrintableAsciiToDirectCharacters() {
-        XCTAssertEqual(
-            RemoteInputDockView.directKeys(fromSystemKeyboardText: "ab Z1"),
-            [
-                .character("a"),
-                .character("b"),
-                .character(" "),
-                .character("Z"),
-                .character("1")
-            ]
-        )
-    }
-
-    func testSystemKeyboardTextMapsReturnAndTabToNamedKeys() {
-        XCTAssertEqual(
-            RemoteInputDockView.directKeys(fromSystemKeyboardText: "\n\t"),
-            [
-                .named(.return),
-                .named(.tab)
-            ]
-        )
-    }
-
-    func testSystemKeyboardTextDropsNonAsciiDirectInput() {
-        XCTAssertEqual(
-            RemoteInputDockView.directKeys(fromSystemKeyboardText: "가🙂a"),
-            [
-                .character("a")
-            ]
-        )
-    }
-
     // MARK: - tapDirectKey
 
     func testTapDirectKeyPageToggleSwapsPagesWithoutEmitting() async {

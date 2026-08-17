@@ -47,14 +47,26 @@ Deferred items:
 
 Naru Remote is input-first, not screen-first. Every feature that enters text,
 voice, images, files, shortcuts, secrets, or agent actions into a remote system
-MUST treat the iPhone or iPad as the place where input is composed, reviewed,
-and confirmed. Remote key events MAY exist for compatibility, but they MUST NOT
-be the primary design for multilingual text entry.
+MUST treat the iPhone or iPad as the place where input is composed. Multilingual
+IME assembly always happens locally: marked/composing text never crosses to the
+remote (amended 2026-07-17 per founder decision D3 + spec 011). Two sanctioned
+delivery paths exist once composition commits locally:
+
+- **Type-through (default)** — committed IME units stream to the remote as they
+  commit (Unicode-keysym keystroke stream on pure VNC, helper `nativeInsert`
+  when paired), because live measurement (2026-07-13) proved Unicode keysyms
+  render on macOS Screen Sharing. This is the primary interactive path.
+- **Compose & Send** — the buffered, reviewed batch path remains the primary
+  design for long-form multilingual text and anything requiring review before
+  delivery.
+
+Raw per-keystroke key events remain a compatibility fallback only; they are not
+a multilingual entry design.
 
 Feature specs MUST define the user-facing input path, the fallback path, and
 what happens when the remote app blocks paste or loses focus. Plans MUST name
-the injection adapter being used: VNC clipboard, key events, helper-native
-insert, file staging, or agent bridge.
+the injection adapter being used: VNC clipboard, keystroke stream, key events,
+helper-native insert, file staging, or agent bridge.
 
 ### II. Tailnet-Native, Public-Internet-Optional
 

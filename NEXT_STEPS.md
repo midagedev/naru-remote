@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-07-12 KST.
+Updated: 2026-08-17 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -10,29 +10,39 @@ same PR.
 
 ## Now — ship blockers (P0)
 
-1. **`specs/007` real-screen helper-video + sustained-device gate** — run
+1. **`specs/011` physical-device pass + live-Mac E2E unblock** — the
+   simplified input UX (two-mode Type/Compose dock, shared accessory strip,
+   immediate-click gestures) is implemented and green on `swift test`
+   (1509+ tests). Two follow-ups: (a) the founder's paired physical iPhone
+   pass (Korean IME through Type mode, accessory strip with sticky
+   modifiers, click feel, Bluetooth keyboard) + UX screenshot suite re-run;
+   (b) the local-Mac simulator E2E is blocked server-side — screensharingd
+   routes the VNC viewer to an off-console loginwindow session and drops
+   keystrokes ("do not send since at loginwindow"); full investigation log
+   and next-session entry point in `specs/011-simplified-input-ux/spec.md`
+   (FrameSizeProbe tool + testTypeMode_typesPayloadLive E2E are ready).
+2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
    `physical-iphone-helper-video-gate`. The synthetic-source physical gate
    passed 2026-07-05, and the 2026-07-12 release review bounded encoded H.264
    access-unit queues with fail-safe VNC fallback; neither substitutes for a
    30-minute real-screen RSS/thermal run.
-2. **`specs/009` physical gates T021–T024** (`specs/009-live-type-through/tasks.md`):
+3. **`specs/009` physical gates T021–T024** (`specs/009-live-type-through/tasks.md`):
    200-char Korean/English/number/symbol integrity ×10, per-commit latency
    p95, Unicode-KeyEvent no-input regression, and 30-min sustained live
    session. Requires the paired physical iPhone and the
    founder's Mac; VNC/helper credentials go through environment variables
    only — never into source, docs, or shell history.
-3. **30-minute whole-product iPhone pass** — helper video, VNC fallback,
-   Compose/Live/Direct, trackpad/zoom, reconnect, and PiP enter/leave in one
+4. **30-minute whole-product iPhone pass** — helper video, VNC fallback,
+   Type/Compose, trackpad/zoom, reconnect, and PiP enter/leave in one
    session. Record only privacy-safe aggregate diagnostics and thermal/RSS
    verdicts (`SUBMISSION_READINESS.md` §5.4).
-4. **Founder decision D3 execution** — once the 009 gates pass, promote Live
-   to the default multilingual input path and amend
-   `.specify/memory/constitution.md` §I accordingly.
 5. **App Store Connect human steps** (`SUBMISSION_READINESS.md` §5.5) — app
-   record, App Store screenshots, hosted privacy policy URL, TestFlight
-   distribution.
+   record, App Store screenshots (re-shoot: Direct-mode captures are gone;
+   use the new accessory-strip/Type captures), hosted privacy policy URL,
+   TestFlight distribution. Founder decision D3 (Live→default) is EXECUTED
+   by spec 011 + the constitution §I amendment (2026-08-17).
 
 ## Near term (P1)
 
