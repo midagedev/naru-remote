@@ -839,7 +839,10 @@ public struct RemoteInputDockView: View {
                                 label: modifier.stripLabel,
                                 modifier: modifier,
                                 slot: stickyModifierState.slot(for: modifier),
-                                widthUnits: 2.0,
+                                // Glyph labels (spec 012 US2-3) fit
+                                // 36pt, which is what gets Esc/Tab/⌃C
+                                // inside an iPhone-width strip.
+                                widthUnits: 1.5,
                                 unitWidth: 24,
                                 height: 36
                             ) {
@@ -848,14 +851,18 @@ public struct RemoteInputDockView: View {
                             .disabled(!showsComposeQuickKeys)
                         }
 
+                        // Frequency order for an AI-CLI session
+                        // (spec 012 US2-3): the interrupt sits with
+                        // Esc/Tab so it never needs a scroll; arrows
+                        // and Del follow one short scroll away.
                         accessoryKeyButton(.escape)
                         accessoryKeyButton(.tab)
+                        composeControlCStripButton()
                         accessoryKeyButton(.arrowLeft)
                         accessoryKeyButton(.arrowUp)
                         accessoryKeyButton(.arrowDown)
                         accessoryKeyButton(.arrowRight)
                         accessoryKeyButton(.delete)
-                        composeControlCStripButton()
                     }
                     .padding(.vertical, 2)
                 }

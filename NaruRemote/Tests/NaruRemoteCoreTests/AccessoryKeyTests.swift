@@ -22,6 +22,22 @@ final class AccessoryKeyTests: XCTestCase {
         )
     }
 
+    /// Spec 012 US2-3: the strip modifiers render as macOS glyphs so
+    /// the row fits Esc/Tab/⌃C at iPhone width. Latin words regress it.
+    func testStickyModifierStripLabelsAreMacGlyphs() {
+        XCTAssertEqual(
+            StickyModifierState.Modifier.stripOrder.map(\.stripLabel),
+            ["⌃", "⌥", "⌘", "⇧"]
+        )
+        for modifier in StickyModifierState.Modifier.stripOrder {
+            XCTAssertEqual(
+                modifier.stripLabel.count,
+                1,
+                "\(modifier.rawValue) must stay a single glyph to fit 36pt."
+            )
+        }
+    }
+
     func testPrimaryStripStillEndsWithDeleteAndExcludesControlC() {
         XCTAssertEqual(AccessoryKey.primaryStripKeys.last, .delete)
         XCTAssertFalse(AccessoryKey.primaryStripKeys.map(\.rawValue).contains("controlC"))
