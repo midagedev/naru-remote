@@ -1,0 +1,7 @@
+*
+!.gitignore
+!README.md
+!final-iphone/
+!final-iphone/*.png
+!final-ipad/
+!final-ipad/*.png
