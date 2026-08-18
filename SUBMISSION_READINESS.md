@@ -161,7 +161,24 @@
    기록.
 7. ✅ Distribution archive 검증, App Store Connect build 1 업로드·처리,
    버전 1.0.0 연결·저장.
-8. ⏳ 스크린샷 웹 업로드, EU DSA·대한민국 계정 규정 선언과 최종 심사 제출.
+8. ✅ **build 2 업로드·처리 완료(2026-08-18)** — build 1은 2026-07-12 빌드라
+   spec 011(Type/Compose 2모드 + 액세서리 스트립) · 012(외부 마우스/트랙패드,
+   스트립 홀드 리핏·⌃C·IME flush 장벽, iPad 독 캡) · 013(실패 복구 화면 제거)이
+   전혀 들어 있지 않았다. `CURRENT_PROJECT_VERSION`을 2로 올려 Release 아카이브
+   → App Store 서명 export → `altool --validate-app`(VERIFY SUCCEEDED) →
+   `--upload-app`(UPLOAD SUCCEEDED) 순으로 올렸고, App Store Connect API 조회로
+   `build 2 processingState=VALID`을 확인했다. 아카이브 검증 실측: 버전 1.0.0 /
+   build 2, 번들 `com.naruremote.app`, 팀 XEF9KH7N43, `PrivacyInfo.xcprivacy`
+   포함, `ITSAppUsesNonExemptEncryption=false`, MinimumOSVersion 17.0,
+   `NARU_TEST_*` 표식 없음. 자격증명은 환경변수 간접 참조로만 다뤘다.
+9. ⏳ **남은 것 (계정 소유자 웹 작업)**: TestFlight 내부 테스터 그룹에 build 2
+   배정 → 실기 검증 → 스토어 스크린샷 웹 업로드 → EU DSA 거래자 선언·대한민국
+   규정 선언 → 심사 제출.
+10. ⏳ **스토어 스크린샷 재작업 필요**: 기존 세트(2026-07-12)는 폐기된 Direct
+   모드 컷을 포함하고 현재 UI와 어긋난다. 2026-08-18에 iPhone 6.9"(1320×2868)
+   / iPad 13" 캡처를 다시 찍었으나, UX 감사용 상태라서 스토어 컷으로는 절반만
+   쓸 수 있다(줌이 걸린 세션, 빈 에디터, 세션 없는 독). 스토어 전용 상태 5종을
+   따로 만들어 재촬영한다.
 
 > 요약: 코드/에셋과 UI 제출 자료는 Green이고 최종 `swift test`는 1,511 tests,
 > 26 skipped, 0 failures다. App Store Connect 레코드·메타데이터·개인정보·가격은
