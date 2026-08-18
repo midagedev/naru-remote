@@ -694,6 +694,14 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
 
+    /// Two-finger gestures are decided once and held (see
+    /// `TwoFingerGestureClassifier`): scrolling the remote and zooming the view
+    /// both use two fingers, and letting both act at once made every scroll
+    /// drag the viewport with it.
+    private var twoFingerIntent: TwoFingerGestureIntent = .undecided
+    private var twoFingerInitialSpread: CGFloat?
+    private var twoFingerAccumulatedTranslation: CGSize = .zero
+
     /// Coalesces or defers SwiftUI/PiP state mirroring while the Metal
     /// renderer applies the visible viewport transform immediately.
     /// This keeps frame-driven SwiftUI work out of the per-touch
@@ -1244,27 +1252,96 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
     }
 
+    /// Current distance between two touches, or `nil` when the gesture is not
+    /// a two-finger one (a hardware trackpad scroll reports zero touches).
+    private func currentTwoFingerSpread(_ recognizer: UIGestureRecognizer) -> CGFloat? {
+        guard recognizer.numberOfTouches == 2 else {
+            return nil
+        }
+        return TwoFingerGestureClassifier.spread(
+            recognizer.location(ofTouch: 0, in: self),
+            recognizer.location(ofTouch: 1, in: self)
+        )
+    }
+
+    /// Feeds one callback's worth of movement to the classifier and returns the
+    /// decision in force. Both two-finger handlers consult this before acting,
+    /// so exactly one of them ever runs for a given gesture.
+    @discardableResult
+    private func updateTwoFingerIntent(
+        with recognizer: UIGestureRecognizer,
+        addingTranslation translation: CGSize? = nil
+    ) -> TwoFingerGestureIntent {
+        if let translation {
+            twoFingerAccumulatedTranslation = CGSize(
+                width: twoFingerAccumulatedTranslation.width + translation.width,
+                height: twoFingerAccumulatedTranslation.height + translation.height
+            )
+        }
+
+        guard let spread = currentTwoFingerSpread(recognizer) else {
+            // No touch pair to measure — a hardware scroll, which is
+            // unambiguous and always a scroll.
+            return twoFingerIntent
+        }
+
+        guard let initialSpread = twoFingerInitialSpread else {
+            twoFingerInitialSpread = spread
+            return twoFingerIntent
+        }
+
+        twoFingerIntent = TwoFingerGestureClassifier.resolve(
+            current: twoFingerIntent,
+            spreadDelta: spread - initialSpread,
+            translationMagnitude: TwoFingerGestureClassifier.magnitude(
+                twoFingerAccumulatedTranslation
+            )
+        )
+        return twoFingerIntent
+    }
+
+    private func resetTwoFingerIntent() {
+        twoFingerIntent = .undecided
+        twoFingerInitialSpread = nil
+        twoFingerAccumulatedTranslation = .zero
+    }
+
     @MainActor
     @objc private func handlePanGesture(_ recognizer: UIPanGestureRecognizer) {
         guard let handler = scrollHandler else {
             return
         }
-        guard !isPinchGestureActive else {
-            recognizer.setTranslation(.zero, in: self)
-            return
-        }
         switch recognizer.state {
+        case .began:
+            resetTwoFingerIntent()
+            updateTwoFingerIntent(with: recognizer)
+            recognizer.setTranslation(.zero, in: self)
         case .changed, .ended:
             let translation = recognizer.translation(in: self)
             // Reset to zero so the next callback delivers an
             // incremental delta the model can accumulate against the
             // tick threshold.
             recognizer.setTranslation(.zero, in: self)
+            let delta = CGSize(width: translation.x, height: translation.y)
+            let intent = updateTwoFingerIntent(with: recognizer, addingTranslation: delta)
+            // A finger pair that has not committed yet, or that committed to
+            // zoom, must not also scroll the remote.
+            let isFingerPair = recognizer.numberOfTouches == 2
+            if isFingerPair, intent != .scroll {
+                if recognizer.state == .ended { resetTwoFingerIntent() }
+                return
+            }
             guard translation != .zero else {
+                if recognizer.state == .ended { resetTwoFingerIntent() }
                 return
             }
             let location = recognizer.location(in: self)
-            handler(location, bounds.size, CGSize(width: translation.x, height: translation.y))
+            handler(location, bounds.size, delta)
+            if recognizer.state == .ended {
+                resetTwoFingerIntent()
+            }
+        case .cancelled, .failed:
+            resetTwoFingerIntent()
         default:
             break
         }
@@ -1274,16 +1351,35 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     @objc private func handlePinchGesture(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            stopViewportDeceleration()
-            beginViewportTransformGesture()
-            isPinchGestureActive = true
+            // Deliberately does NOT claim the gesture yet: a two-finger swipe
+            // begins a pinch too, and claiming here is what let scrolling drag
+            // the viewport. The claim happens below, once the classifier says
+            // this is a zoom.
+            updateTwoFingerIntent(with: recognizer)
             pinchLastAnchor = recognizer.location(in: self)
+            recognizer.scale = 1.0
+            return
         case .changed:
-            break
+            guard updateTwoFingerIntent(with: recognizer) == .zoom else {
+                // Keep the anchor and scale fresh so the zoom starts from the
+                // current fingers if this gesture is later decided as a zoom.
+                pinchLastAnchor = recognizer.location(in: self)
+                recognizer.scale = 1.0
+                return
+            }
+            if !isPinchGestureActive {
+                stopViewportDeceleration()
+                beginViewportTransformGesture()
+                isPinchGestureActive = true
+            }
         case .ended, .cancelled, .failed:
+            let wasActive = isPinchGestureActive
             isPinchGestureActive = false
             pinchLastAnchor = nil
-            finishViewportTransformGesture()
+            resetTwoFingerIntent()
+            if wasActive {
+                finishViewportTransformGesture()
+            }
             return
         default:
             return

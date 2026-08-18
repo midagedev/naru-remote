@@ -82,18 +82,6 @@ same PR.
 
 ## Near term (P1)
 
-- **No fit-to-screen: the whole remote screen is never visible** — the hero
-  viewport's `minimumZoomScale` is `aspectFillZoomScale`
-  (`SessionViewportView.swift`), so a 16:9 desktop loses ~9% top and bottom on
-  a 6.9" phone in landscape and a quarter of its width on a 4:3 iPad, and no
-  gesture or control zooms out past fill. Fill is the right *default* on a
-  portrait phone (letterboxing a desktop there leaves it unreadable), but the
-  iPad case has no defence, and comparable clients offer both fit and fill.
-  Surfaced while shooting store slot 2, which had to be shot in landscape on
-  the phone and against a 4:3 fixture desktop on the iPad to show a whole
-  screen. Fix is a fit mode: allow `minimumZoomScale` down to aspect-fit with
-  letterbox padding, plus a Session-tools toggle, and pan clamping that
-  tolerates a frame smaller than the viewport.
 - **iPad diagnostics sheet clips its last row** — on a 13" iPad the sheet is a
   fixed-height form sheet and "First frame received" plus the Share Diagnostics
   button fall outside it; on iPhone all five rows fit. Found while shooting

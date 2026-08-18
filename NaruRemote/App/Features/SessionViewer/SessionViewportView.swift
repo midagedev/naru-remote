@@ -1368,9 +1368,13 @@ public struct SessionViewportView: View {
             let displaySize = fillsAvailableHeight
                 ? proxy.size
                 : Self.aspectFitSize(aspectRatio: aspectRatio, containerSize: proxy.size)
-            let minimumZoomScale = fillsAvailableHeight
-                ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: proxy.size)
-                : Self.minZoomScale
+            // The floor is fit in BOTH layouts now. Hero mode used to floor at
+            // the fill scale, which meant the whole remote screen could never
+            // be brought into view and the session controls riding over the top
+            // and bottom edges always covered live content
+            // (`ViewportZoomBounds`). Filling is still the opening state — see
+            // `syncImmersiveBaselineZoom`.
+            let minimumZoomScale = ViewportZoomBounds.floorScale
             let framebufferSizeToken = "\(framebuffer.width)x\(framebuffer.height)"
 
             framebufferContent(
@@ -1433,7 +1437,7 @@ public struct SessionViewportView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: framebufferAlignment)
                 .onAppear {
                     syncImmersiveBaselineZoom(
-                        minimumZoomScale,
+                        immersiveBaselineZoom(aspectRatio: aspectRatio, containerSize: proxy.size),
                         framebuffer: framebuffer,
                         viewSize: proxy.size
                     )
@@ -1442,14 +1446,14 @@ public struct SessionViewportView: View {
                     syncImmersiveBaselineZoom(
                         fillsAvailableHeight
                             ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: newSize)
-                            : Self.minZoomScale,
+                            : ViewportZoomBounds.floorScale,
                         framebuffer: framebuffer,
                         viewSize: newSize
                     )
                 }
                 .onChange(of: framebufferSizeToken) { _, _ in
                     syncImmersiveBaselineZoom(
-                        minimumZoomScale,
+                        immersiveBaselineZoom(aspectRatio: aspectRatio, containerSize: proxy.size),
                         framebuffer: framebuffer,
                         viewSize: proxy.size
                     )
@@ -1868,6 +1872,15 @@ public struct SessionViewportView: View {
         return CGSize(width: width, height: width / aspectRatio)
     }
 
+    /// The scale a hero viewport opens at: filled. The *floor* is
+    /// `ViewportZoomBounds.floorScale` (fit) — the two are deliberately
+    /// different values.
+    private func immersiveBaselineZoom(aspectRatio: CGFloat, containerSize: CGSize) -> CGFloat {
+        fillsAvailableHeight
+            ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: containerSize)
+            : ViewportZoomBounds.floorScale
+    }
+
     static func aspectFillZoomScale(aspectRatio: CGFloat, containerSize: CGSize) -> CGFloat {
         guard aspectRatio.isFinite,
               aspectRatio > 0,
@@ -1886,19 +1899,12 @@ public struct SessionViewportView: View {
         minimumZoomScale(for: viewSize, coordinateSpace: coordinateSpace(for: framebuffer))
     }
 
+    /// Pinch and double-tap share the viewport's floor: fit, in both layouts.
     private func minimumZoomScale(
         for viewSize: CGSize,
         coordinateSpace: RemoteFramebufferCoordinateSpace
     ) -> CGFloat {
-        guard fillsAvailableHeight else {
-            return Self.minZoomScale
-        }
-
-        let fillScale = Self.aspectFillZoomScale(
-            aspectRatio: coordinateSpace.aspectRatio,
-            containerSize: viewSize
-        )
-        return min(max(fillScale, Self.minZoomScale), Self.maxZoomScale)
+        ViewportZoomBounds.floorScale
     }
 
     private func syncImmersiveBaselineZoom(
