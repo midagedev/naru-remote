@@ -679,6 +679,445 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "14-connection-grid-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
     }
 
+    // MARK: - App Store marketing captures
+    //
+    // Five slots, one story each, in the order they should appear on the
+    // product page:
+    //
+    //   1 hosts        — every computer on the tailnet, one tap away
+    //   2 session      — the remote screen live on the phone
+    //   3 compose      — Hangul composed locally, sent whole
+    //   4 function row — Esc / Tab / ⌃C / F-keys over a live session
+    //   5 diagnostics  — when it does not connect, which stage failed
+    //
+    // These are separate from the audit captures above because the two
+    // jobs disagree: an audit frame wants every failure badge visible at
+    // once, a store frame wants one healthy, legible claim.  Both device
+    // families run the same five methods; `storeDeviceTag` names the
+    // output and `saveStoreScreen` refuses a capture whose pixel size is
+    // not one App Store Connect accepts for that family, so a wrong
+    // simulator fails here instead of at upload.
+
+    func testStoreHostList_light() throws {
+        try runStoreHostList(mode: .light)
+    }
+
+    func testStoreHostList_dark() throws {
+        try runStoreHostList(mode: .dark)
+    }
+
+    func testStoreLiveSession_light() throws {
+        try runStoreLiveSession(mode: .light)
+    }
+
+    func testStoreLiveSession_dark() throws {
+        try runStoreLiveSession(mode: .dark)
+    }
+
+    func testStoreKoreanCompose_light() throws {
+        try runStoreKoreanCompose(mode: .light)
+    }
+
+    func testStoreKoreanCompose_dark() throws {
+        try runStoreKoreanCompose(mode: .dark)
+    }
+
+    func testStoreFunctionRow_light() throws {
+        try runStoreFunctionRow(mode: .light)
+    }
+
+    func testStoreFunctionRow_dark() throws {
+        try runStoreFunctionRow(mode: .dark)
+    }
+
+    func testStoreDiagnosticsPassed_light() throws {
+        try runStoreDiagnosticsPassed(mode: .light)
+    }
+
+    func testStoreDiagnosticsPassed_dark() throws {
+        try runStoreDiagnosticsPassed(mode: .dark)
+    }
+
+    private func runStoreHostList(mode: ColorMode) throws {
+        applyStoreOrientation()
+        let app = launchStoreApp(.storeConnectionGrid, mode: mode)
+
+        XCTAssertTrue(
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Store host-list capture needs the connection grid"
+        )
+        XCTAssertTrue(app.staticTexts["Studio Mac"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.staticTexts["Reachable"].firstMatch.waitForExistence(timeout: 4),
+            "Store host-list capture must show healthy reachability, not a probe in flight"
+        )
+        XCTAssertFalse(
+            app.staticTexts["Unreachable"].exists,
+            "Store slot 1 must not advertise a broken connection"
+        )
+
+        try saveStoreScreen(slot: 1, named: "hosts", mode: mode)
+    }
+
+    private func runStoreLiveSession(mode: ColorMode) throws {
+        // Landscape on the phone too, unlike every other slot. The hero
+        // viewport is aspect-FILL by design — letterboxing a 16:9 desktop
+        // into a portrait phone would leave it unreadably small — so a
+        // portrait capture crops the remote screen mid-word. Slot 2's whole
+        // claim is "your actual desktop, whole", so it gets the orientation
+        // that can show it. Apple accepts either orientation per slot.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launchStoreApp(.storeSessionActive, mode: mode)
+
+        XCTAssertTrue(
+            waitForCompactComposeReveal(in: app, timeout: 8).exists,
+            "Store session capture needs the live-session dock mounted"
+        )
+        // A user-explicit reveal pins the session bar open, so the title,
+        // quality chip and Session tools stay in frame for the capture
+        // instead of racing the 2.4 s auto-hide.
+        revealSessionControlsIfNeeded(app: app)
+        XCTAssertTrue(
+            waitForStableElement(in: app, identifier: "naru.session.tools.menu", timeout: 4).exists,
+            "Store session capture should show the session chrome"
+        )
+
+        // Let the Metal view present a settled frame.
+        sleep(3)
+
+        try saveStoreScreen(slot: 2, named: "session", mode: mode)
+    }
+
+    private func runStoreKoreanCompose(mode: ColorMode) throws {
+        applyStoreOrientation()
+        // The draft text arrives on the fixture snapshot, not through
+        // `typeText`: a store capture must not depend on the simulator's
+        // IME state or on the one-time QuickPath sheet losing a race.
+        let app = launchStoreApp(.storeSessionKoreanCompose, mode: mode)
+
+        // A seeded non-empty draft already mounts the editor — the dock only
+        // offers the compose-reveal affordance when there is no text to show.
+        // Accept either entry so the capture does not depend on which one the
+        // dock picks.
+        var editor = waitForRemoteInputEditor(in: app, timeout: 6)
+        if !editor.exists {
+            let composeReveal = waitForCompactComposeReveal(in: app, timeout: 4)
+            XCTAssertTrue(composeReveal.exists, "Store compose capture needs the compose affordance")
+            composeReveal.tap()
+            editor = waitForRemoteInputEditor(in: app, timeout: 4)
+        }
+        XCTAssertTrue(editor.exists, "Store compose capture needs the expanded editor")
+        // Focus so the keyboard is in frame: the slot's claim is "you compose
+        // this on the phone", which needs the keyboard visible.
+        if !(app.keyboards.firstMatch.waitForExistence(timeout: 1)) {
+            editor.tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 4)
+        }
+        // The QuickPath tutorial rides on the keyboard's first appearance,
+        // so it has to be dismissed after the keyboard, not before it.
+        dismissSystemKeyboardOnboardingIfPresent(in: app)
+        dismissSystemKeyboardOnboardingIfPresent(in: app)
+
+        let predicate = NSPredicate(format: "value CONTAINS %@", "회의록")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: editor)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 6),
+            .completed,
+            "Store slot 3 must visibly hold the seeded Hangul draft"
+        )
+        XCTAssertTrue(
+            waitForStableElement(in: app, identifier: "naru.input.accessory.strip", timeout: 4).exists,
+            "Store slot 3 should show the accessory strip riding above the editor"
+        )
+        switchToKoreanSoftKeyboardIfAvailable(in: app)
+        hideSoftKeyboardForTabletCaptureIfNeeded(in: app)
+
+        try saveStoreScreen(slot: 3, named: "compose-korean", mode: mode)
+    }
+
+    private func runStoreFunctionRow(mode: ColorMode) throws {
+        applyStoreOrientation()
+        // Unlike the audit strip capture (which forces the dock without a
+        // session), the store slot shows the strip where a user meets it:
+        // expanded over a live remote screen.
+        let app = launchStoreApp(.storeSessionActive, mode: mode, suppressDirectWarning: true)
+
+        let typeReveal = waitForStableElement(in: app, identifier: "naru.input.type-reveal", timeout: 8)
+        XCTAssertTrue(typeReveal.exists, "Store function-row capture needs one-tap Type")
+        typeReveal.tap()
+
+        XCTAssertTrue(
+            waitForRemoteInputEditor(in: app, timeout: 4).exists,
+            "Type mode must open the compact editor before the Fn expansion"
+        )
+        // A pristine capture simulator shows the one-time QuickPath tutorial
+        // where the keyboard belongs; left up, it eats the bottom half of
+        // the frame (observed on the first store run).
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 4)
+        dismissSystemKeyboardOnboardingIfPresent(in: app)
+        // Korean here too: the strip's whole point is that these keys stay
+        // reachable while an IME keyboard owns the bottom of the screen.
+        switchToKoreanSoftKeyboardIfAvailable(in: app)
+
+        let fnToggle = waitForStableElement(in: app, identifier: "naru.input.accessory.fn", timeout: 4)
+        XCTAssertTrue(fnToggle.exists, "Store function-row capture needs the Fn toggle")
+        fnToggle.tap()
+
+        let fnRow = app.descendants(matching: .any)["naru.input.accessory.fn-row"].firstMatch
+        if !fnRow.waitForExistence(timeout: 4) {
+            // Same transient-status tap theft the audit capture guards
+            // against; the expansion is local-only, so retrying it emits
+            // no remote key event.
+            fnToggle.tap()
+        }
+        XCTAssertTrue(
+            fnRow.waitForExistence(timeout: 4),
+            "Store slot 4 must show the expanded function row"
+        )
+        XCTAssertFalse(
+            app.buttons["Continue"].exists,
+            "The system QuickPath sheet must be gone before the store capture"
+        )
+        hideSoftKeyboardForTabletCaptureIfNeeded(in: app)
+        XCTAssertTrue(
+            fnRow.exists,
+            "The function row must survive putting the soft keyboard away"
+        )
+
+        try saveStoreScreen(slot: 4, named: "function-row", mode: mode)
+    }
+
+    private func runStoreDiagnosticsPassed(mode: ColorMode) throws {
+        applyStoreOrientation()
+        let app = launchStoreApp(.storeDiagnosticsPassed, mode: mode)
+
+        openDiagnosticsFromFirstCard(app: app)
+        XCTAssertTrue(
+            app.navigationBars["Diagnostics"].waitForExistence(timeout: 6),
+            "Store diagnostics capture needs the diagnostics sheet"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Host resolved"].waitForExistence(timeout: 4),
+            "Diagnostic rows must render before the capture"
+        )
+        XCTAssertTrue(
+            app.staticTexts["First frame received"].waitForExistence(timeout: 4),
+            "Store slot 5 must show a run that reached the first frame"
+        )
+
+        try saveStoreScreen(slot: 5, named: "diagnostics", mode: mode)
+    }
+
+    // MARK: - Helpers — App Store captures
+
+    /// Launches a store fixture, telling it which remote-screen aspect this
+    /// device wants (see `UXAuditFixtures.storeDesktop`).
+    private func launchStoreApp(
+        _ token: FixtureToken,
+        mode: ColorMode,
+        suppressDirectWarning: Bool = false
+    ) -> XCUIApplication {
+        launchAppWithFixture(
+            token,
+            mode: mode,
+            suppressDirectWarning: suppressDirectWarning,
+            desktopAspect: isStoreTabletCapture ? "tablet" : nil
+        )
+    }
+
+    /// Tablet-only: put the soft keyboard away before the capture.
+    ///
+    /// On a 13" iPad the soft keyboard eats half the screen and squeezes the
+    /// remote screen into a band the aspect-fill viewport then crops
+    /// mid-glyph — and it is the wrong story besides: the iPad scenario this
+    /// app is built for is an external keyboard and mouse, where the dock
+    /// keeps its strip and the remote screen keeps the screen. The editor
+    /// and its text stay mounted; only the keyboard leaves.
+    ///
+    /// No-op on iPhone, where the soft keyboard *is* the story.
+    private func hideSoftKeyboardForTabletCaptureIfNeeded(in app: XCUIApplication) {
+        guard isStoreTabletCapture else { return }
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return }
+
+        // `exists` outlives visibility: iPadOS keeps a zero-height keyboard
+        // element parked below the window once it is down, and its dismiss
+        // key is then unhittable. Ask geometry, not existence.
+        func keyboardCoversScreen() -> Bool {
+            let window = app.windows.firstMatch.frame
+            let frame = keyboard.frame
+            return frame.height > 1 && frame.intersects(window)
+        }
+        guard keyboardCoversScreen() else { return }
+
+        // The dismiss key's accessibility label follows the *system*
+        // language, not the keyboard's, so both spellings are tried; and it
+        // is exposed as a key on some iPadOS versions and a button on
+        // others.
+        // Matched by label predicate, not by subscript: the dismiss key
+        // carries only an accessibility label (no identifier), and
+        // `buttons["..."]` matches identifiers.
+        let labels = ["키보드 가리기", "Hide keyboard", "Hide Keyboard", "Dismiss", "키보드 숨기기"]
+        for label in labels {
+            let predicate = NSPredicate(format: "label == %@", label)
+            for query in [app.buttons, app.keys] {
+                let candidate = query.matching(predicate).firstMatch
+                if candidate.exists, candidate.isHittable {
+                    candidate.tap()
+                    _ = keyboard.waitForNonExistence(timeout: 3)
+                    if !keyboardCoversScreen() { return }
+                }
+            }
+        }
+
+        XCTFail(
+            """
+            The soft keyboard is still covering the tablet capture and no \
+            dismiss key could be tapped. Keyboard element tree:
+            \(keyboard.debugDescription)
+            """
+        )
+    }
+
+    /// Best effort: when the capture simulator has the Korean keyboard
+    /// installed *after* English (see `docs/store-screenshots.md`), a globe
+    /// tap puts 두벌식 on screen, so slot 3 shows the keyboard a Korean user
+    /// actually composes with instead of a QWERTY under Hangul text.
+    ///
+    /// Deliberately non-fatal and deliberately not the source of the text:
+    /// the draft comes from the fixture, so a simulator without the Korean
+    /// keyboard still produces a usable — just less pointed — capture.
+    /// Keeping English first in the keyboard list also keeps every other
+    /// test's `typeText` on a Latin layout.
+    private func switchToKoreanSoftKeyboardIfAvailable(in app: XCUIApplication) {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.waitForExistence(timeout: 4) else { return }
+
+        // Idempotent on purpose: the soft-keyboard language is system state
+        // that survives app launches, so a slot that runs after another
+        // Korean capture already has 두벌식 up. Tapping the globe anyway
+        // would cycle it away and make the capture depend on test order.
+        if keyboard.keys["ㅁ"].exists { return }
+
+        let globe = keyboard.buttons["Next keyboard"]
+        guard globe.waitForExistence(timeout: 2) else { return }
+
+        // The globe cycles the installed keyboards, so allow one extra tap
+        // in case the first lands on Emoji.
+        for _ in 0..<2 {
+            guard globe.isHittable else { return }
+            globe.tap()
+            if keyboard.keys["ㅁ"].waitForExistence(timeout: 2) {
+                return
+            }
+        }
+    }
+
+    /// Store PNGs live beside the audit tree, not inside it, so a
+    /// screenshot sweep never mixes marketing frames into an audit set.
+    private var storeOutputDirectory: String {
+        URL(fileURLWithPath: outputDirectory)
+            .deletingLastPathComponent()
+            .appendingPathComponent("store", isDirectory: true)
+            .path
+    }
+
+    /// iPhone is the canonical portrait design target (constitution §VI);
+    /// the iPad slots are shot in landscape because that is where the
+    /// external-keyboard-and-mouse story the iPad screenshots sell
+    /// actually happens.
+    private func applyStoreOrientation() {
+        #if canImport(UIKit)
+        XCUIDevice.shared.orientation = isStoreTabletCapture ? .landscapeLeft : .portrait
+        #endif
+    }
+
+    private var isStoreTabletCapture: Bool {
+        #if canImport(UIKit)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
+    }
+
+    /// Names the store display family, not the simulator model — App
+    /// Store Connect has one 6.9" iPhone slot and one 13" iPad slot, and
+    /// `saveStoreScreen` proves the capture actually fits it.
+    private var storeDeviceTag: String {
+        isStoreTabletCapture ? "ipad13" : "iphone69"
+    }
+
+    private func saveStoreScreen(
+        slot: Int,
+        named name: String,
+        mode: ColorMode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let filename = String(
+            format: "store-%02d-%@-%@-%@.png",
+            slot,
+            name,
+            storeDeviceTag,
+            mode.suffix
+        )
+        try saveScreen(named: filename, in: storeOutputDirectory)
+        assertStoreImageIsUploadable(filename, file: file, line: line)
+    }
+
+    /// Fails the capture when App Store Connect would reject the file: a
+    /// pixel size that is not one of the accepted sizes for this display
+    /// family, or a surviving alpha channel.  Without this the run is green
+    /// and the rejection happens later, in the upload UI, with no hint about
+    /// which simulator or which code path produced the file.
+    private func assertStoreImageIsUploadable(
+        _ filename: String,
+        file: StaticString,
+        line: UInt
+    ) {
+        #if canImport(UIKit)
+        let url = URL(fileURLWithPath: storeOutputDirectory).appendingPathComponent(filename)
+        guard let data = try? Data(contentsOf: url),
+              let image = UIImage(data: data)?.cgImage
+        else {
+            XCTFail("Store capture \(filename) could not be decoded", file: file, line: line)
+            return
+        }
+
+        let size = [image.width, image.height].sorted()
+        // App Store Connect, 2026-08: 6.9" iPhone accepts 1320×2868 or
+        // 1290×2796; 13" iPad accepts 2064×2752 or 2048×2732. Either
+        // orientation of each pair is allowed, hence the sorted compare.
+        let accepted: [[Int]] = isStoreTabletCapture
+            ? [[2064, 2752], [2048, 2732]]
+            : [[1320, 2868], [1290, 2796]]
+        XCTAssertTrue(
+            accepted.contains(size),
+            """
+            Store capture \(filename) is \(image.width)×\(image.height), which App Store Connect \
+            does not accept for the \(storeDeviceTag) slot. Expected one of \
+            \(accepted.map { "\($0[0])×\($0[1])" }.joined(separator: " or ")) — \
+            re-run on iPhone 17 Pro Max or iPad Pro 13-inch.
+            """,
+            file: file,
+            line: line
+        )
+
+        // App Store Connect rejects screenshots carrying an alpha channel.
+        let opaqueAlphaInfos: Set<CGImageAlphaInfo> = [.none, .noneSkipFirst, .noneSkipLast]
+        XCTAssertTrue(
+            opaqueAlphaInfos.contains(image.alphaInfo),
+            """
+            Store capture \(filename) still has an alpha channel \
+            (\(image.alphaInfo.rawValue)); App Store Connect refuses those. The capture \
+            path must render opaque — see `orientedPngData`.
+            """,
+            file: file,
+            line: line
+        )
+        #endif
+    }
+
     // MARK: - iPad — graceful scaling
 
     func testIPadStates() throws {
@@ -863,6 +1302,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         case sidebarWithVerdicts = "sidebar-with-verdicts"
         case sessionActiveWidescreen = "session-active-widescreen"
         case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
+        case storeConnectionGrid = "store-connection-grid"
+        case storeSessionActive = "store-session-active"
+        case storeSessionKoreanCompose = "store-session-korean-compose"
+        case storeDiagnosticsPassed = "store-diagnostics-passed"
     }
 
     /// Launch the app with a `NARU_TEST_FIXTURE_SNAPSHOT` token that
@@ -871,7 +1314,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     private func launchAppWithFixture(
         _ token: FixtureToken,
         mode: ColorMode,
-        suppressDirectWarning: Bool = false
+        suppressDirectWarning: Bool = false,
+        desktopAspect: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
@@ -879,6 +1323,9 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = token.rawValue
+        if let desktopAspect {
+            app.launchEnvironment["NARU_TEST_FIXTURE_DESKTOP"] = desktopAspect
+        }
         if suppressDirectWarning {
             app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         }
@@ -1154,7 +1601,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
 
     // MARK: - Helpers — saving
 
-    private func saveScreen(named filename: String) throws {
+    private func saveScreen(named filename: String, in directory: String? = nil) throws {
+        let outputDirectory = directory ?? self.outputDirectory
         // `XCUIScreen.main.screenshot()` returns the framebuffer at
         // the device's portrait pixel orientation; rotated (landscape)
         // screenshots come back 90° off — UX punch-list #002.
@@ -1214,17 +1662,53 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         guard orientation != .up, let cg else {
             return screenshot.pngRepresentation
         }
+
         let oriented = UIImage(cgImage: cg, scale: scale, orientation: orientation)
         let outSize = oriented.size
-        let renderer = UIGraphicsImageRenderer(size: outSize)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        format.scale = scale
+        let renderer = UIGraphicsImageRenderer(size: outSize, format: format)
         let rendered = renderer.image { _ in
             oriented.draw(in: CGRect(origin: .zero, size: outSize))
         }
-        return rendered.pngData() ?? screenshot.pngRepresentation
+        // `format.opaque` is not enough: on a P3 device the renderer picks an
+        // extended-range backing store and the encoded PNG keeps a
+        // premultiplied alpha channel — which App Store Connect refuses, and
+        // which every rotated capture (all landscape and all iPad store
+        // shots) carried until this was pinned.  Re-encode through an
+        // explicitly alpha-free bitmap instead of trusting the renderer.
+        return alphaFreePngData(from: rendered)
+            ?? rendered.pngData()
+            ?? screenshot.pngRepresentation
         #else
         return screenshot.pngRepresentation
         #endif
     }
+
+    #if canImport(UIKit)
+    /// Re-encodes an image through a `noneSkipLast` bitmap, so the PNG has no
+    /// alpha channel at all.
+    private func alphaFreePngData(from image: UIImage) -> Data? {
+        guard let source = image.cgImage else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: source.width,
+            height: source.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+
+        context.draw(
+            source,
+            in: CGRect(x: 0, y: 0, width: source.width, height: source.height)
+        )
+        guard let flattened = context.makeImage() else { return nil }
+        return UIImage(cgImage: flattened).pngData()
+    }
+    #endif
 }
 
 private extension XCUIElement {

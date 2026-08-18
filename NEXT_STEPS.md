@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-18 KST.
+Updated: 2026-08-19 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -49,13 +49,52 @@ same PR.
    session. Record only privacy-safe aggregate diagnostics and thermal/RSS
    verdicts (`SUBMISSION_READINESS.md` §5.4).
 5. **App Store Connect human steps** (`SUBMISSION_READINESS.md` §5.5) — app
-   record, App Store screenshots (re-shoot: Direct-mode captures are gone;
-   use the new accessory-strip/Type captures), hosted privacy policy URL,
-   TestFlight distribution. Founder decision D3 (Live→default) is EXECUTED
-   by spec 011 + the constitution §I amendment (2026-08-17).
+   record, hosted privacy policy URL, TestFlight distribution, EU DSA trader
+   and Korea declarations, then submit. Founder decision D3 (Live→default) is
+   EXECUTED by spec 011 + the constitution §I amendment (2026-08-17).
+   **Screenshots are shot** (2026-08-18): five dedicated store states for the
+   6.9" iPhone and 13" iPad slots, light and dark. The curated upload set —
+   five iPhone, four iPad, all dark — is
+   `artifacts/app-store/20260819-build2/`; raw captures stay local in
+   `artifacts/screenshots/store/`. Procedure and framing rationale:
+   `docs/store-screenshots.md`. The light set is comparison-only until the
+   dock-contrast item below is fixed.
+6. **Light-mode dock contrast over a live session** — found while shooting the
+   store captures. `RemoteInputDockView`'s compact/floating body uses
+   `.background(.ultraThinMaterial)`, so over a dark remote screen the material
+   resolves to a mid-gray while `.secondary` text stays dark: "Ready to compose
+   locally" and the Type/Compose picker land near 2:1 contrast (WCAG AA wants
+   4.5:1). Dark mode is unaffected, which is why the shipped store set is dark.
+   Structural fix: the dock chrome sits over remote pixels nobody controls, so
+   its contrast must come from app tokens — give that surface an opaque
+   `NaruColors.dock` background (a design call: it trades the glass look for
+   legibility) or an explicit high-contrast label token. Recurrence gate:
+   compute the WCAG ratio from the token hexes in a plain Swift test, both
+   appearances. Reproduce:
+   `-only-testing:NaruRemoteUITests/UXAuditScreenshotsUITests/testStoreKoreanCompose_light`
+   on iPhone 17 Pro Max and compare with the `_dark` sibling.
 
 ## Near term (P1)
 
+- **No fit-to-screen: the whole remote screen is never visible** — the hero
+  viewport's `minimumZoomScale` is `aspectFillZoomScale`
+  (`SessionViewportView.swift`), so a 16:9 desktop loses ~9% top and bottom on
+  a 6.9" phone in landscape and a quarter of its width on a 4:3 iPad, and no
+  gesture or control zooms out past fill. Fill is the right *default* on a
+  portrait phone (letterboxing a desktop there leaves it unreadable), but the
+  iPad case has no defence, and comparable clients offer both fit and fill.
+  Surfaced while shooting store slot 2, which had to be shot in landscape on
+  the phone and against a 4:3 fixture desktop on the iPad to show a whole
+  screen. Fix is a fit mode: allow `minimumZoomScale` down to aspect-fit with
+  letterbox padding, plus a Session-tools toggle, and pan clamping that
+  tolerates a frame smaller than the viewport.
+- **iPad diagnostics sheet clips its last row** — on a 13" iPad the sheet is a
+  fixed-height form sheet and "First frame received" plus the Share Diagnostics
+  button fall outside it; on iPhone all five rows fit. Found while shooting
+  store slot 5, which is why the shipped iPad set is four shots
+  (`docs/store-screenshots.md`). Reproduce:
+  `-only-testing:NaruRemoteUITests/UXAuditScreenshotsUITests/testStoreDiagnosticsPassed_dark`
+  on iPad Pro 13-inch.
 - **Single RFB read multiplexer (unblocks incoming clipboard)** — the
   installed app always connects through `RFBStreamingClient`, and on that
   path `startIncomingClipboardReceive` is deliberately never called: the

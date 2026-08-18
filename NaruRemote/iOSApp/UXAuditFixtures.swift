@@ -40,6 +40,22 @@ enum UXAuditFixtureToken: String {
     /// Active session in trackpad mode with a server-provided cursor
     /// shape so screenshots cover the "real remote cursor" overlay path.
     case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
+    /// App Store marketing states. These differ from the audit fixtures
+    /// above on purpose: an audit capture wants every badge and failure
+    /// path in one frame, a store capture wants one healthy, legible
+    /// story per slot. Keeping them as separate tokens means tightening
+    /// a store shot never weakens an audit shot's coverage.
+    case storeConnectionGrid = "store-connection-grid"
+    /// Live session on the store desktop — slot 2 (bare remote screen)
+    /// and slot 4 (function row expanded over it).
+    case storeSessionActive = "store-session-active"
+    /// Active session whose Compose draft already holds Korean text, so
+    /// the store slot for local composition shows the real editor with
+    /// real Hangul instead of depending on simulator IME typing.
+    case storeSessionKoreanCompose = "store-session-korean-compose"
+    /// Diagnostics with every stage passed through first frame — the
+    /// audit fixture deliberately leaves authentication `.running`.
+    case storeDiagnosticsPassed = "store-diagnostics-passed"
 
     static func current() -> UXAuditFixtureToken? {
         guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_FIXTURE_SNAPSHOT"],
@@ -75,6 +91,14 @@ enum UXAuditFixtures {
             return sessionConnectingDelayedFirstFrameSnapshot()
         case .sessionActiveTrackpadCursor:
             return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
+        case .storeConnectionGrid:
+            return storeConnectionGridSnapshot()
+        case .storeSessionActive:
+            return storeSessionActiveSnapshot()
+        case .storeSessionKoreanCompose:
+            return storeSessionKoreanComposeSnapshot()
+        case .storeDiagnosticsPassed:
+            return storeDiagnosticsPassedSnapshot()
         }
     }
 
@@ -172,9 +196,14 @@ enum UXAuditFixtures {
             // the snapshot.
             model.seedConnectionQualityForTesting(.good)
             model.togglePointerControlMode()
+        case .storeSessionActive,
+             .storeSessionKoreanCompose:
+            model.seedConnectionQualityForTesting(.good)
         case .diagnosticsPopulated,
              .diagnosticErrorDNS,
-             .sidebarWithVerdicts:
+             .sidebarWithVerdicts,
+             .storeConnectionGrid,
+             .storeDiagnosticsPassed:
             // All snapshot-driven; no post-init mutation needed.
             break
         }
@@ -320,6 +349,220 @@ enum UXAuditFixtures {
         )
     }
 
+    // MARK: - App Store marketing fixtures
+
+    /// Store slot 1 — the host list as a healthy home screen: saved
+    /// computers, every one reachable with a passing verdict and a real
+    /// (downscaled) desktop preview.
+    private static func storeConnectionGridSnapshot() -> NaruRemoteAppSnapshot {
+        // Eight machines: a 13" iPad fits four per row, and four profiles
+        // left the store capture as one row above half an empty screen.
+        // Each entry carries the name its own preview draws, so a grid of
+        // cards reads as a grid of machines instead of one screenshot
+        // pasted eight times — a channel tint alone is invisible at card
+        // size.
+        let machines: [(name: String, host: String, kind: ConnectionProfile.HostKind, screenName: String, status: String, tint: (Double, Double, Double))] = [
+            ("Studio Mac", "studio.tailnet.ts.net", .magicDNS, "STUDIO MAC", "BUILD PASSED", (1.00, 1.00, 1.00)),
+            ("MacBook Pro", "macbook-pro.tailnet.ts.net", .magicDNS, "MACBOOK PRO", "TESTS PASSED", (0.88, 0.98, 1.10)),
+            ("Office Linux", "office.tailnet.ts.net", .magicDNS, "OFFICE LINUX", "DOCKER READY", (0.84, 1.06, 0.90)),
+            ("Home NUC", "10.0.0.42", .privateAddress, "HOME NUC", "BACKUP DONE", (1.12, 0.92, 1.06)),
+            ("Travel Mac", "travel.tailnet.ts.net", .magicDNS, "TRAVEL MAC", "SYNC DONE", (0.96, 1.02, 0.94)),
+            ("Build Server", "build.tailnet.ts.net", .magicDNS, "BUILD SERVER", "DEPLOY READY", (0.90, 0.94, 1.12)),
+            ("Lab Mini", "10.0.0.51", .privateAddress, "LAB MINI", "IDLE 2 JOBS", (1.06, 1.00, 0.92)),
+            ("Media NUC", "media.tailnet.ts.net", .magicDNS, "MEDIA NUC", "RENDER DONE", (1.00, 0.94, 1.10))
+        ]
+
+        var profiles: [ConnectionProfile] = []
+        var previews: [ConnectionProfile.ID: ProfilePreviewThumbnail] = [:]
+        var reachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:]
+        var verdicts: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
+
+        for (index, machine) in machines.enumerated() {
+            // Fixed IDs keep the capture stable across runs.
+            let id = UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000000C%X", index + 1))!
+            // swiftlint:disable:next force_try
+            let profile = try! ConnectionProfile(
+                id: id,
+                displayName: machine.name,
+                host: machine.host,
+                hostKind: machine.kind
+            )
+            profiles.append(profile)
+            previews[id] = desktopPreview(
+                machineName: machine.screenName,
+                status: machine.status,
+                tint: machine.tint
+            )
+            // Every card healthy: the audit fixture owns the failed /
+            // unreachable / manual-public-endpoint badges, and a red card in
+            // slot 1 would advertise a broken connection.
+            reachability[id] = .reachable
+            verdicts[id] = .passed
+        }
+
+        return NaruRemoteAppSnapshot(
+            profiles: profiles,
+            selectedProfileID: nil,
+            profilePreviews: previews,
+            profileReachability: reachability,
+            lastDiagnosticVerdict: verdicts
+        )
+    }
+
+    /// Store slots 2 and 4 — a live session on the store desktop.  Slot 2
+    /// is the bare remote screen; slot 4 expands the accessory strip's
+    /// function row over the same state.
+    private static func storeSessionActiveSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: storeDesktop()
+        )
+    }
+
+    /// Store slot 3 — the local-composition differentiator.  The draft
+    /// text is seeded on the snapshot rather than typed by the UI test:
+    /// simulator IME typing is not reliable enough to gate a release
+    /// capture on, and what the slot has to show is the *editor holding
+    /// finished Hangul before it crosses to the remote machine*.
+    private static func storeSessionKoreanComposeSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(
+                sessionID: session.id,
+                text: "회의록 정리해서 커밋 메시지로 만들어줘"
+            ),
+            latestFramebuffer: storeDesktop()
+        )
+    }
+
+    /// Store slot 5 — a diagnostics run that passed all the way to the
+    /// first frame.  Every string here comes from the same safe-detail
+    /// vocabulary the production catalog uses (constitution §IV): no
+    /// raw error text, no host secrets.
+    private static func storeDiagnosticsPassedSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let run = ConnectionDiagnosticRun(
+            profileID: profile.id,
+            startedAt: fixedDate(offsetSeconds: 0),
+            finishedAt: fixedDate(offsetSeconds: 5),
+            stages: [
+                DiagnosticStageResult(
+                    stage: .dns,
+                    status: .passed,
+                    safeTitle: "Host resolved",
+                    safeDetail: "MagicDNS returned a private address.",
+                    timestamp: fixedDate(offsetSeconds: 1)
+                ),
+                DiagnosticStageResult(
+                    stage: .tcp,
+                    status: .passed,
+                    safeTitle: "VNC port open",
+                    safeDetail: "TCP connection to the VNC port succeeded.",
+                    timestamp: fixedDate(offsetSeconds: 2)
+                ),
+                DiagnosticStageResult(
+                    stage: .rfbHandshake,
+                    status: .passed,
+                    safeTitle: "RFB handshake complete",
+                    safeDetail: "Server speaks a compatible RFB version.",
+                    timestamp: fixedDate(offsetSeconds: 3)
+                ),
+                DiagnosticStageResult(
+                    stage: .authentication,
+                    status: .passed,
+                    safeTitle: "Authenticated",
+                    safeDetail: "The saved password was accepted.",
+                    timestamp: fixedDate(offsetSeconds: 4)
+                ),
+                DiagnosticStageResult(
+                    stage: .firstFrame,
+                    status: .passed,
+                    safeTitle: "First frame received",
+                    safeDetail: "The remote screen is streaming.",
+                    timestamp: fixedDate(offsetSeconds: 5)
+                )
+            ]
+        )
+        // The sheet only covers the lower part of the screen, so the card
+        // behind it is in the capture too — give it a preview and a healthy
+        // badge instead of the "No preview yet / Unknown" placeholder.
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            diagnosticRun: run,
+            profilePreviews: [
+                profile.id: desktopPreview(
+                    machineName: "STUDIO MAC",
+                    status: "BUILD PASSED",
+                    tint: (1.00, 1.00, 1.00)
+                )
+            ],
+            profileReachability: [profile.id: .reachable],
+            lastDiagnosticVerdict: [profile.id: .passed]
+        )
+    }
+
+    /// Nearest-neighbour downscale of the shared synthetic desktop into
+    /// a grid preview, so store cards show recognisable desktop
+    /// structure (title bar, terminal window, sidebars) instead of an
+    /// abstract gradient.  `tint` scales each channel so sibling cards
+    /// differ; values are clamped to the byte range.
+    private static func desktopPreview(
+        machineName: String,
+        status: String,
+        tint: (red: Double, green: Double, blue: Double)
+    ) -> ProfilePreviewThumbnail {
+        let source = storeDesktopFramebuffer(machineName: machineName, status: status)
+        let width = min(320, source.width / 2)
+        let height = max(1, source.height * width / max(source.width, 1))
+
+        var pixels: [RFBColor] = []
+        pixels.reserveCapacity(width * height)
+        for y in 0..<height {
+            let sourceRow = min(source.height - 1, y * source.height / height)
+            for x in 0..<width {
+                let sourceColumn = min(source.width - 1, x * source.width / width)
+                let pixel = source.pixels[sourceRow * source.width + sourceColumn]
+                pixels.append(
+                    RFBColor(
+                        red: scaleChannel(pixel.red, by: tint.red),
+                        green: scaleChannel(pixel.green, by: tint.green),
+                        blue: scaleChannel(pixel.blue, by: tint.blue)
+                    )
+                )
+            }
+        }
+
+        return ProfilePreviewThumbnail(
+            width: width,
+            height: height,
+            sourceWidth: 1600,
+            sourceHeight: 900,
+            capturedAt: fixedDate(offsetSeconds: 7),
+            pixels: pixels
+        )
+    }
+
+    private static func scaleChannel(_ value: UInt8, by factor: Double) -> UInt8 {
+        UInt8(min(255, max(0, (Double(value) * factor).rounded())))
+    }
+
     private static func incomingClipboardSnapshot() -> NaruRemoteAppSnapshot {
         // Need an .active session so the dock + banner are mounted
         // in their post-connect form (the banner sits inside the
@@ -416,15 +659,204 @@ enum UXAuditFixtures {
         return activeSessionDesktopFramebuffer()
     }
 
+    /// The audit desktop: a 16:9 remote screen with representative window
+    /// structure and readable terminal text, so a session capture proves
+    /// more than a flat rectangle (spec 003 FR-001 — the container used to
+    /// hardcode 4:3 and double-letterbox widescreen frames).
+    ///
+    /// Layout is deliberately frozen: several audit captures are graded
+    /// against earlier ones. The store desktop below is a separate layout
+    /// for that reason.
     private static func activeSessionDesktopFramebuffer() -> RFBRawFramebuffer {
-        let width = 640
-        let height = 360
-        var pixels = Array(
-            repeating: RFBColor(red: 0x11, green: 0x1B, blue: 0x26),
-            count: width * height
+        var canvas = FramebufferCanvas(width: 640, height: 360)
+        canvas.paintDesktopBackdrop()
+
+        canvas.fill(x: 0, y: 0, width: canvas.width, height: 28, color: chromeFill)
+        canvas.fill(x: 0, y: 28, width: canvas.width, height: 2, color: chromeEdge)
+        canvas.drawText("STUDIO MAC", x: 250, y: 8, scale: 2, color: chromeLabel)
+
+        canvas.drawPanel(x: 54, y: 62, width: 138, height: 108, title: "FILES", titleX: 76, titleY: 84)
+        canvas.fill(x: 76, y: 118, width: 92, height: 8, color: accentTeal)
+        canvas.fill(x: 76, y: 138, width: 70, height: 8, color: RFBColor(red: 0x73, green: 0x90, blue: 0xA8))
+
+        canvas.drawPanel(x: 454, y: 62, width: 132, height: 108, title: "WATCH", titleX: 484, titleY: 84)
+        canvas.fill(x: 486, y: 120, width: 68, height: 10, color: accentTeal)
+        canvas.fill(x: 486, y: 142, width: 48, height: 10, color: accentAmber)
+
+        canvas.drawTerminalWindow(x: 200, y: 48, width: 244, height: 266, titleX: 278)
+        for (index, line) in [
+            "NARU REMOTE",
+            "BUILD PASSED",
+            "TAILNET READY",
+            "NO SECRET DATA"
+        ].enumerated() {
+            canvas.drawCenteredText(
+                line,
+                centerX: 322,
+                y: 92 + index * 48,
+                scale: 3,
+                color: terminalPalette[index]
+            )
+        }
+
+        canvas.fill(x: 218, y: 288, width: 206, height: 8, color: chromeEdge)
+        canvas.fill(x: 218, y: 288, width: 142, height: 8, color: accentTeal)
+        canvas.drawText("CPU 18  NET 2", x: 236, y: 326, scale: 2, color: RFBColor(red: 0xA8, green: 0xB8, blue: 0xCA))
+
+        return canvas.framebuffer()
+    }
+
+    /// The store desktop.  Same renderer as the audit desktop, different
+    /// layout and different copy — an audit frame carries reminders aimed at
+    /// this repository ("NO SECRET DATA"); a store frame has to read as
+    /// somebody's actual machine.
+    ///
+    /// The layout is fractional because it has to survive the viewport's
+    /// crop, and the crop differs per device.  The hero viewport is
+    /// aspect-FILL by design (letterboxing a 16:9 desktop into a portrait
+    /// phone would leave it unreadably small), so whatever the frame is
+    /// wider/taller than the screen gets cut: a 6.9" phone in landscape is
+    /// ~2.17:1 against 16:9 and loses ~9% off the top and bottom.  Laying
+    /// the desktop out in fractions of the canvas means the tablet variant
+    /// — a 4:3 frame for a 4:3 iPad screen, which fills with no crop at all
+    /// — is a size argument rather than a second hand-tuned layout.
+    ///
+    /// The remaining crop is deliberate and it is *not* clipped content:
+    /// only the empty menu-bar band leaves the frame.
+    private static func storeDesktopFramebuffer(
+        machineName: String = "STUDIO MAC",
+        status: String = "BUILD PASSED",
+        width: Int = 640,
+        height: Int = 360
+    ) -> RFBRawFramebuffer {
+        var canvas = FramebufferCanvas(width: width, height: height)
+        canvas.paintDesktopBackdrop()
+
+        func across(_ fraction: Double) -> Int { Int((Double(width) * fraction).rounded()) }
+        func down(_ fraction: Double) -> Int { Int((Double(height) * fraction).rounded()) }
+
+        // Menu bar deep enough that its label clears the crop band.
+        canvas.fill(x: 0, y: 0, width: width, height: down(0.189), color: chromeFill)
+        canvas.fill(x: 0, y: down(0.189), width: width, height: 2, color: chromeEdge)
+        canvas.drawCenteredText(
+            machineName,
+            centerX: width / 2,
+            y: down(0.122),
+            scale: 2,
+            color: chromeLabel
         )
 
-        func fillRect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
+        let panelY = down(0.289)
+        let panelWidth = across(0.219)
+        let panelHeight = down(0.322)
+        canvas.drawPanel(
+            x: across(0.053),
+            y: panelY,
+            width: panelWidth,
+            height: panelHeight,
+            title: "FILES",
+            titleX: across(0.088),
+            titleY: down(0.350)
+        )
+        canvas.fill(x: across(0.088), y: down(0.450), width: across(0.150), height: 8, color: accentTeal)
+        canvas.fill(
+            x: across(0.088),
+            y: down(0.506),
+            width: across(0.113),
+            height: 8,
+            color: RFBColor(red: 0x73, green: 0x90, blue: 0xA8)
+        )
+
+        canvas.drawPanel(
+            x: across(0.728),
+            y: panelY,
+            width: panelWidth,
+            height: panelHeight,
+            title: "WATCH",
+            titleX: across(0.766),
+            titleY: down(0.350)
+        )
+        canvas.fill(x: across(0.766), y: down(0.450), width: across(0.109), height: 10, color: accentTeal)
+        canvas.fill(x: across(0.766), y: down(0.511), width: across(0.078), height: 10, color: accentAmber)
+
+        let terminalX = across(0.297)
+        canvas.drawTerminalWindow(
+            x: terminalX,
+            y: down(0.250),
+            width: across(0.406),
+            height: down(0.600),
+            titleX: terminalX + across(0.128)
+        )
+        for (index, line) in ["NARU REMOTE", status, "TAILNET READY", "AGENT ONLINE"].enumerated() {
+            canvas.drawCenteredText(
+                line,
+                centerX: width / 2,
+                y: down(0.361) + index * down(0.117),
+                scale: 3,
+                color: terminalPalette[index]
+            )
+        }
+
+        canvas.fill(x: across(0.328), y: down(0.811), width: across(0.344), height: 8, color: chromeEdge)
+        canvas.fill(x: across(0.328), y: down(0.811), width: across(0.238), height: 8, color: accentTeal)
+
+        return canvas.framebuffer()
+    }
+
+    /// The store desktop at the aspect the capture device wants.
+    ///
+    /// `NARU_TEST_FIXTURE_DESKTOP=tablet` asks for 4:3, because a 13" iPad's
+    /// own screen is 4:3 and the aspect-fill viewport crops a quarter off a
+    /// 16:9 frame there; the phone keeps 16:9, which is what a real desktop
+    /// usually is.  A launch variable rather than a second fixture token:
+    /// the state under capture is identical, only the remote screen's shape
+    /// differs.
+    private static func storeDesktop() -> RFBRawFramebuffer {
+        let wantsTablet = ProcessInfo.processInfo
+            .environment["NARU_TEST_FIXTURE_DESKTOP"]?
+            .trimmedNonEmpty?
+            .lowercased() == "tablet"
+        return storeDesktopFramebuffer(
+            width: 640,
+            height: wantsTablet ? 480 : 360
+        )
+    }
+
+    private static let chromeFill = RFBColor(red: 0x0B, green: 0x12, blue: 0x1D)
+    private static let chromeEdge = RFBColor(red: 0x2C, green: 0x58, blue: 0x74)
+    private static let chromeLabel = RFBColor(red: 0xB8, green: 0xC7, blue: 0xD7)
+    private static let accentTeal = RFBColor(red: 0x38, green: 0xB6, blue: 0xA5)
+    private static let accentAmber = RFBColor(red: 0xF5, green: 0xB9, blue: 0x42)
+    private static let terminalPalette = [
+        RFBColor(red: 0xE6, green: 0xF0, blue: 0xFA),
+        RFBColor(red: 0x69, green: 0xE0, blue: 0xB0),
+        RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF),
+        RFBColor(red: 0xF2, green: 0xD0, blue: 0x7A)
+    ]
+
+    /// Minimal software rasteriser shared by the fixture desktops.  It
+    /// exists so a second desktop layout costs a layout function instead
+    /// of a second copy of the drawing primitives — the first store
+    /// capture round needed one and the primitives were nested locals.
+    private struct FramebufferCanvas {
+        let width: Int
+        let height: Int
+        private var pixels: [RFBColor]
+
+        init(width: Int, height: Int) {
+            self.width = width
+            self.height = height
+            self.pixels = Array(
+                repeating: RFBColor(red: 0x11, green: 0x1B, blue: 0x26),
+                count: width * height
+            )
+        }
+
+        func framebuffer() -> RFBRawFramebuffer {
+            RFBRawFramebuffer(width: width, height: height, pixels: pixels)
+        }
+
+        mutating func fill(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
             let minX = max(x, 0)
             let minY = max(y, 0)
             let maxX = min(x + rectWidth, width)
@@ -440,21 +872,23 @@ enum UXAuditFixtures {
             }
         }
 
-        func strokeRect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
-            fillRect(x: x, y: y, width: rectWidth, height: 2, color: color)
-            fillRect(x: x, y: y + rectHeight - 2, width: rectWidth, height: 2, color: color)
-            fillRect(x: x, y: y, width: 2, height: rectHeight, color: color)
-            fillRect(x: x + rectWidth - 2, y: y, width: 2, height: rectHeight, color: color)
+        mutating func stroke(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: RFBColor) {
+            fill(x: x, y: y, width: rectWidth, height: 2, color: color)
+            fill(x: x, y: y + rectHeight - 2, width: rectWidth, height: 2, color: color)
+            fill(x: x, y: y, width: 2, height: rectHeight, color: color)
+            fill(x: x + rectWidth - 2, y: y, width: 2, height: rectHeight, color: color)
         }
 
-        func drawTextPixels(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
+        /// Glyph coverage is A–Z, 0–9 and space; anything else renders as
+        /// "?", so callers keep fixture copy inside that alphabet.
+        private mutating func drawGlyphs(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
             var cursorX = x
             let advance = 6 * scale
             for character in text {
-                let glyph = framebufferGlyphs[character] ?? framebufferGlyphs["?"]!
+                let glyph = UXAuditFixtures.framebufferGlyphs[character] ?? UXAuditFixtures.framebufferGlyphs["?"]!
                 for (rowIndex, row) in glyph.enumerated() {
                     for (columnIndex, bit) in row.enumerated() where bit == "1" {
-                        fillRect(
+                        fill(
                             x: cursorX + columnIndex * scale,
                             y: y + rowIndex * scale,
                             width: scale,
@@ -467,65 +901,110 @@ enum UXAuditFixtures {
             }
         }
 
-        func drawText(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
-            drawTextPixels(
+        mutating func drawText(_ text: String, x: Int, y: Int, scale: Int, color: RFBColor) {
+            drawGlyphs(
                 text,
                 x: x + max(scale / 2, 1),
                 y: y + max(scale / 2, 1),
                 scale: scale,
                 color: RFBColor(red: 0x03, green: 0x07, blue: 0x10)
             )
-            drawTextPixels(text, x: x, y: y, scale: scale, color: color)
+            drawGlyphs(text, x: x, y: y, scale: scale, color: color)
         }
 
-        for y in 0..<height {
-            let lift = UInt8(min(34, y / 11))
-            let color = RFBColor(
-                red: 0x10,
-                green: UInt8(0x1A + Int(lift) / 2),
-                blue: UInt8(0x27 + Int(lift))
+        mutating func drawCenteredText(
+            _ text: String,
+            centerX: Int,
+            y: Int,
+            scale: Int,
+            color: RFBColor
+        ) {
+            let advance = 6 * scale
+            drawText(text, x: centerX - (text.count * advance) / 2, y: y, scale: scale, color: color)
+        }
+
+        mutating func paintDesktopBackdrop() {
+            for y in 0..<height {
+                let lift = min(34, y * 34 / max(height - 1, 1))
+                fill(
+                    x: 0,
+                    y: y,
+                    width: width,
+                    height: 1,
+                    color: RFBColor(
+                        red: 0x10,
+                        green: UInt8(0x1A + lift / 2),
+                        blue: UInt8(0x27 + lift)
+                    )
+                )
+            }
+        }
+
+        mutating func drawPanel(
+            x: Int,
+            y: Int,
+            width panelWidth: Int,
+            height panelHeight: Int,
+            title: String,
+            titleX: Int,
+            titleY: Int
+        ) {
+            fill(
+                x: x,
+                y: y,
+                width: panelWidth,
+                height: panelHeight,
+                color: RFBColor(red: 0x18, green: 0x25, blue: 0x34)
             )
-            fillRect(x: 0, y: y, width: width, height: 1, color: color)
+            stroke(x: x, y: y, width: panelWidth, height: panelHeight, color: UXAuditFixtures.chromeEdge)
+            drawText(
+                title,
+                x: titleX,
+                y: titleY,
+                scale: 2,
+                color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF)
+            )
         }
 
-        fillRect(x: 0, y: 0, width: width, height: 28, color: RFBColor(red: 0x0B, green: 0x12, blue: 0x1D))
-        fillRect(x: 0, y: 28, width: width, height: 2, color: RFBColor(red: 0x1E, green: 0x3A, blue: 0x4D))
-        drawText("STUDIO MAC", x: 250, y: 8, scale: 2, color: RFBColor(red: 0xB8, green: 0xC7, blue: 0xD7))
-
-        fillRect(x: 54, y: 62, width: 138, height: 108, color: RFBColor(red: 0x18, green: 0x25, blue: 0x34))
-        strokeRect(x: 54, y: 62, width: 138, height: 108, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
-        drawText("FILES", x: 76, y: 84, scale: 2, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
-        fillRect(x: 76, y: 118, width: 92, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
-        fillRect(x: 76, y: 138, width: 70, height: 8, color: RFBColor(red: 0x73, green: 0x90, blue: 0xA8))
-
-        fillRect(x: 454, y: 62, width: 132, height: 108, color: RFBColor(red: 0x18, green: 0x25, blue: 0x34))
-        strokeRect(x: 454, y: 62, width: 132, height: 108, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
-        drawText("WATCH", x: 484, y: 84, scale: 2, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
-        fillRect(x: 486, y: 120, width: 68, height: 10, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
-        fillRect(x: 486, y: 142, width: 48, height: 10, color: RFBColor(red: 0xF5, green: 0xB9, blue: 0x42))
-
-        fillRect(x: 200, y: 48, width: 244, height: 266, color: RFBColor(red: 0x07, green: 0x0D, blue: 0x16))
-        strokeRect(x: 200, y: 48, width: 244, height: 266, color: RFBColor(red: 0x47, green: 0x75, blue: 0x8F))
-        fillRect(x: 202, y: 50, width: 240, height: 26, color: RFBColor(red: 0x15, green: 0x26, blue: 0x35))
-        fillRect(x: 216, y: 60, width: 8, height: 8, color: RFBColor(red: 0xFF, green: 0x6B, blue: 0x6B))
-        fillRect(x: 232, y: 60, width: 8, height: 8, color: RFBColor(red: 0xF5, green: 0xB9, blue: 0x42))
-        fillRect(x: 248, y: 60, width: 8, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
-        drawText("TERMINAL", x: 278, y: 56, scale: 2, color: RFBColor(red: 0xC7, green: 0xD7, blue: 0xEA))
-
-        drawText("NARU REMOTE", x: 218, y: 92, scale: 3, color: RFBColor(red: 0xE6, green: 0xF0, blue: 0xFA))
-        drawText("BUILD PASSED", x: 214, y: 140, scale: 3, color: RFBColor(red: 0x69, green: 0xE0, blue: 0xB0))
-        drawText("TAILNET READY", x: 208, y: 188, scale: 3, color: RFBColor(red: 0x8D, green: 0xD5, blue: 0xFF))
-        drawText("NO SECRET DATA", x: 202, y: 236, scale: 3, color: RFBColor(red: 0xF2, green: 0xD0, blue: 0x7A))
-
-        fillRect(x: 218, y: 288, width: 206, height: 8, color: RFBColor(red: 0x2C, green: 0x58, blue: 0x74))
-        fillRect(x: 218, y: 288, width: 142, height: 8, color: RFBColor(red: 0x38, green: 0xB6, blue: 0xA5))
-        drawText("CPU 18  NET 2", x: 236, y: 326, scale: 2, color: RFBColor(red: 0xA8, green: 0xB8, blue: 0xCA))
-
-        return RFBRawFramebuffer(
-            width: width,
-            height: height,
-            pixels: pixels
-        )
+        mutating func drawTerminalWindow(
+            x: Int,
+            y: Int,
+            width windowWidth: Int,
+            height windowHeight: Int,
+            titleX: Int
+        ) {
+            fill(
+                x: x,
+                y: y,
+                width: windowWidth,
+                height: windowHeight,
+                color: RFBColor(red: 0x07, green: 0x0D, blue: 0x16)
+            )
+            stroke(
+                x: x,
+                y: y,
+                width: windowWidth,
+                height: windowHeight,
+                color: RFBColor(red: 0x47, green: 0x75, blue: 0x8F)
+            )
+            fill(
+                x: x + 2,
+                y: y + 2,
+                width: windowWidth - 4,
+                height: 26,
+                color: RFBColor(red: 0x15, green: 0x26, blue: 0x35)
+            )
+            fill(x: x + 16, y: y + 12, width: 8, height: 8, color: RFBColor(red: 0xFF, green: 0x6B, blue: 0x6B))
+            fill(x: x + 32, y: y + 12, width: 8, height: 8, color: UXAuditFixtures.accentAmber)
+            fill(x: x + 48, y: y + 12, width: 8, height: 8, color: UXAuditFixtures.accentTeal)
+            drawText(
+                "TERMINAL",
+                x: titleX,
+                y: y + 8,
+                scale: 2,
+                color: RFBColor(red: 0xC7, green: 0xD7, blue: 0xEA)
+            )
+        }
     }
 
     private static let framebufferGlyphs: [Character: [String]] = [
