@@ -310,53 +310,43 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         )
     }
 
-    func testFocusedConnectingComposeDefersLiveLayoutAfterFirstFrameAndKeepsTyping() {
-        let app = launchAppWithConnectingDelayedFirstFrameFixture()
-        let editor = composeEditor(in: app)
-        let keyboard = app.keyboards.firstMatch
-        let firstFrameMarker = app.descendants(matching: .any)["naru.test.session.firstFrameReceived"]
+    // `testFocusedConnectingComposeDefersLiveLayoutAfterFirstFrameAndKeepsTyping`
+    // was retired on 2026-08-19 with spec 013 US-4. It composed Korean while
+    // the session was still connecting and asserted the editor survived the
+    // first frame arriving underneath it. That window no longer exists for a
+    // user: connecting stays on the host list, and the dock mounts only once
+    // there is a session to send to, so the reported "first syllable, then the
+    // live session starts, keyboard freezes" bug class is closed by
+    // construction rather than by this assertion. The surviving surface
+    // transition (grid → remote control on first frame) is covered by
+    // `RemoteControlSurfacePolicyTests` and
+    // `UXAuditScreenshotsUITests.testConnectingStaysOnHostList_dark`.
 
-        XCTAssertTrue(editor.waitForExistence(timeout: 8))
-
-        editor.tap()
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
-
-        let focusedProbe = waitForLifecycleProbe(in: app) { probe in
-            probe.isFirstResponder && probe.makeCount == 1
-        }
-        let token = focusedProbe.instanceToken
-
-        editor.typeText("입")
-        waitForEditor(editor, toContain: "입")
-
-        XCTAssertTrue(
-            firstFrameMarker.waitForExistence(timeout: 4),
-            "The delayed test hook must publish the first frame while Compose is focused."
-        )
-        let postFirstFrame = waitForLifecycleProbe(in: app) { probe in
-            probe.instanceToken == token
-                && probe.makeCount == 1
-                && probe.isFirstResponder
-        }
-        XCTAssertEqual(postFirstFrame.instanceToken, token)
-
-        editor.typeText("력")
-        waitForEditor(editor, toContain: "입력")
-        let afterSecondInput = waitForLifecycleProbe(in: app) { probe in
-            probe.instanceToken == token
-                && probe.makeCount == 1
-                && probe.textChangeCount >= postFirstFrame.textChangeCount
-                && probe.isFirstResponder
-        }
-
-        XCTAssertEqual(afterSecondInput.instanceToken, token)
-        XCTAssertTrue(
-            keyboard.waitForExistence(timeout: 2),
-            "The first-frame arrival must not freeze the Korean/CJK Compose keyboard after the first syllable."
-        )
-    }
 
     private func composeEditor(in app: XCUIApplication) -> XCUIElement {
+        if let mounted = mountedComposeEditor(in: app) {
+            return mounted
+        }
+
+        // A live session shows the dock as a floating strip and mounts the
+        // editor only when the user asks for it (spec 011/012), so these
+        // tests have to make the same one tap a user makes. Without it every
+        // active-session case here fails on "Failed to tap Remote input text",
+        // which is what they were doing before this reveal step existed.
+        let reveal = app.buttons["naru.input.compose-reveal"].firstMatch
+        if reveal.waitForExistence(timeout: 4), reveal.isHittable {
+            reveal.tap()
+            let editor = app.textViews["Remote input text"]
+            _ = editor.waitForExistence(timeout: 4)
+            if let mounted = mountedComposeEditor(in: app) {
+                return mounted
+            }
+        }
+
+        return app.textViews["Remote input text"]
+    }
+
+    private func mountedComposeEditor(in app: XCUIApplication) -> XCUIElement? {
         let lifecycleIdentifier = NSPredicate(format: "identifier BEGINSWITH %@", "naru.input.editor;")
         let lifecycleEditor = app.descendants(matching: .any).matching(lifecycleIdentifier).firstMatch
         if lifecycleEditor.exists {
@@ -366,7 +356,8 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         if identified.exists {
             return identified
         }
-        return app.textViews["Remote input text"]
+        let named = app.textViews["Remote input text"]
+        return named.exists ? named : nil
     }
 
     private func waitForEditor(
@@ -480,16 +471,6 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-active-trackpad-cursor"
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_FRAMEBUFFER_FLOOD"] = "1"
-        app.launch()
-        return app
-    }
-
-    private func launchAppWithConnectingDelayedFirstFrameFixture() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "session-connecting-delayed-first-frame"
-        app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
-        app.launchEnvironment["NARU_TEST_EXPOSE_COMPOSE_LIFECYCLE"] = "1"
-        app.launchEnvironment["NARU_TEST_DELAYED_FIRST_FRAME_AFTER_FOCUS_MILLISECONDS"] = "1500"
         app.launch()
         return app
     }

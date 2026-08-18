@@ -679,6 +679,48 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try saveScreen(named: "14-connection-grid-multiple-with-verdicts-\(deviceTag)-\(mode.suffix).png")
     }
 
+    // MARK: - iPhone — connecting stays on the host list (spec 013 US-4)
+
+    /// The founder reported from a device on 2026-08-19 that connecting still
+    /// read as a third screen between the host list and remote control. It
+    /// does not any more: the tapped card reports progress and offers cancel,
+    /// and remote control opens only when there is a remote screen to show.
+    func testConnectingStaysOnHostList_dark() throws {
+        // Fixture rather than a real socket: a `.connecting` session with no
+        // first frame, which is exactly the window under test.
+        let app = XCUIApplication()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naru-uxaudit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("profiles.json")
+        app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = FixtureToken.sessionConnectingDelayedFirstFrame.rawValue
+        applyColorMode(.dark, to: app)
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Connections"].waitForExistence(timeout: 8),
+            "Connecting must keep the host list on screen"
+        )
+        XCTAssertTrue(
+            waitForStableElement(in: app, identifier: "naru.connection.grid.connecting", timeout: 4).exists,
+            "The tapped card must report the connect in progress"
+        )
+        XCTAssertTrue(
+            app.buttons["naru.connection.grid.cancel"].waitForExistence(timeout: 4),
+            "Cancelling a connect must be reachable from the card that started it"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.session.viewport"].exists,
+            "An empty remote-control surface is the third screen this closes"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.input.accessory.strip"].exists,
+            "The input dock must not mount before there is a session to send to"
+        )
+
+        try saveScreen(named: "20-connecting-on-host-list-iphone-dark.png")
+    }
+
     // MARK: - App Store marketing captures
     //
     // Five slots, one story each, in the order they should appear on the
@@ -1302,6 +1344,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         case sidebarWithVerdicts = "sidebar-with-verdicts"
         case sessionActiveWidescreen = "session-active-widescreen"
         case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
+        case sessionConnectingDelayedFirstFrame = "session-connecting-delayed-first-frame"
         case storeConnectionGrid = "store-connection-grid"
         case storeSessionActive = "store-session-active"
         case storeSessionKoreanCompose = "store-session-korean-compose"

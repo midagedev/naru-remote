@@ -27,10 +27,16 @@ same PR.
    (real mouse/trackpad/Pencil on iPad, hold-repeat feel and Korean IME
    flush on iPhone) — fold it into the paired device pass in item 1.
 1b. **`specs/013` three-screen consolidation** — **implemented 2026-08-18**
-   (`35c692d0`): a failed connection returns to the host list by itself, the
-   failing card carries the reason plus inline Reconnect, Diagnostics moved to
-   the card actions menu, and the recovery overlay is gone. Remaining: a real
-   failed connect and a real mid-session drop on device.
+   (`35c692d0`), **extended 2026-08-19 (US-4)** after the founder's device pass
+   found the *connecting* state still reading as a third screen: tapping a card
+   opened an empty remote-control screen (a "Waiting for first frame"
+   placeholder under a full-height pinned dock). Connecting now belongs to the
+   host list — the tapped card shows progress and Cancel, and remote control
+   opens on the first frame. Both occurrences came from the same shape, a
+   view-local route flag set on tap and corrected afterwards; that flag is gone
+   and `RemoteControlSurfacePolicy` (Core) derives the surface from
+   `(sessionState, hasFramebuffer)`. Remaining: a real failed connect, a real
+   connect, and a real mid-session drop on device.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
@@ -104,6 +110,12 @@ same PR.
   inert. Fix is one reader that dispatches by `msg_type`; until then
   `SUBMISSION_READINESS.md` §2 #7 carries the ⚠️ and store copy must not
   claim it. Found by the 2026-08-17 code audit (P1-4).
+- **`DirectKeystroke*UITests` test a removed feature** — four suites still drive
+  the Direct keystroke keyboard, whose views were deleted in `6bc3b0d2`
+  ("Simplify input UX to two-mode Type/Compose dock"). They have been failing
+  since that commit and are not a regression from any later work; they should be
+  retired or rewritten against Type mode. Confirmed 2026-08-19 while verifying
+  spec 013 US-4.
 - **Two pre-existing `NaruRemoteLaunchUITests` failures** (reproduced at
   `e249df1d`, before the 2026-08-17/18 UI work — not regressions):
   `testRemoteInputDockMovesAboveKeyboardWhileComposing` measures a 186 pt gap
@@ -111,11 +123,13 @@ same PR.
   `testStartupGlanceScaleOverrideIsScopedToLowTrafficProfiles` cannot find a
   grid card to tap. The first is a real landscape layout question, not just a
   test threshold.
-- **Flaky privacy assertion** —
+- **Two load-dependent flakes in `swift test`** — both pass in isolation and
+  fail only under full-suite load, so they are timing, not logic:
   `PointerEventTapTests.testSendTapAtRecordsOnlySafeOutboundInputDiagnostics`
-  failed once under full-suite load asserting the diagnostic export contains no
-  `"512"`, and passed 3/3 in isolation. It guards constitution §IV, so it
-  deserves a real diagnosis rather than a retry.
+  (asserts the diagnostic export contains no `"512"`; guards constitution §IV)
+  and `DirectKeystrokeModeTests.testTimedOutPointerInputDoesNotDisableLaterKeys`
+  ("Timed out waiting for 2 key events; got 0", observed 2026-08-19, passes 2/2
+  alone). They deserve a real diagnosis rather than a retry.
 - **Specify helper production packaging before implementation** — menu-bar app
   wrapper, notarization, launchd auto-start, capability/status disclosure, and
   revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
