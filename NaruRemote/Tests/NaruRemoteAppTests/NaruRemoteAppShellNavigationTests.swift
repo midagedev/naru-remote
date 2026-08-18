@@ -3,29 +3,24 @@ import XCTest
 @testable import NaruRemoteApp
 
 final class NaruRemoteAppShellNavigationTests: XCTestCase {
+    // The grid is now a pure function of "is remote control on", which is
+    // itself derived from session facts (`RemoteControlSurfacePolicy`).
+    // Spec 013 US-4: connecting stays here, on the host list.
+
     func testSavedProfileLaunchShowsConnectionGrid() {
         XCTAssertTrue(
             NaruRemoteAppShell.shouldShowConnectionGrid(
                 isEmptyHome: false,
-                isLiveSession: false,
-                showsOperationSurface: false
+                showsRemoteControlSurface: false
             )
         )
     }
 
-    func testExplicitOperationAndLiveSessionHideConnectionGrid() {
+    func testRemoteControlHidesConnectionGrid() {
         XCTAssertFalse(
             NaruRemoteAppShell.shouldShowConnectionGrid(
                 isEmptyHome: false,
-                isLiveSession: false,
-                showsOperationSurface: true
-            )
-        )
-        XCTAssertFalse(
-            NaruRemoteAppShell.shouldShowConnectionGrid(
-                isEmptyHome: false,
-                isLiveSession: true,
-                showsOperationSurface: false
+                showsRemoteControlSurface: true
             )
         )
     }
@@ -34,88 +29,53 @@ final class NaruRemoteAppShellNavigationTests: XCTestCase {
         XCTAssertFalse(
             NaruRemoteAppShell.shouldShowConnectionGrid(
                 isEmptyHome: true,
-                isLiveSession: false,
-                showsOperationSurface: false
+                showsRemoteControlSurface: false
             )
         )
     }
 
-    func testFailedOrClosedWithoutFramebufferLeavesOperationSurface() {
-        XCTAssertTrue(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .failed,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
+    func testConnectingKeepsTheHostListOnScreen() {
+        // The regression the founder reported from a device on 2026-08-19:
+        // tapping a card used to open an empty remote-control screen while
+        // the connection was still being made.
+        for state in [RemoteSessionState.connecting, .authenticating] {
+            XCTAssertTrue(
+                NaruRemoteAppShell.shouldShowConnectionGrid(
+                    isEmptyHome: false,
+                    showsRemoteControlSurface: RemoteControlSurfacePolicy.showsRemoteControl(
+                        sessionState: state,
+                        hasFramebuffer: false
+                    )
+                ),
+                "\(state) must keep the host list on screen"
             )
-        )
-        XCTAssertTrue(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .closed,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
-            )
-        )
+        }
     }
 
-    func testConnectingAndActiveStayOnOperationSurface() {
+    func testFirstFrameOpensRemoteControl() {
         XCTAssertFalse(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .connecting,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
-            )
-        )
-        XCTAssertFalse(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .active,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
-            )
-        )
-    }
-
-    func testFailedWithFramebufferOrTestingPinStaysOnOperationSurface() {
-        XCTAssertFalse(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .failed,
-                hasFramebuffer: true,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
-            )
-        )
-        XCTAssertFalse(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .failed,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: true
-            )
-        )
-    }
-
-    func testEditorSaveStaysOnHostListAfterAutomaticReturn() {
-        // US1-5: auto-return already clears the operation surface, and the
-        // profile editor is a sheet over the grid. Save does not flip
-        // `showsOperationSurface`.
-        XCTAssertTrue(
-            SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-                sessionState: .failed,
-                hasFramebuffer: false,
-                isOperationSurfaceVisible: true,
-                isPinnedForTesting: false
-            )
-        )
-        XCTAssertTrue(
             NaruRemoteAppShell.shouldShowConnectionGrid(
                 isEmptyHome: false,
-                isLiveSession: false,
-                showsOperationSurface: false
+                showsRemoteControlSurface: RemoteControlSurfacePolicy.showsRemoteControl(
+                    sessionState: .active,
+                    hasFramebuffer: true
+                )
             )
         )
+    }
+
+    func testFailedOrClosedReturnsToTheHostList() {
+        for state in [RemoteSessionState.failed, .closed] {
+            XCTAssertTrue(
+                NaruRemoteAppShell.shouldShowConnectionGrid(
+                    isEmptyHome: false,
+                    showsRemoteControlSurface: RemoteControlSurfacePolicy.showsRemoteControl(
+                        sessionState: state,
+                        hasFramebuffer: false
+                    )
+                )
+            )
+        }
     }
 
     func testDiagnosticCapsuleRendersOnlyDuringConnectingOrLiveSession() {

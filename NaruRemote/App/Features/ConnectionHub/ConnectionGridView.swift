@@ -8,6 +8,9 @@ public struct ConnectionGridView: View {
     private let onDiagnostics: ((ConnectionGridCard.ID) -> Void)?
     private let onEdit: ((ConnectionGridCard.ID) -> Void)?
     private let onDelete: ((ConnectionGridCard.ID) -> Void)?
+    /// Connecting happens on this screen (spec 013 US-4), so cancelling it has
+    /// to be reachable from the card that started it.
+    private let onCancelConnection: (() -> Void)?
     @State private var pendingDeleteCard: ConnectionGridCard?
 
     public init(
@@ -16,7 +19,8 @@ public struct ConnectionGridView: View {
         onAddProfile: @escaping () -> Void,
         onDiagnostics: ((ConnectionGridCard.ID) -> Void)? = nil,
         onEdit: ((ConnectionGridCard.ID) -> Void)? = nil,
-        onDelete: ((ConnectionGridCard.ID) -> Void)? = nil
+        onDelete: ((ConnectionGridCard.ID) -> Void)? = nil,
+        onCancelConnection: (() -> Void)? = nil
     ) {
         self.cards = cards
         self.onSelect = onSelect
@@ -24,6 +28,7 @@ public struct ConnectionGridView: View {
         self.onDiagnostics = onDiagnostics
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onCancelConnection = onCancelConnection
     }
 
     public var body: some View {
@@ -41,9 +46,11 @@ public struct ConnectionGridView: View {
             ) {
                 ForEach(cards) { card in
                     ZStack(alignment: .topTrailing) {
-                        ConnectionGridCardView(card: card) {
-                            onSelect(card.id)
-                        }
+                        ConnectionGridCardView(
+                            card: card,
+                            onSelect: { onSelect(card.id) },
+                            onCancelConnection: onCancelConnection
+                        )
 
                         if onDiagnostics != nil || onEdit != nil || onDelete != nil {
                             profileActionsMenu(for: card)
@@ -126,6 +133,9 @@ public struct ConnectionGridView: View {
         }
 
         var label = "\(card.displayName), \(card.endpoint), \(hostDescription), \(card.reachability.gridAccessibilityLabel), \(card.helperVideoReadiness.accessibilityLabel)"
+        if let connecting = card.connecting {
+            label += ", \(connecting.label)"
+        }
         if let failure = card.failure {
             label += ", \(failure.message)"
         }
@@ -185,6 +195,7 @@ public struct ConnectionGridView: View {
 private struct ConnectionGridCardView: View {
     let card: ConnectionGridCard
     let onSelect: () -> Void
+    let onCancelConnection: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -235,7 +246,19 @@ private struct ConnectionGridCardView: View {
                         .lineLimit(1)
                         .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
 
-                        if let failure = card.failure {
+                        if let connecting = card.connecting {
+                            // The progress lives on the card instead of on a
+                            // screen of its own: remote control opens when
+                            // there is a remote screen to show (spec 013 US-4).
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(connecting.label)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("naru.connection.grid.connecting")
+                        } else if let failure = card.failure {
                             Text(failure.message)
                                 .font(.caption)
                                 .foregroundStyle(NaruColors.warning)
@@ -256,7 +279,18 @@ private struct ConnectionGridCardView: View {
             // — the same regression class as the 2026-07-12 dock finding.
             .accessibilityAddTraits(.isButton)
 
-            if card.failure != nil {
+            if card.connecting != nil, let onCancelConnection {
+                Button(role: .cancel, action: onCancelConnection) {
+                    Text("Cancel")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("naru.connection.grid.cancel")
+            } else if card.failure != nil {
                 Button(action: onSelect) {
                     Label("Reconnect", systemImage: "arrow.clockwise")
                         .font(.caption.weight(.semibold))

@@ -11,10 +11,13 @@ public struct NaruRemoteAppShell: View {
 
     @StateObject private var model: NaruRemoteAppModel
     @State private var showsProfileEditor = false
-    /// Naru intentionally has only two primary surfaces: Connections and
-    /// Operation. This local route flips immediately on card tap so the UI
-    /// responds before any network await completes.
-    @State private var showsOperationSurface = false
+    /// Screenshot/UI-test pin only. Which primary surface is on is *derived*
+    /// from session facts by `RemoteControlSurfacePolicy` — see
+    /// `showsRemoteControlSurface`. Nothing flips a route on tap any more:
+    /// doing that, and then correcting it once the session caught up, is what
+    /// produced a visible third screen twice (the failure overlay in spec 013,
+    /// then the pre-first-frame connecting state).
+    private let pinsRemoteControlSurfaceForTesting: Bool
     @State private var pendingPublicConnection: ConnectionProfile?
     @State private var showsDiagnosticDetail = false
     @State private var showsGridDiagnosticDetail = false
@@ -57,7 +60,7 @@ public struct NaruRemoteAppShell: View {
         startsOnSelectedProfileDetail: Bool = false
     ) {
         self._model = StateObject(wrappedValue: NaruRemoteAppModel(snapshot: snapshot))
-        self._showsOperationSurface = State(initialValue: startsOnSelectedProfileDetail)
+        self.pinsRemoteControlSurfaceForTesting = startsOnSelectedProfileDetail
         self.buildVersion = buildVersion
     }
 
@@ -67,12 +70,25 @@ public struct NaruRemoteAppShell: View {
         startsOnSelectedProfileDetail: Bool = false
     ) {
         self._model = StateObject(wrappedValue: model)
-        self._showsOperationSurface = State(initialValue: startsOnSelectedProfileDetail)
+        self.pinsRemoteControlSurfaceForTesting = startsOnSelectedProfileDetail
         self.buildVersion = buildVersion
     }
 
+    /// Which primary surface is on, derived — never assigned.
+    /// `RemoteControlSurfacePolicy` owns the rule; this only supplies the
+    /// facts and the screenshot pins.
+    private var showsRemoteControlSurface: Bool {
+        let snapshot = model.snapshot
+        return RemoteControlSurfacePolicy.showsRemoteControl(
+            sessionState: snapshot.session?.state,
+            hasFramebuffer: snapshot.latestFramebuffer != nil,
+            isPinnedForTesting: pinsRemoteControlSurfaceForTesting,
+            retainsEndedSessionForTesting: Self.forcesInputDockForTesting
+        )
+    }
+
     /// True once the session is streaming (or in bounded auto-reconnect) or
-    /// any frame has arrived. Operation is always full-height now; this flag
+    /// any frame has arrived. Remote control is always full-height; this flag
     /// only selects live input-accessory behavior and test/performance chrome.
     /// Pure local layout decision — constitution §I (no new RFB message).
     private var isLiveSession: Bool {
@@ -220,6 +236,14 @@ public struct NaruRemoteAppShell: View {
             return
         }
 
+        // The card stays tappable while its connect runs (spec 013 US-4), so
+        // an impatient second tap must not tear down the attempt in flight and
+        // start over. Cancel is the control for changing your mind.
+        if let card = model.snapshot.connectionGridCards.first(where: { $0.id == id }),
+           card.connecting != nil {
+            return
+        }
+
         if Self.requiresPublicConnectionConfirmation(hostKind: profile.hostKind) {
             pendingPublicConnection = profile
             return
@@ -229,14 +253,19 @@ public struct NaruRemoteAppShell: View {
     }
 
     private func beginConnection(to profileID: ConnectionProfile.ID) {
-        // Apple-style direct manipulation: move to Operation synchronously,
-        // then let the model own the asynchronous profile-selection/connect
-        // intent. The attempt guard prevents late results from reviving a
-        // surface the user has already left.
-        showsOperationSurface = true
+        // Connecting stays on the host list (spec 013 US-4): the tapped card
+        // reports progress and offers cancel, and remote control opens when
+        // the first frame arrives. So this starts the work and routes nothing.
         composeFieldFocused = false
         composeExpansionRequested = false
         Task { await model.connectProfile(id: profileID) }
+    }
+
+    /// Cancels an in-flight connect from the card that started it.
+    private func cancelConnection() {
+        model.disconnect()
+        composeFieldFocused = false
+        composeExpansionRequested = false
     }
 
     private func editProfile(id: ConnectionProfile.ID) {
@@ -250,37 +279,19 @@ public struct NaruRemoteAppShell: View {
     }
 
     private func returnToConnections() {
-        // Disconnect is also the cancellation path for connecting and
-        // authenticating. The model invalidates any late callback before the
-        // grid becomes visible again.
+        // Ending the session *is* the navigation: the surface is derived, so
+        // there is no route to unset. `disconnect()` invalidates any late
+        // callback before the grid becomes visible again.
         model.disconnect()
+        clearRemoteControlSurfaceState()
+    }
+
+    /// Local view state that only makes sense while remote control is on.
+    private func clearRemoteControlSurfaceState() {
         composeFieldFocused = false
         composeExpansionRequested = false
         liveSessionLayoutSessionID = nil
         showsDiagnosticDetail = false
-        showsOperationSurface = false
-    }
-
-    /// Leaves remote control without calling `model.disconnect()`, so
-    /// `session.lastError` remains available for the host-card annotation.
-    private func leaveOperationSurfacePreservingSession() {
-        composeFieldFocused = false
-        composeExpansionRequested = false
-        liveSessionLayoutSessionID = nil
-        showsDiagnosticDetail = false
-        showsOperationSurface = false
-    }
-
-    private func applySessionSurfaceRouting(snapshot: NaruRemoteAppSnapshot) {
-        let shouldLeave = SessionSurfaceRoutingPolicy.shouldLeaveOperationSurface(
-            sessionState: snapshot.session?.state,
-            hasFramebuffer: snapshot.latestFramebuffer != nil,
-            isOperationSurfaceVisible: showsOperationSurface,
-            isPinnedForTesting: Self.forcesInputDockForTesting
-        )
-        if shouldLeave {
-            leaveOperationSurfacePreservingSession()
-        }
     }
 
     private func openDiagnostics(for profileID: ConnectionProfile.ID) {
@@ -312,9 +323,13 @@ public struct NaruRemoteAppShell: View {
     /// compose path is about "원격 세션이 열렸을 때 로컬 입력 경로가
     /// 준비됐는지" — so before a connection exists there is nothing to
     /// send to, and the dock would only bury the Connect button and the
-    /// diagnostics list.  Show it once a connection is in progress or
-    /// live; hide it on the bare "profile selected / running checks"
-    /// screen and after a connection has failed or closed.
+    /// diagnostics list.
+    ///
+    /// Since spec 013 US-4 the connecting cases here are effectively
+    /// unreachable in the product: connecting keeps the user on the host list,
+    /// so the dock cannot mount before there is a session to send to. They
+    /// remain because the screenshot pins do mount this surface without a live
+    /// session, and those captures need the dock.
     static func showsInputDock(for snapshot: NaruRemoteAppSnapshot) -> Bool {
         if sessionWarrantsInputDock(snapshot.session?.state) {
             return true
@@ -342,10 +357,9 @@ public struct NaruRemoteAppShell: View {
 
     nonisolated static func shouldShowConnectionGrid(
         isEmptyHome: Bool,
-        isLiveSession: Bool,
-        showsOperationSurface: Bool
+        showsRemoteControlSurface: Bool
     ) -> Bool {
-        !isEmptyHome && !isLiveSession && !showsOperationSurface
+        !isEmptyHome && !showsRemoteControlSurface
     }
 
     struct ProfileDeletionRetryState: Identifiable, Equatable, Sendable {
@@ -411,7 +425,8 @@ public struct NaruRemoteAppShell: View {
                         onAddProfile: { showsProfileEditor = true },
                         onDiagnostics: openDiagnostics,
                         onEdit: editProfile,
-                        onDelete: performProfileDeletion
+                        onDelete: performProfileDeletion,
+                        onCancelConnection: cancelConnection
                     )
                     .navigationBarBackButtonHidden(true)
                 } else {
@@ -553,14 +568,11 @@ public struct NaruRemoteAppShell: View {
         let currentSessionID = snapshot.session?.id
         let usesLiveSessionLayout = isLiveSession
             && (!composeFieldFocused || liveSessionLayoutSessionID == currentSessionID)
+        let showsRemoteControl = showsRemoteControlSurface
         let showsConnectionGrid = Self.shouldShowConnectionGrid(
             isEmptyHome: isEmptyHome,
-            isLiveSession: isLiveSession,
-            showsOperationSurface: showsOperationSurface
+            showsRemoteControlSurface: showsRemoteControl
         )
-        // `showsOperationSurface` is the explicit second surface. A retained
-        // failed/closed session can remain available for diagnostics without
-        // becoming a third selected-profile navigation depth.
 
         Group {
             if isEmptyHome {
@@ -606,11 +618,12 @@ public struct NaruRemoteAppShell: View {
                 liveSessionLayoutSessionID = currentSessionID
             }
         }
-        .onChange(of: snapshot.session?.state, initial: true) { _, _ in
-            applySessionSurfaceRouting(snapshot: snapshot)
-        }
-        .onChange(of: snapshot.latestFramebuffer != nil, initial: true) { _, _ in
-            applySessionSurfaceRouting(snapshot: snapshot)
+        .onChange(of: showsRemoteControl) { _, isShowing in
+            // Leaving remote control (session ended, dropped, or cancelled)
+            // must not strand compose focus or a pinned live layout.
+            if !isShowing {
+                clearRemoteControlSurfaceState()
+            }
         }
         .sheet(isPresented: $showsGridDiagnosticDetail) {
             // Hosted in its own observing view: a run started by

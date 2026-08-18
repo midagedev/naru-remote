@@ -2,7 +2,11 @@
 
 **Feature Branch**: `013-three-screen-consolidation`
 **Created**: 2026-08-18
-**Status**: Implemented 2026-08-18 (`35c692d0`) — founder direction 2026-08-18 ("전체 화면 목록이 호스트목록, 신규호스트/호스트 수정, 원격제어 이렇게 세 개만 있어서 깔끔하게 되어야 하는데 호스트 목록과 원격제어 사이에 이상한 화면이 하나 생겨서 자꾸 안 없어지더라고" + "꼭 필요한 걸 호스트 목록으로 합치고 제거하고 싶어 혹은 원격제어 화면에 합치거나")
+**Status**: Implemented 2026-08-18 (`35c692d0`); **extended 2026-08-19 with
+US-4** after the founder tested build 2 on a physical device and found the
+connecting state still reading as a third screen ("실기기 테스트 해보니 여전히
+호스트 목록과 원격제어 사이에 접속중 상태에 보이는 추가적인 화면이 남아있네").
+Original direction 2026-08-18 ("전체 화면 목록이 호스트목록, 신규호스트/호스트 수정, 원격제어 이렇게 세 개만 있어서 깔끔하게 되어야 하는데 호스트 목록과 원격제어 사이에 이상한 화면이 하나 생겨서 자꾸 안 없어지더라고" + "꼭 필요한 걸 호스트 목록으로 합치고 제거하고 싶어 혹은 원격제어 화면에 합치거나")
 **Product**: Naru Remote
 **Input**: Lead navigation audit 2026-08-18 (`NaruRemoteAppShell.swift` route map).
 
@@ -86,11 +90,52 @@ message and Retry carry information the list does not have.
 1. **Given** any app state, **Then** exactly one of three surfaces is on screen:
    the host list (or its empty-state CTA), the profile editor sheet, or the
    remote-control screen — and the remote-control screen is on screen only while
-   a session is connecting or live.
-2. **Given** the user cancels while connecting, **Then** the existing disconnect
-   path returns to the host list unchanged.
+   a session is live. *(Amended by US-4 on 2026-08-19: this originally read
+   "connecting or live", and that "or connecting" is exactly what the founder
+   met on device as a third screen.)*
+2. **Given** the user cancels while connecting, **Then** the session ends and the
+   host list — which never left — stays put (US-4).
+
+### User Story 4 — Connecting Belongs To The Host List (Priority: P0)
+
+Added 2026-08-19. US1 retired the *failure* surface; the device pass showed the
+same complaint survives in the `.connecting` window. Tapping a card opened the
+remote-control screen immediately, before any frame existed, so the user met a
+placeholder ("Waiting for first frame") under a full-height pinned input dock —
+a layout that resembles neither the host list nor a live session, and therefore
+reads as a third screen. Founder decision (2026-08-19, presented as two
+options): **the host list owns connecting.**
+
+**Acceptance Scenarios**:
+
+1. **Given** the user taps a host card, **When** the session is connecting or
+   authenticating and no frame has arrived, **Then** the host list stays on
+   screen and that card shows progress plus a Cancel control.
+2. **Given** a connect is in progress, **When** the first frame arrives, **Then**
+   the remote-control screen opens with the remote screen already filling it.
+3. **Given** a connect is in progress, **When** the user taps Cancel on the card,
+   **Then** the session ends and the list stays put.
+4. **Given** any session state, **Then** the remote-control screen is never on
+   screen without a remote screen to show (except under the screenshot pin).
+5. **Given** a live session drops mid-stream, **When** the state becomes
+   `.failed`/`.closed`, **Then** the user returns to the list even though a stale
+   framebuffer is still in memory — no frozen screen.
+
+**Structural note**: the recurrence mechanism matters more than the fix. Both
+occurrences came from the same shape — a view-local route flag set on tap
+(`showsOperationSurface = true`) and corrected afterwards once the session
+caught up. That flag is deleted. `RemoteControlSurfacePolicy` in
+`NaruRemoteCore` now *derives* which surface is on from
+`(sessionState, hasFramebuffer)`, so no code path can put an empty
+remote-control screen on screen.
 
 ## Scope
+
+**In (2026-08-19, US-4)**: `RemoteControlSurfacePolicy` as the single owner of
+surface selection; deletion of `showsOperationSurface` and its correction
+handlers; `ConnectionGridCardConnecting` derivation plus the card's progress row
+and Cancel button; retirement of the compose-while-connecting UI test whose
+window no longer exists.
 
 **In**: automatic return to the host list on `.failed`/`.closed` without a
 framebuffer; per-card failure annotation + Reconnect on `ConnectionGridCard`;
@@ -105,6 +150,14 @@ editor; helper/PiP surfaces.
 
 ## Verification Matrix
 
+- Unit (`swift test`, US-4): `RemoteControlSurfacePolicyTests` — connecting and
+  authenticating without a frame stay on the host list; `.active` (only
+  reachable through `markFirstFrameReceived`) opens remote control; terminal
+  states return to the list even with a stale frame; the screenshot pin still
+  mounts the surface; and a table test that no state shows remote control
+  without a frame. `ConnectionGridCardConnectingDerivationTests` — right profile
+  only, cleared once a frame exists, label from a fixed vocabulary rather than
+  session text (constitution §IV).
 - Unit (`swift test`): the return-to-list routing predicate (failed/closed with
   no framebuffer ⇒ leave the operation surface; connecting/active/reconnecting ⇒
   stay); card failure derivation from the session snapshot (right profile only,
@@ -118,6 +171,21 @@ editor; helper/PiP surfaces.
 - **Physical-device residual**: fold into the existing paired-device pass — a
   real failed connect (wrong password) and a real mid-session drop.
 
+### US-4 gates (2026-08-19)
+
+- `swift test`: 1568 tests / 26 skipped / 0 failures.
+- `UXAuditScreenshotsUITests.testConnectingStaysOnHostList_dark`: asserts the
+  grid stays, the card reports progress with a Cancel button, and neither the
+  session viewport nor the accessory strip is mounted. Capture:
+  `artifacts/screenshots/ux-audit/20-connecting-on-host-list-iphone-dark.png`
+  (read by the lead — spinner, "Connecting…", Cancel, no third screen). The
+  before-state capture is what identified the defect.
+- Regression found while verifying and fixed in the same round:
+  `ComposeInputResponsivenessUITests` was **red before this work** (11 tests, 20
+  failures, reproduced at `548d8ad2`) because its `composeEditor` helper never
+  performed the compose-reveal tap a live-session dock requires since spec
+  011/012. It is now 10/10; the eleventh test was retired with US-4 (see below).
+
 ## Residuals
 
 Gates run by the lead: `swift test` 1565 tests / 26 skipped; iPhone 17 Pro
@@ -127,6 +195,15 @@ the Unreachable badge, and an inline Reconnect on the host list.
 
 Carried forward:
 
+- **US-4 physical device**: a real connect on the founder's iPhone — the card
+  shows progress, Cancel works, and remote control opens on the first frame.
+- **Retired with US-4**:
+  `ComposeInputResponsivenessUITests.testFocusedConnectingComposeDefersLiveLayoutAfterFirstFrameAndKeepsTyping`
+  composed Korean *while connecting* and asserted the editor survived the first
+  frame landing underneath it. That window no longer exists for a user, so the
+  bug class it guarded ("first syllable, then the live session starts, keyboard
+  freezes") is closed by construction. The rationale is left in the test file at
+  the deleted method's position.
 - **Physical device**: a real failed connect (wrong password) and a real
   mid-session drop, folded into the paired-device pass in `NEXT_STEPS.md`.
 - **Pre-existing, not caused by this feature**: two `NaruRemoteLaunchUITests`

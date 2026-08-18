@@ -1367,6 +1367,11 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
                     profileID: profile.id,
                     session: session,
                     hasFramebuffer: latestFramebuffer != nil
+                ),
+                connecting: ConnectionGridCardConnecting.derived(
+                    profileID: profile.id,
+                    session: session,
+                    hasFramebuffer: latestFramebuffer != nil
                 )
             )
         }
@@ -1552,6 +1557,36 @@ public struct ConnectionGridCardFailure: Equatable, Sendable {
     }
 }
 
+/// Progress shown on the card that was tapped, because connecting belongs to
+/// the host list (spec 013 US-4). The label comes from a fixed vocabulary, not
+/// from `hudMessage` — session HUD text is a catalog string today but the card
+/// must not become a place raw session text can reach (constitution §IV).
+public struct ConnectionGridCardConnecting: Equatable, Sendable {
+    public let label: String
+
+    public init(label: String) {
+        self.label = label
+    }
+
+    public static func derived(
+        profileID: ConnectionProfile.ID,
+        session: RemoteSession?,
+        hasFramebuffer: Bool
+    ) -> ConnectionGridCardConnecting? {
+        guard let session, session.profileID == profileID, !hasFramebuffer else {
+            return nil
+        }
+        switch session.state {
+        case .connecting:
+            return ConnectionGridCardConnecting(label: "Connecting…")
+        case .authenticating:
+            return ConnectionGridCardConnecting(label: "Authenticating…")
+        case .active, .degraded, .reconnecting, .failed, .closed:
+            return nil
+        }
+    }
+}
+
 public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let id: ConnectionProfile.ID
     public let displayName: String
@@ -1563,6 +1598,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
     public let verdict: DiagnosticVerdict
     public let isSelected: Bool
     public let failure: ConnectionGridCardFailure?
+    public let connecting: ConnectionGridCardConnecting?
 
     public init(
         id: ConnectionProfile.ID,
@@ -1578,7 +1614,8 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         ),
         verdict: DiagnosticVerdict,
         isSelected: Bool,
-        failure: ConnectionGridCardFailure? = nil
+        failure: ConnectionGridCardFailure? = nil,
+        connecting: ConnectionGridCardConnecting? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -1590,6 +1627,7 @@ public struct ConnectionGridCard: Equatable, Sendable, Identifiable {
         self.verdict = verdict
         self.isSelected = isSelected
         self.failure = failure
+        self.connecting = connecting
     }
 }
 
