@@ -517,7 +517,16 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
     }
 
-    func testFocusedComposeStatusLineStaysMountedWhenTypingClearsPreviousSendResult() throws {
+    /// Spec 015 FR-006/FR-007. The line this used to assert
+    /// ("Ready to compose locally") existed to hold a `VStack` slot open —
+    /// removing it mid-typing changed the stack's children and collapsed the
+    /// keyboard safe-area layout under UIKit IME. The slot is now an overlay
+    /// above the dock (`NaruRemoteAppShell` — the dock host's
+    /// `.overlay(alignment: .top)`), so presence no longer moves the dock and
+    /// the placeholder is not needed. What survives is the real requirement:
+    /// a status the user can act on still shows, and a nominal one costs no
+    /// screen.
+    func testFocusedComposeStatusLineSpeaksOnlyWhenSomethingNeedsSaying() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
         let previousAttempt = TextInjectionAttempt(
@@ -552,17 +561,33 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             isComposeFieldFocused: true
         )
 
-        XCTAssertEqual(statusLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
-        XCTAssertEqual(editingLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
         XCTAssertEqual(
-            statusLine,
-            editingLine,
-            "Focused Compose chrome should stay visually static while model send status clears; dynamic status resumes after focus leaves."
+            statusLine?.text,
+            "Remote app confirmation unavailable.",
+            "An unconfirmed delivery keeps the user's text locally; that must be said even while the field holds focus."
         )
-        XCTAssertNotNil(statusLine)
-        XCTAssertNotNil(
-            editingLine,
-            "The focused status sibling must remain mounted after the first syllable clears stale send chrome; removing it can collapse the keyboard safe-area layout under UIKit IME."
+        XCTAssertEqual(
+            editingLine?.text,
+            "Korean/CJK/emoji needs Mac helper setup",
+            "The stale send result clears, but an undeliverable Korean draft is still actionable."
+        )
+
+        // The nominal case: an ASCII draft on a healthy transport with nothing
+        // outstanding. This is the founder's terminal posture, and it is the
+        // one that must cost no screen.
+        let nominalSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: "ls -la")
+        )
+        XCTAssertNil(
+            RemoteInputDockStatusLineState(
+                snapshot: nominalSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ),
+            "With nothing unconfirmed, failed or undeliverable, the status line costs no screen — the founder is watching the remote react, not reading 'Ready to compose locally'."
         )
         XCTAssertEqual(
             RemoteInputDockStatusLineState(
@@ -572,8 +597,36 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             )?.text,
             editingSnapshot.inputHelperStatusText
         )
+
+        let sentSnapshot = NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            composeDraft: ComposeDraft(sessionID: session.id, text: ""),
+            latestInjectionAttempt: TextInjectionAttempt(
+                draftID: UUID(),
+                sessionID: session.id,
+                path: .helperTextBridge,
+                status: .sent,
+                safeMessage: "Inserted via Naru Helper"
+            )
+        )
+        XCTAssertNil(
+            RemoteInputDockStatusLineState(
+                snapshot: sentSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            ),
+            "A delivery that landed is signalled by the crossing pulse, which has no height (FR-006)."
+        )
     }
 
+    /// Spec 015: status text is no longer frozen while focused — it is
+    /// *suppressed unless actionable*, and it renders as an overlay above the
+    /// dock instead of as a stack row. The invariant that mattered is the one
+    /// asserted here: whatever the status does, the **dock's** render state is
+    /// unchanged, so the equatable host does not repaint the live `UITextView`
+    /// bridge and the next IME key cannot stall.
     func testFocusedComposeStatusLineIgnoresPublishedModelChromeChanges() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
@@ -608,17 +661,38 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            RemoteInputDockStatusLineState(
+            RemoteInputDockRenderState(
                 snapshot: baseSnapshot,
                 isLiveSession: true,
                 isComposeFieldFocused: true
             ),
-            RemoteInputDockStatusLineState(
+            RemoteInputDockRenderState(
                 snapshot: noisySnapshot,
                 isLiveSession: true,
                 isComposeFieldFocused: true
             ),
-            "Focused Compose's sibling chrome must not relayout when helper/send status changes under an active IME transaction."
+            "Helper/send status churn must not repaint the focused dock — that is what can stall the next IME key."
+        )
+
+        // Both of these are states the user can act on, so both are allowed to
+        // speak; what they must not do is move the dock.
+        XCTAssertEqual(
+            RemoteInputDockStatusLineState(
+                snapshot: baseSnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            )?.text,
+            "Korean/CJK/emoji needs Mac helper setup",
+            "A Korean draft with no paired helper cannot be delivered as typed — the user has to know."
+        )
+        XCTAssertEqual(
+            RemoteInputDockStatusLineState(
+                snapshot: noisySnapshot,
+                isLiveSession: true,
+                isComposeFieldFocused: true
+            )?.text,
+            "Remote app confirmation unavailable.",
+            "An unconfirmed delivery outranks the helper hint: it is about text already sent."
         )
     }
 
@@ -654,7 +728,11 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
             focusedChrome.incomingClipboardReview,
             "Remote clipboard review UI must not appear above the keyboard while UIKit owns Korean/CJK Compose focus."
         )
-        XCTAssertEqual(focusedChrome.statusLine?.text, RemoteInputDockStatusLineState.focusedStatusText)
+        XCTAssertEqual(
+            focusedChrome.statusLine?.text,
+            "Korean/CJK/emoji needs Mac helper setup",
+            "The Korean draft cannot be delivered without the helper, which is actionable and still speaks (spec 015 FR-006)."
+        )
         XCTAssertEqual(
             unfocusedChrome.incomingClipboardReview,
             review,

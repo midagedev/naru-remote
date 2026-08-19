@@ -99,6 +99,11 @@ public struct RemoteInputDockView: View {
     private let liveTransportDisclosureText: String
     /// Per-window Live delivery status line (FR-013). Fixed catalog copy.
     private let liveStatusText: String?
+    /// Spec 015 FR-006: at compact width these two decide whether the
+    /// sentence earns a row. At standard width both lines render as before —
+    /// the height pressure was never there.
+    private let liveTransportIsDegraded: Bool
+    private let liveStatusIsActionable: Bool
     private let onSelectMode: (NaruRemoteAppModel.RemoteInputDockMode) -> Void
     /// Committed-text snapshot hook for Live mode: `(committedText, hasMarkedText)`.
     private let onLiveCommit: (String, Bool) -> Void
@@ -112,6 +117,12 @@ public struct RemoteInputDockView: View {
     /// must live in the shell and arrive back as a prop.
     private let composeExpansionRequested: Bool
     private let onRequestComposeExpansion: (Bool) -> Void
+    /// Is the accessory key panel revealed (spec 015)? Model-owned for the
+    /// same reason as `composeExpansionRequested`: the placement swap
+    /// recreates this view, and the panel must not collapse under the
+    /// user's finger mid-session.
+    private let accessoryPanelExpanded: Bool
+    private let onSetAccessoryPanelExpanded: (Bool) -> Void
 
     public init(
         initialText: String,
@@ -129,6 +140,8 @@ public struct RemoteInputDockView: View {
         liveTypeThroughActive: Bool = false,
         liveTransportDisclosureText: String = "",
         liveStatusText: String? = nil,
+        liveTransportIsDegraded: Bool = false,
+        liveStatusIsActionable: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSelectMode: @escaping (NaruRemoteAppModel.RemoteInputDockMode) -> Void = { _ in },
         onSetDirectKeystrokePage: @escaping (KeyboardPage) -> Void = { _ in },
@@ -144,7 +157,9 @@ public struct RemoteInputDockView: View {
         onDismissDirectModeWarning: @escaping () -> Void = {},
         onComposeFocusChange: @escaping (Bool) -> Void = { _ in },
         composeExpansionRequested: Bool = false,
-        onRequestComposeExpansion: @escaping (Bool) -> Void = { _ in }
+        onRequestComposeExpansion: @escaping (Bool) -> Void = { _ in },
+        accessoryPanelExpanded: Bool = false,
+        onSetAccessoryPanelExpanded: @escaping (Bool) -> Void = { _ in }
     ) {
         self.initialText = initialText
         self._text = State(initialValue: initialText)
@@ -164,6 +179,8 @@ public struct RemoteInputDockView: View {
         self.liveTypeThroughActive = liveTypeThroughActive
         self.liveTransportDisclosureText = liveTransportDisclosureText
         self.liveStatusText = liveStatusText
+        self.liveTransportIsDegraded = liveTransportIsDegraded
+        self.liveStatusIsActionable = liveStatusIsActionable
         self.onToggleDirectMode = onToggleDirectMode
         self.onSelectMode = onSelectMode
         self.onSetDirectKeystrokePage = onSetDirectKeystrokePage
@@ -180,6 +197,8 @@ public struct RemoteInputDockView: View {
         self.onComposeFocusChange = onComposeFocusChange
         self.composeExpansionRequested = composeExpansionRequested
         self.onRequestComposeExpansion = onRequestComposeExpansion
+        self.accessoryPanelExpanded = accessoryPanelExpanded
+        self.onSetAccessoryPanelExpanded = onSetAccessoryPanelExpanded
     }
 
     /// The dock mode derived from the mutually exclusive flags. Type
@@ -342,9 +361,20 @@ public struct RemoteInputDockView: View {
         }
     }
 
+    /// The keyboard-up compact dock (spec 015): one row. Everything that used
+    /// to own a row of its own — modifiers, terminal keys, Fn, remote ⌫/↵, the
+    /// Mac window controls — is one tap behind `⋯`, and the status surfaces
+    /// only speak when something is degraded or failed.
+    ///
+    /// Before this, six rows and 368pt (42% of an iPhone 17 Pro) sat between
+    /// the keyboard and the remote screen; the gate that holds it down is
+    /// `KeyboardUpDockHeightUITests`.
     private var compactAccessoryBody: some View {
         VStack(spacing: 8) {
-            accessoryKeyStrip
+            if showsAccessoryPanel {
+                accessoryKeyStrip
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             compactComposeRow
             if let compactStatusText {
                 compactStatusLine(compactStatusText)
@@ -438,75 +468,162 @@ public struct RemoteInputDockView: View {
         .padding(.bottom, 8)
     }
 
-    /// Compact Type⇄Compose switch (spec 011): reads as the mode a tap
-    /// will switch TO — "Compose" while Type is active, "Type" while
-    /// Compose is active. One button, one intent, no third mode.
-    private func modeToggleButton(compact: Bool) -> some View {
+    /// The single row (spec 015 FR-002): `⋯` · field · mode · Send.
+    ///
+    /// The disclosure and status lines are siblings rather than row members
+    /// because they are sentences, not controls — but they render only when
+    /// degraded or failed (FR-006), so the nominal keyboard-up dock is exactly
+    /// this row. Trailing controls stay trailing: iOS can drop its AutoFill
+    /// affordance over the leading edge above the keyboard, and that overlay
+    /// must not cover the mode switch or Send.
+    private var compactComposeRow: some View {
+        VStack(spacing: 8) {
+            liveDisclosureBadge
+
+            HStack(spacing: 8) {
+                // At regular width the panel never hides, so a toggle for it
+                // would be a button that does nothing (FR-005).
+                if !panelIsPermanent {
+                    accessoryPanelToggleButton
+                }
+
+                if showsCompactComposeEditor {
+                    composeTextEditor
+                        .frame(height: compactEditorRowHeight)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(NaruColors.surfaceEditor)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(NaruColors.hairline, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                        .simultaneousGesture(TapGesture().onEnded {
+                            focusComposeEditor()
+                        })
+                        .composeEditorShellAccessibility()
+                } else {
+                    compactComposeRevealButton
+                }
+
+                compactModeToggleButton
+
+                // Live type-through has no Send — commit is the trigger
+                // (spec 009 FR-002).
+                if !liveTypeThroughActive {
+                    compactSendButton
+                }
+            }
+
+            liveStatusLine
+        }
+    }
+
+    /// Is the key panel on screen? Compact width hides it until `⋯` (FR-001);
+    /// regular width keeps it (FR-005) — the height pressure this spec closes
+    /// is an iPhone problem, and an iPad has the room for a permanent strip.
+    private var showsAccessoryPanel: Bool {
+        panelIsPermanent || accessoryPanelExpanded
+    }
+
+    private var panelIsPermanent: Bool {
+        #if os(iOS) && canImport(UIKit)
+        return horizontalSizeClass == .regular
+        #else
+        return true
+        #endif
+    }
+
+    /// Type mode mirrors one line at a time (FR-008): its text leaves as it
+    /// commits, so a three-line box was holding 48pt of remote screen for
+    /// nothing. Compose keeps the multi-line editor it needs.
+    private var compactEditorRowHeight: CGFloat {
+        liveTypeThroughActive ? 40 : compactComposeEditorMaxHeight
+    }
+
+    /// `⋯` — the one affordance spec 015 adds. Reveals the accessory key
+    /// panel (modifiers, Esc/Tab/⌃C/arrows/Del, Fn, remote ⌫/↵, Mac window
+    /// controls) and stays revealed until tapped again.
+    private var accessoryPanelToggleButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) {
+                onSetAccessoryPanelExpanded(!accessoryPanelExpanded)
+            }
+        } label: {
+            Image(systemName: accessoryPanelExpanded ? "chevron.down" : "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .background(
+                    accessoryPanelExpanded
+                        ? Color.accentColor.opacity(0.22)
+                        : NaruColors.surfaceKey
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: true, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Terminal keys")
+        .accessibilityValue(accessoryPanelExpanded ? "Shown" : "Hidden")
+        .accessibilityIdentifier("naru.input.accessory.panel-toggle")
+    }
+
+    /// Icon-only Type⇄Compose switch for the single row (FR-002). Reads as the
+    /// mode a tap switches TO, exactly like the labelled one; the row has to
+    /// keep a field wide enough to type in, so the title is dropped and the
+    /// accessibility label carries it.
+    private var compactModeToggleButton: some View {
         let isTypeActive = liveTypeThroughActive
         return Button {
             onSelectMode(isTypeActive ? .compose : .live)
         } label: {
-            Label(
-                isTypeActive ? "Compose" : "Type",
-                systemImage: isTypeActive ? "text.cursor" : "keyboard"
-            )
-            .font(.subheadline.weight(.semibold))
-            .labelStyle(compact ? .titleAndIcon : .titleAndIcon)
-            .padding(.horizontal, 12)
-            .frame(height: 36)
+            // `text.cursor` — the labelled toggle's icon — renders as a
+            // localized letterform (a Korean 가 with a caret on a Korean
+            // device). With no title beside it that reads as a character, not
+            // as an action, so the icon-only switch uses the compose glyph.
+            Image(systemName: isTypeActive ? "square.and.pencil" : "keyboard")
+                .font(.system(size: 16, weight: .semibold))
+                // The bordered style adds its own vertical padding, so the
+                // label is sized to land the whole control on the row's 40pt
+                // — a 40pt label measured 54pt and made the switch, not the
+                // field, decide how tall the dock is.
+                .frame(width: 32, height: 24)
         }
         .buttonStyle(.bordered)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(height: 40)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(isTypeActive ? "Switch to Compose" : "Switch to Type")
         .accessibilityIdentifier("naru.input.mode-toggle")
     }
 
-    private var compactComposeRow: some View {
-        VStack(spacing: 8) {
-            // Mission-control row on top — the Type⇄Compose switch + Mac
-            // window controls — so the editor + action row below own the
-            // space. Keep the controls trailing while the system keyboard
-            // is visible: iOS can place its AutoFill affordance over the
-            // leading edge above the keyboard, and that overlay must not
-            // cover the one-tap input mode switch.
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-
-                modeToggleButton(compact: true)
-
-                if showsMacSessionControls {
-                    compactMacControlMenu
-                }
-            }
-
-            liveDisclosureBadge
-
-            if showsCompactComposeEditor {
-                composeTextEditor
-                    .frame(minHeight: 40, maxHeight: compactComposeEditorMaxHeight)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(NaruColors.surfaceEditor)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(NaruColors.hairline, lineWidth: 1)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                    .simultaneousGesture(TapGesture().onEnded {
-                        focusComposeEditor()
-                    })
-                    .composeEditorShellAccessibility()
-
-                composeActionRow
-                liveStatusLine
-            } else {
-                compactComposeRevealButton
-            }
+    /// Icon-only Send for the single row. Same action and identifier as the
+    /// standard layout's labelled Send.
+    private var compactSendButton: some View {
+        Button {
+            sendCurrentComposeText()
+        } label: {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 36, height: 24)
         }
+        .buttonStyle(.borderedProminent)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(height: 40)
+        .disabled(isComposeSendDisabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Send composed text")
+        .accessibilityIdentifier("naru.input.send")
     }
 
     private var showsCompactComposeEditor: Bool {
@@ -651,9 +768,24 @@ public struct RemoteInputDockView: View {
     /// Persistent Live transport/latency disclosure badge (spec 009 FR-014),
     /// peer to Direct's "IME off" badge. Shown whenever Live is active so the
     /// degraded/observed transport is never misrepresented.
+    /// Spec 009 FR-014 must always disclose a *degraded* transport — the
+    /// clipboard path overwrites the remote clipboard and settles late, the
+    /// ASCII path cannot carry Korean at all. Spec 015 FR-006 stops the
+    /// nominal sentence from holding a row of an iPhone screen open while the
+    /// user types; at standard width it renders as it always did.
+    private var showsLiveDisclosureBadge: Bool {
+        layoutStyle == .standard || liveTransportIsDegraded
+    }
+
+    /// Same split for the per-window delivery status (FR-013): everything at
+    /// standard width, only what is actionable in the one-row dock.
+    private var showsLiveStatusLine: Bool {
+        layoutStyle == .standard || liveStatusIsActionable
+    }
+
     @ViewBuilder
     private var liveDisclosureBadge: some View {
-        if liveTypeThroughActive, !liveTransportDisclosureText.isEmpty {
+        if liveTypeThroughActive, showsLiveDisclosureBadge, !liveTransportDisclosureText.isEmpty {
             HStack(spacing: 6) {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.caption2)
@@ -675,7 +807,7 @@ public struct RemoteInputDockView: View {
 
     @ViewBuilder
     private var liveStatusLine: some View {
-        if liveTypeThroughActive, let liveStatusText, !liveStatusText.isEmpty {
+        if liveTypeThroughActive, showsLiveStatusLine, let liveStatusText, !liveStatusText.isEmpty {
             Text(liveStatusText)
                 .font(.caption2)
                 .foregroundStyle(NaruColors.mutedInk)
@@ -863,6 +995,27 @@ public struct RemoteInputDockView: View {
                         accessoryKeyButton(.arrowDown)
                         accessoryKeyButton(.arrowRight)
                         accessoryKeyButton(.delete)
+
+                        // Spec 015 FR-003: remote ⌫/↵ lost their own row and
+                        // joined the panel. They stay `ComposeQuickKey`
+                        // emissions rather than raw keysyms because in Type
+                        // mode they must drive the local mirror in step with
+                        // the remote (spec 009 D1) — an `AccessoryKey`
+                        // backspace would desync it.
+                        if hostsRowMigratedControls {
+                            composeRemoteKeyStripButton(.backspace, label: "⌫")
+                            composeRemoteKeyStripButton(.enter, label: "↵")
+
+                            // Inside the scroll, not pinned beside `Fn`:
+                            // pinned, it took ~52pt of the fixed width and
+                            // pushed ⌃C out of the no-scroll zone, which spec
+                            // 012 US2-2 put there on purpose (an interrupt you
+                            // have to scroll for is an interrupt you don't
+                            // reach in time).
+                            if showsMacSessionControls {
+                                compactMacControlMenu
+                            }
+                        }
                     }
                     .padding(.vertical, 2)
                 }
@@ -909,6 +1062,41 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.input.accessory.fn-row")
             }
         }
+    }
+
+    /// The compact panel absorbed the rows that used to sit above the editor
+    /// (spec 015 FR-003). The standard (regular-width / pre-connect) layout
+    /// keeps its own header and action row, so the migrated controls must not
+    /// be rendered twice — duplicate accessibility identifiers would also
+    /// make every test that resolves them ambiguous.
+    private var hostsRowMigratedControls: Bool {
+        layoutStyle != .standard
+    }
+
+    /// A `ComposeQuickKey` styled as a strip key, for the ⌫/↵ that moved into
+    /// the panel. Shares the action *and* the identifier of the standard
+    /// layout's action-row buttons, so the emission path and its coverage are
+    /// unchanged.
+    private func composeRemoteKeyStripButton(
+        _ key: ComposeQuickKey,
+        label: String
+    ) -> some View {
+        Button {
+            if liveTypeThroughActive, key == .backspace {
+                onLiveDeleteBackward()
+            } else if liveTypeThroughActive, key == .enter {
+                onLiveNewline()
+            } else {
+                emitComposeQuickKeyAfterFlush(key)
+            }
+        } label: {
+            accessoryKeyChrome(label: label)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .disabled(!showsComposeQuickKeys)
+        .accessibilityLabel(key.accessibilityLabel)
+        .accessibilityIdentifier("naru.input.compose-action.\(key.rawValue)")
     }
 
     private func accessoryKeyButton(_ key: AccessoryKey) -> some View {

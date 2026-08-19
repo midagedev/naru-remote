@@ -2,7 +2,7 @@
 
 **Feature Branch**: `011-simplified-input-ux`
 **Created**: 2026-07-17
-**Status**: Implemented (2026-08-17) — two-mode Type/Compose dock, shared accessory strip, immediate-click gestures, tools-menu declutter; `swift test` 1509/1509 green; residuals below.
+**Status**: Implemented (2026-08-17) — two-mode Type/Compose dock, shared accessory strip, immediate-click gestures, tools-menu declutter; `swift test` 1509/1509 green; residuals below. **Amended 2026-08-19 by `specs/015-single-row-input-dock`**: US2's strip is still one tap from the editor, but on compact width that tap is the row's `⋯` rather than a permanently visible row — the six rows this spec's dock had grown to were eating 42% of an iPhone screen with the keyboard up.
 **Product**: Naru Remote
 **Input**: Founder feedback 2026-07-17 — features sprawled, UX tangled; keyboard/mouse input and gestures do not behave as expected. Keyboard input should follow the cloned orca mobile companion's input model (`~/repo/orca/mobile/src/terminal/`): direct input default, accessory key strip above the keyboard, buffered compose as the opt-in, immediate gesture dispatch.
 

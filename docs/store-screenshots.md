@@ -14,7 +14,7 @@ audit tree.
 |---|---|---|---|
 | 1 | `store-01-hosts` | Host list, eight saved machines, all reachable with desktop previews | Every computer on your tailnet, one tap away |
 | 2 | `store-02-session` | Live session, no dock open, session chrome pinned | Your desktop, live on the phone |
-| 3 | `store-03-compose-korean` | Compose editor holding a Hangul draft, accessory strip above it | Compose Korean locally, send it whole |
+| 3 | `store-03-compose-korean` | Compose editor holding a Hangul draft, accessory strip revealed above it (spec 015 hides the strip behind `⋯` by default; the capture takes that tap) | Compose Korean locally, send it whole |
 | 4 | `store-04-function-row` | Type mode with the Fn row expanded over a live session | Esc / Tab / ⌃C / F-keys, over the remote screen |
 | 5 | `store-05-diagnostics` | Diagnostics sheet, every stage passed through first frame | When it does not connect, you learn which stage failed |
 
