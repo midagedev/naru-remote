@@ -172,9 +172,23 @@
    build 2, 번들 `com.naruremote.app`, 팀 XEF9KH7N43, `PrivacyInfo.xcprivacy`
    포함, `ITSAppUsesNonExemptEncryption=false`, MinimumOSVersion 17.0,
    `NARU_TEST_*` 표식 없음. 자격증명은 환경변수 간접 참조로만 다뤘다.
-9. ⏳ **남은 것 (계정 소유자 웹 작업)**: TestFlight 내부 테스터 그룹에 build 2
-   배정 → 실기 검증 → 스토어 스크린샷 웹 업로드 → EU DSA 거래자 선언·대한민국
-   규정 선언 → 심사 제출.
+8a. ✅ **build 3 업로드·처리 완료(2026-08-19)** — spec 015(키보드 위 독 6줄
+   368pt → 1줄 41pt, 특수키는 `⋯` 뒤로) 및 이번 라운드의 독 대비 수정(#11)이
+   들어간 첫 빌드다. **이번부터 업로드는 손으로 하지 않는다**:
+   `scripts/testflight-upload.sh --bump` 한 줄이 게이트 → 빌드번호 → 아카이브 →
+   **제출 계약 검증** → export → validate → upload → `processingState` 대기 →
+   `artifacts/app-store/<날짜>-build<N>/upload.md` 기록까지 수행한다. build 3
+   실측: 8개 검증 항목 전부 ok(버전 1.0.0/build 3, 번들 `com.naruremote.app`,
+   MinimumOSVersion 17.0, `ITSAppUsesNonExemptEncryption=false`,
+   `PrivacyInfo.xcprivacy` 포함, 팀 XEF9KH7N43, **Release 바이너리에
+   `NARU_TEST_*` 훅 없음**), IPA 5.6MB, VERIFY/UPLOAD SUCCEEDED,
+   `processingState=VALID`. 자격증명은 `~/.appstoreconnect/credentials.env`
+   (0600, 레포 밖)와 같은 디렉터리의 `.p8`에서만 읽고 로그·기록에 남기지 않는다.
+   절차와 새 머신 셋업: `docs/runbooks/testflight-release.md`.
+9. ⏳ **남은 것 (계정 소유자 웹 작업)**: TestFlight 내부 테스터 그룹에 **build 3**
+   배정(처리 완료된 빌드도 그룹 배정 전에는 테스터에게 보이지 않는다) → 실기 검증
+   → 스토어 스크린샷 웹 업로드 → EU DSA 거래자 선언·대한민국 규정 선언 → 심사
+   제출.
 10. ✅ **스토어 스크린샷 재촬영 완료(2026-08-18)**: 폐기된 Direct 모드 컷을
    포함한 2026-07-12 세트와, 감사용 상태라 절반만 쓸 수 있던 첫 재촬영을 모두
    버리고 **스토어 전용 상태 5종**을 새로 만들어 찍었다 —
