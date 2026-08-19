@@ -145,19 +145,50 @@ final class IncomingClipboardReviewTests: XCTestCase {
         XCTAssertTrue(writer.writes.isEmpty)
     }
 
-    func testStreamingConnectorTriggersReceiveLoopAndRecordsPending() async throws {
-        // Pending re-enable after task #30: a single multiplexed RFB
-        // reader replaces the concurrent
-        // `startIncomingClipboardReceive` + frame pump pair.  Until
-        // then the auto-receive loop is intentionally disabled in
-        // `startFrameStream` because the two readers race for
-        // `connection.receive` callbacks on the same NWConnection,
-        // splitting the FBUpdate header into the clipboard reader's
-        // buffer and surfacing as `unexpectedMessageType(11)` from
-        // `parseFramebufferUpdateHeader`.  See
-        // `LocalMacConnectE2EUITests.testHappyPath_correctPasswordConnectsAndShowsFrame`
-        // — proven against real macOS Screen Sharing.
-        throw XCTSkip("Streaming-mode incoming clipboard receive is gated on the RFB multiplexer (task #30).")
+    func testStreamingSessionSurfacesClipboardTextTheFrameLoopDecoded() async throws {
+        // Task #30, closed 2026-08-19. The streaming path used to run a second
+        // reader for ServerCutText alongside the frame pump; the two raced on
+        // one NWConnection and split FBUpdate headers, so the receive loop was
+        // disabled and this banner shipped inert. The frame loop already
+        // dispatches by msg_type, so it keeps the text and the session drains
+        // it per frame — which is what this asserts end to end.
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 2,
+            height: 2,
+            fill: RFBColor(red: 10, green: 20, blue: 30)
+        )
+        let connector = ReceivingStreamingConnector(
+            width: 2,
+            height: 2,
+            name: "Desk",
+            framebuffers: Array(repeating: framebuffer, count: 8),
+            incomingPayloads: ["원격에서 복사한 텍스트"]
+        )
+        let writer = RecordingClipboardWriter()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 4, frameInterval: 0),
+            connectorFactory: { connector },
+            localClipboardWriter: writer
+        )
+
+        await model.connectSelectedProfile()
+
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, model.pendingIncomingClipboard == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let review = try XCTUnwrap(
+            model.pendingIncomingClipboard,
+            "A ServerCutText decoded by the frame loop must reach the review banner"
+        )
+        XCTAssertEqual(review.text, "원격에서 복사한 텍스트")
+        XCTAssertTrue(
+            writer.writes.isEmpty,
+            "Nothing is written to the local clipboard until the user accepts it"
+        )
     }
 
     func testDiagnosticExportIsUnaffectedByIncomingClipboardEvent() throws {
@@ -311,6 +342,14 @@ private final class ReceivingStreamingConnector: RFBStreamingClient {
 
     func setClipboardText(_ text: String) throws {}
     func sendPasteCommand(_ command: PasteCommand) throws {}
+
+    /// The streaming path drains what the frame loop already decoded, so the
+    /// fake hands its payloads over the same way the real client does.
+    func takeIncomingClipboardText() -> String? {
+        recording.withLock { state in
+            state.pendingIncomingPayloads.isEmpty ? nil : state.pendingIncomingPayloads.removeFirst()
+        }
+    }
 
     func receiveServerCutText(timeout: TimeInterval) throws -> String {
         try recording.withLock { state in

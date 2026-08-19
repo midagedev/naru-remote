@@ -3782,18 +3782,16 @@ public final class NaruRemoteAppModel: ObservableObject {
                         requestTimeout: configuration.requestTimeout
                     )
                 }
-                // Constitution §I: outgoing compose-and-send is the
-                // primary text path; incoming server clipboard is
-                // secondary.  Disabled until the RFB reader is
-                // refactored into a single multiplexer that dispatches
-                // by msg_type — running `receiveServerCutText` (issues
-                // its own `readExactly(8)`) concurrently with the
-                // frame pump's `requestFramebufferUpdate` made the two
-                // tasks race on the same NWConnection, splitting the
-                // FBUpdate header (`00 00 00 01 00 00 00 00`) into the
-                // clipboard reader's buffer and surfacing as
-                // `unexpectedMessageType(11)` from `parseFramebufferUpdateHeader`.
-                // See task #30.
+                // Constitution §I: outgoing compose-and-send is the primary
+                // text path; incoming server clipboard is secondary. It is
+                // drained inside the loop below rather than by a second reader:
+                // `receiveServerCutText` issues its own `readExactly(8)`, and
+                // running that concurrently with the frame pump's
+                // `requestFramebufferUpdate` raced on the same NWConnection and
+                // split an FBUpdate header (`00 00 00 01 00 00 00 00`) between
+                // the two, surfacing as `unexpectedMessageType` out of
+                // `parseFramebufferUpdateHeader`. The frame loop already
+                // dispatches by msg_type, so it keeps what it decodes.
 
                 while await self.shouldRequestAnotherFrame(configuration: configuration, pump: pump) {
                     if Task.isCancelled {
@@ -3843,6 +3841,22 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
+
+                    // The frame loop is the only reader on this connection, so
+                    // a ServerCutText the server interleaved with the frames
+                    // was decoded in there. Drain it here rather than running a
+                    // second reader — that is what used to split an update
+                    // header between two tasks and is why this path shipped
+                    // with the incoming clipboard disabled.
+                    if let incomingClipboardText = streamingClient.takeIncomingClipboardText() {
+                        await self.recordIncomingClipboardFromStream(
+                            incomingClipboardText,
+                            streamID: streamID,
+                            sessionID: pendingSession.id,
+                            profileID: profile.id
+                        )
+                    }
+
                     let thermalState = await self.currentSessionStreamThermalState()
 
                     // An empty incremental update (zero changed pixels)
@@ -5696,6 +5710,21 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// without spinning the live receive loop.  Discards empty
     /// payloads — the protocol allows them but they would render an
     /// empty banner with no useful preview.
+    /// Records clipboard text drained from the streaming connection, after
+    /// re-checking that the stream it came from is still the current one — a
+    /// profile switch mid-flight must not hand the user another machine's copy.
+    private func recordIncomingClipboardFromStream(
+        _ text: String,
+        streamID: UUID,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID
+    ) {
+        guard isCurrentStream(streamID, sessionID: sessionID, profileID: profileID) else {
+            return
+        }
+        recordIncomingClipboard(text)
+    }
+
     public func recordIncomingClipboard(_ text: String, at date: Date = Date()) {
         guard !text.isEmpty else {
             return

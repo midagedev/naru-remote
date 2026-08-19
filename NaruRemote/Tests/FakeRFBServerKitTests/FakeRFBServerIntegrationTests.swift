@@ -847,6 +847,69 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         XCTAssertEqual(received, "안녕 클립보드")
     }
 
+    /// A `ServerCutText` that arrives interleaved with framebuffer updates
+    /// must be kept, not dropped — and must not disturb the frame that follows
+    /// it on the same connection.
+    ///
+    /// This is the streaming path's clipboard: the frame loop is the only
+    /// reader, so what it does with a clipboard message is the whole feature.
+    /// Before 2026-08-19 it decoded the message for capability negotiation and
+    /// threw the text away, and the app compensated with a second reader that
+    /// raced the frame pump — which is why the incoming-clipboard banner was
+    /// wired to nothing on the shipped path.
+    func testServerCutTextArrivingBetweenFramesIsKeptAndDoesNotDisturbTheFrame() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([
+                Self.serverCutTextData("안녕 클립보드") + Self.rawTwoByTwoUpdateData()
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+
+        let update = try client.requestFramebufferUpdate()
+        XCTAssertEqual(update.framebuffer.width, 2)
+        XCTAssertEqual(update.framebuffer.height, 2)
+        XCTAssertEqual(update.changedPixelCount, 4)
+
+        XCTAssertEqual(
+            client.takeIncomingClipboardText(),
+            "안녕 클립보드",
+            "The frame loop consumed the clipboard message; nothing else can recover it"
+        )
+        XCTAssertNil(
+            client.takeIncomingClipboardText(),
+            "Draining is destructive — the same copy must not be offered to the user twice"
+        )
+    }
+
+    func testDisconnectDropsAnUndrainedClipboard() throws {
+        let transcript = FakeRFBTranscript(bytes: Self.noAuthTranscript(width: 2, height: 2))
+        let server = try FakeRFBServer(
+            transcript: transcript,
+            mode: .noAuthFramebufferUpdates([
+                Self.serverCutTextData("secret") + Self.rawTwoByTwoUpdateData()
+            ])
+        )
+        let port = try server.start()
+        defer { server.stop() }
+
+        let client = RFBNetworkClient()
+        try client.connectNoAuthSession(host: "127.0.0.1", port: port)
+        _ = try client.requestFramebufferUpdate()
+        client.disconnect()
+
+        XCTAssertNil(
+            client.takeIncomingClipboardText(),
+            "A clipboard from a finished session must not surface in the next one"
+        )
+    }
+
     func testProductionRFBNetworkClientRejectsShortTranscriptWithoutTrapping() throws {
         let transcript = try FakeRFBTranscript.loadHexFile(at: Self.fixtureURL("noauth-first-frame"))
         let shortTranscript = FakeRFBTranscript(bytes: transcript.bytes.prefix(18))
@@ -983,6 +1046,22 @@ final class FakeRFBServerIntegrationTests: XCTestCase {
         )
         bytes.append(contentsOf: [0, 0, 0, 4])
         bytes.append(Data("Desk".utf8))
+        return bytes
+    }
+
+    /// One `ServerCutText` message: type 3, three padding bytes, an Int32
+    /// length, then the UTF-8 payload.
+    private static func serverCutTextData(_ text: String) -> Data {
+        let payload = Data(text.utf8)
+        var bytes = Data([3, 0, 0, 0])
+        let length = UInt32(payload.count)
+        bytes.append(contentsOf: [
+            UInt8((length >> 24) & 0xFF),
+            UInt8((length >> 16) & 0xFF),
+            UInt8((length >> 8) & 0xFF),
+            UInt8(length & 0xFF)
+        ])
+        bytes.append(payload)
         return bytes
     }
 
