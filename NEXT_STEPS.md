@@ -94,12 +94,6 @@ same PR.
   inert. Fix is one reader that dispatches by `msg_type`; until then
   `SUBMISSION_READINESS.md` §2 #7 carries the ⚠️ and store copy must not
   claim it. Found by the 2026-08-17 code audit (P1-4).
-- **`DirectKeystroke*UITests` test a removed feature** — four suites still drive
-  the Direct keystroke keyboard, whose views were deleted in `6bc3b0d2`
-  ("Simplify input UX to two-mode Type/Compose dock"). They have been failing
-  since that commit and are not a regression from any later work; they should be
-  retired or rewritten against Type mode. Confirmed 2026-08-19 while verifying
-  spec 013 US-4.
 - **Two pre-existing `NaruRemoteLaunchUITests` failures** (reproduced at
   `e249df1d`, before the 2026-08-17/18 UI work — not regressions):
   `testRemoteInputDockMovesAboveKeyboardWhileComposing` measures a 186 pt gap
