@@ -1,5 +1,14 @@
 # 상용급(맥 화면공유·Chrome Remote Desktop 수준) 격차 분석과 달성 경로
 
+> **2026-08-20 갱신**: 스트리밍 성능 레버 웹 리서치가
+> `artifacts/research/2026-08-20-streaming-performance-levers.md`에 있다
+> (랭킹 20종 + 출처 URL). 본문 §3의 "Apple 고성능 모드는 서드파티 API 없음"은
+> 이제 부분적으로 낡았다 — 2026년 역공학 구현(iShareScreen)이 Apple 사설
+> 코덱(0x3e8–0x3f3)·ScaleFactor 0x08(서버측 0.5× 다운스케일, Screens 5의
+> "Compression")·HP HEVC 경로를 문서화했다. 또한 spec 017 실측 정정:
+> Apple 서버는 부하 시 영역 요청을 신뢰성 있게 클리핑하지 않는다
+> (2026-08-20, out-of-region rect 158개 — 정확성 무해, 절약은 워크로드 의존).
+
 작성일: 2026-07-05 KST
 증거: `artifacts/benchmarks/2026-07-05-physical-iphone-release-hud-and-helper-gate-summary.md` + 본문 인용.
 기준 문서: `PRODUCT_QUALITY_TARGETS.md`(품질 기준), `PRODUCT_SPEC.md`, `ROADMAP.md`, `specs/006`, `specs/007`.

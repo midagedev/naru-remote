@@ -57,11 +57,36 @@ region requests under the default encoding preference — is now measured
 | --- | --- |
 | `swift test` — `NaruRemoteAppModelTests` | FAIL-first gate flip: default profile sends the visible region on zoomed incremental requests (was `[nil, nil]`); initial request stays full; power saver keeps full requests |
 | `swift test` — `ViewportRequestRegionPolicyTests` (existing) | margin, near-full rejection, heartbeat, geometry |
-| `swift test` — `LiveMacRFBSmokeTests/testRegionScopedIncrementalRequestsAgainstRealMac` (new, env-gated) | real macOS Screen Sharing, default encoding: 5/5 region requests delivered, **0 out-of-region rects**, stream healthy afterwards |
+| `swift test` — `LiveMacRFBSmokeTests/testRegionScopedIncrementalRequestsAgainstRealMac` (new, env-gated) | real macOS Screen Sharing, default encoding: every region request delivers or is legitimately held, stream healthy afterwards; per-run in-region/straddling/fully-outside rect counts printed (see corrected ground truth below) |
 | Physical iPhone poor-network session (residual, founder) | felt latency/traffic on cellular while zoomed |
+
+## Ground-truth correction (2026-08-20)
+
+The 2026-08-19 live run (quiet screen) measured 0 out-of-region rects; a
+2026-08-20 busy-screen run (simulator + test output painting the desktop)
+measured **158 out-of-region rects from the same Apple server** — Apple
+Screen Sharing does not reliably clip incremental damage to the interest
+rectangle under load. Consequences, in order:
+
+- **Correctness is unaffected.** Out-of-region damage applies cleanly to the
+  full framebuffer the client keeps; the stream stayed healthy in both runs
+  (deliver-or-held 5/5, full-request recovery). The promotion stands.
+- **Bandwidth savings against Apple's server are workload-dependent and may
+  be zero on a busy screen** — the exact case the region hoped to save.
+  Against RFC-clipping servers (TigerVNC family) the saving mechanism is
+  real; against Apple the structural bandwidth answer remains helper video.
+- The live gate now asserts only the true invariants (deliver-or-held, no
+  desync, recovery) and prints in-region/straddling/fully-outside rect
+  counts per run, so every future run keeps quantifying actual clipping
+  fidelity. The original `outOfRegionRects == 0` assertion encoded one
+  day's workload as a contract and was removed with this attribution.
 
 ## Residual Risk
 
+- Whether Apple's over-delivery is tile-granular straddling or full region
+  ignorance is not yet split under load (the busy-screen run predates the
+  straddle/fully-outside split; the gate now prints both — the next busy
+  run settles it).
 - Third-party servers (TigerVNC, x11vnc, RealVNC) are unmeasured for region
   clipping; RFC-compliant behavior is to clip, and the heartbeat bounds the
   damage if one over-delivers. A server that *under*-delivers (holds

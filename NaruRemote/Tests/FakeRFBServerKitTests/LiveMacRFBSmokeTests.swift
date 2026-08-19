@@ -335,7 +335,17 @@ final class LiveMacRFBSmokeTests: XCTestCase {
 
         var deliveredUpdates = 0
         var heldRequests = 0
-        var outOfRegionRects = 0
+        var inRegionRects = 0
+        // Rects that intersect the region but extend past its edge —
+        // loose (tile-granular) clipping. Harmless, small overhead.
+        var straddlingRects = 0
+        // Rects with no intersection at all — the server ignored the
+        // interest rectangle for that damage. Harmless to correctness
+        // (they apply to the full framebuffer we keep) but they erase
+        // the bandwidth saving for that damage.
+        var fullyOutsideRects = 0
+        let regionRight = Int(region.x) + Int(region.width)
+        let regionBottom = Int(region.y) + Int(region.height)
         for _ in 1...5 {
             do {
                 let update = try client.requestFramebufferUpdate(
@@ -345,9 +355,20 @@ final class LiveMacRFBSmokeTests: XCTestCase {
                 )
                 deliveredUpdates += 1
                 for rect in update.dirtyRectangles {
-                    if rect.x + rect.width > Int(region.width) + Int(region.x)
-                        || rect.y + rect.height > Int(region.height) + Int(region.y) {
-                        outOfRegionRects += 1
+                    let intersects = rect.x < regionRight
+                        && rect.y < regionBottom
+                        && rect.x + rect.width > Int(region.x)
+                        && rect.y + rect.height > Int(region.y)
+                    let contained = rect.x >= Int(region.x)
+                        && rect.y >= Int(region.y)
+                        && rect.x + rect.width <= regionRight
+                        && rect.y + rect.height <= regionBottom
+                    if contained {
+                        inRegionRects += 1
+                    } else if intersects {
+                        straddlingRects += 1
+                    } else {
+                        fullyOutsideRects += 1
                     }
                 }
             } catch let error as RFBNetworkClientError where error == .timedOut || error == .readTimedOut {
@@ -372,7 +393,8 @@ final class LiveMacRFBSmokeTests: XCTestCase {
 
         print(
             "Region-scoped incremental against live target: delivered=\(deliveredUpdates) "
-                + "held=\(heldRequests) outOfRegionRects=\(outOfRegionRects) "
+                + "held=\(heldRequests) inRegion=\(inRegionRects) "
+                + "straddling=\(straddlingRects) fullyOutside=\(fullyOutsideRects) "
                 + "fullRecovered=\(fullRecovered)"
         )
         XCTAssertEqual(
@@ -380,11 +402,15 @@ final class LiveMacRFBSmokeTests: XCTestCase {
             5,
             "Every region request must either deliver or be held — anything else desyncs the stream"
         )
-        XCTAssertEqual(
-            outOfRegionRects,
-            0,
-            "The server must clip damage to the requested region; out-of-region rects would make viewport-scoped requests unsafe"
-        )
+        // Deliberately NO assertion on the out-of-region counts. The first
+        // version asserted 0 because a quiet-screen run measured 0
+        // (2026-08-19); a busy-screen run the next day delivered 158
+        // out-of-region rects from the same server. Clipping fidelity is a
+        // *workload-dependent measurement* of Apple's server, not a client
+        // safety invariant — out-of-region damage applies cleanly to the
+        // full framebuffer we keep. The invariants this gate holds are
+        // deliver-or-held (no desync) and full-request recovery; the counts
+        // above are printed so runs keep quantifying the actual saving.
     }
 
     private func measureFirstFrameTiming(
