@@ -298,8 +298,7 @@ public struct SessionDiagnosticCornerView: View {
                 rows: state.rows,
                 shareTextProvider: shareTextProvider
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .diagnosticsSheetPresentation()
         }
     }
 
@@ -343,6 +342,7 @@ public struct SessionDiagnosticCornerView: View {
 /// item (spec 013 US2-1); internal so both call sites render one sheet.
 struct SessionDiagnosticDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var shareText: String?
 
     let rows: [DiagnosticSummaryRow]
     let shareTextProvider: (() -> String)?
@@ -359,9 +359,11 @@ struct SessionDiagnosticDetailSheet: View {
 
     private var content: some View {
         ScrollView {
+            // The share action is hoisted into the toolbar below, so the
+            // summary renders rows only.
             DiagnosticSummaryView(
                 rows: rows,
-                shareTextProvider: shareTextProvider,
+                shareTextProvider: nil,
                 showsHeader: false
             )
             .padding()
@@ -372,6 +374,36 @@ struct SessionDiagnosticDetailSheet: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
+            if let shareTextProvider {
+                // In the toolbar, not at the end of the scroll content: on a
+                // 13" iPad the sheet is a fixed-size form sheet shorter than
+                // the five-stage summary, so a trailing button sat below the
+                // fold and was unreachable without scrolling (found in the
+                // store captures, 2026-08-19). An action must not depend on
+                // scroll position.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        shareText = shareTextProvider()
+                    } label: {
+                        Label("Share Diagnostics", systemImage: "square.and.arrow.up")
+                    }
+                    .accessibilityIdentifier("naru.diagnostics.share")
+                    .disabled(rows.isEmpty)
+                }
+            }
         }
+        #if os(iOS) && canImport(UIKit)
+        .sheet(item: Binding(
+            get: { shareText.map(SessionDiagnosticShareText.init) },
+            set: { newValue in shareText = newValue?.text }
+        )) { payload in
+            DiagnosticExportShareSheet(shareText: payload.text)
+        }
+        #endif
     }
+}
+
+private struct SessionDiagnosticShareText: Identifiable {
+    let text: String
+    var id: String { text }
 }

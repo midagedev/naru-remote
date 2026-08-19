@@ -85,13 +85,6 @@ same PR.
   at the three-display Mac, and check `nc -vz <mac> 5901 5902` — per-display
   ports, if `specs/008/research.md:44` is right about modern macOS, would be a
   better answer than cropping.
-- **iPad diagnostics sheet clips its last row** — on a 13" iPad the sheet is a
-  fixed-height form sheet and "First frame received" plus the Share Diagnostics
-  button fall outside it; on iPhone all five rows fit. Found while shooting
-  store slot 5, which is why the shipped iPad set is four shots
-  (`docs/store-screenshots.md`). Reproduce:
-  `-only-testing:NaruRemoteUITests/UXAuditScreenshotsUITests/testStoreDiagnosticsPassed_dark`
-  on iPad Pro 13-inch.
 - **Single RFB read multiplexer (unblocks incoming clipboard)** — the
   installed app always connects through `RFBStreamingClient`, and on that
   path `startIncomingClipboardReceive` is deliberately never called: the

@@ -634,8 +634,7 @@ public struct NaruRemoteAppShell: View {
                 model: model,
                 buildVersion: buildVersion
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .diagnosticsSheetPresentation()
         }
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView(

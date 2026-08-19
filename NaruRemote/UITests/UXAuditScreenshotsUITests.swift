@@ -947,6 +947,25 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             "Store slot 5 must show a run that reached the first frame"
         )
 
+        // Existence is not visibility. On a 13" iPad the medium detent was
+        // shorter than the five-stage summary, so the last row and the share
+        // button sat below the fold while `waitForExistence` still passed —
+        // which is how a clipped sheet reached the store captures. Hittability
+        // is the assertion that would have caught it.
+        XCTAssertTrue(
+            app.staticTexts["First frame received"].isHittable,
+            "The last diagnostic row is below the fold — the sheet is clipping its content"
+        )
+        let shareButton = app.buttons["naru.diagnostics.share"]
+        XCTAssertTrue(
+            shareButton.waitForExistence(timeout: 4),
+            "The diagnostics sheet must offer Share Diagnostics"
+        )
+        XCTAssertTrue(
+            shareButton.isHittable,
+            "Share Diagnostics is below the fold — the sheet is clipping its content"
+        )
+
         try saveStoreScreen(slot: 5, named: "diagnostics", mode: mode)
     }
 
