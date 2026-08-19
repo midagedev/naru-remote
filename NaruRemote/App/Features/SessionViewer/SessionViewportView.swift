@@ -586,7 +586,7 @@ public struct SessionViewportView: View {
                     .foregroundStyle(.white)
                     .padding(.vertical, 6)
                     .padding(.horizontal, 8)
-                    .background(Color.blue.opacity(0.85))
+                    .background(NaruColors.signalBlue.opacity(0.85))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(10)
                     .accessibilityIdentifier("naru.session.reconnectBadge")
@@ -1064,10 +1064,11 @@ public struct SessionViewportView: View {
     }
 
     private var qualityColor: Color {
+        // Palette tokens, not raw system colors (spec 016 FR-009).
         switch connectionQuality {
-        case .good: return .green
-        case .fair: return .orange
-        case .poor: return .red
+        case .good: return NaruColors.reachable
+        case .fair: return NaruColors.warning
+        case .poor: return NaruColors.coral
         case .unknown: return .secondary
         }
     }
@@ -2307,15 +2308,16 @@ public struct SessionViewportView: View {
     }
 
     private var statusColor: Color {
+        // Palette tokens, not raw system colors (spec 016 FR-009).
         switch session?.state {
         case .active:
-            return .green
+            return NaruColors.reachable
         case .failed:
-            return .red
+            return NaruColors.coral
         case .degraded:
-            return .orange
+            return NaruColors.warning
         case .connecting, .authenticating, .reconnecting:
-            return .blue
+            return NaruColors.signalBlue
         case .closed, nil:
             return .secondary
         }

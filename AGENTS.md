@@ -78,10 +78,9 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/017-zoom-scoped-streaming` (every stream
-profile scopes zoomed incremental requests to the visible viewport;
-un-zoomed sessions unchanged; live-Mac region clipping measured,
-2026-08-19). Feature index —
+Current active feature: `specs/016-quiet-ops-visual-refinement` round 2
+(status-token sweep, profile-editor hostname input traits, diagnostics
+polish). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -94,11 +93,13 @@ checklist residual · 013 Three-Screen Consolidation: implemented · 014
 Multi-Display Focus: draft, deferred by the founder (spec only) · 015
 Single-Row Input Dock: implemented v1.1 (one row above the keyboard; Compose:
 `⋯` + one-line field + Send-submits-Return; Type: field-less soft-key row;
-status speaks only when degraded) · 016 Quiet Ops Visual Refinement: round 1
-implemented (host cards, session bar, mode pill; follow-on rounds await the
-founder's reaction) · 017 Zoom-Scoped Streaming: implemented (viewport
-request regions on every profile once zoomed; physical poor-network pass
-residual).
+status speaks only when degraded) · 016 Quiet Ops Visual Refinement: rounds 1–2
+implemented (host cards, session bar, mode pill; status-token sweep,
+hostname input traits, diagnostics polish) · 017 Zoom-Scoped Streaming:
+implemented (viewport request regions on every profile once zoomed;
+2026-08-20 correction: Apple's server does NOT reliably clip to the region
+under load — savings there are workload-dependent; correctness unaffected;
+physical poor-network pass residual).
 <!-- SPECKIT END -->
 
 ## Architecture

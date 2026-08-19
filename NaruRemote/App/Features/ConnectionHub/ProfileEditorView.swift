@@ -183,6 +183,7 @@ public struct ProfileEditorView: View {
             Form {
                 Section("Private target") {
                     TextField("Profile name", text: $formState.displayName)
+                        .autocorrectionDisabled()
                         .focused($focusedField, equals: .displayName)
                         .accessibilityIdentifier("naru.profile.editor.name")
                     if shouldShowError(for: .displayName), let message = formState.displayNameError {
@@ -191,6 +192,7 @@ public struct ProfileEditorView: View {
                     }
 
                     TextField("MagicDNS or private host", text: $formState.host)
+                        .hostnameInputTraits()
                         .focused($focusedField, equals: .host)
                         .accessibilityIdentifier("naru.profile.editor.host")
                     if shouldShowError(for: .host), let message = formState.hostError {
@@ -266,6 +268,7 @@ public struct ProfileEditorView: View {
 
                     if formState.helperTextBridgeEnabled {
                         TextField("Helper host (blank uses VNC host)", text: $formState.helperHost)
+                            .hostnameInputTraits()
                             .focused($focusedField, equals: .helperHost)
                             .accessibilityIdentifier("naru.profile.editor.helper.host")
 
@@ -830,6 +833,25 @@ public struct ProfileEditorView: View {
         // FR-005): the fingerprint shown during setup must equal the one
         // persisted here for the same secret.
         HelperPairingSecret.fingerprint(for: secret)
+    }
+}
+
+private extension View {
+    /// Input traits for hostname fields (spec 016 FR-010): a hostname is
+    /// machine text — autocorrection "fixing" `studio` to `studios`,
+    /// leading-capital `Studio.tailnet…`, or the field opening on a Korean
+    /// IME page are functional defects. The URL keyboard also puts `.` on
+    /// the primary plane.
+    @ViewBuilder
+    func hostnameInputTraits() -> some View {
+        #if os(iOS)
+        self
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        self.autocorrectionDisabled()
+        #endif
     }
 }
 

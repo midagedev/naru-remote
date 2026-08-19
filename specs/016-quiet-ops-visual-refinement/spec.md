@@ -2,7 +2,7 @@
 
 **Feature Branch**: `016-quiet-ops-visual-refinement`
 **Created**: 2026-08-19
-**Status**: Implemented 2026-08-19 (round 1: host list + session chrome + mode pill). Founder device pass residual.
+**Status**: Implemented 2026-08-20 (round 1: host list + session chrome + mode pill; round 2: status-token sweep + profile-editor input traits + diagnostics polish). Founder device pass residual.
 **Product**: Naru Remote
 **Input**: Founder direction 2026-08-19 — "전반 UI도 좀 개선하고 싶은데 호스트 목록 화면이나
 컨트롤 화면의 버튼들이나 이런것들이 너무 미려하지 않아."
@@ -52,6 +52,38 @@ The screens work but read as unstyled defaults, not as BRANDING.md §6.1's
   the existing UI suites are the regression net for behavior; this spec is
   visual only.
 - **FR-008**: Any new (text, background) pair joins `NaruColorContrastTests`.
+
+### Round 2 (2026-08-20, founder: "계속해서 개선해서 출시품질 가자")
+
+Audited the follow-on surfaces (profile editor, diagnostics sheet, empty
+state, dark captures). The empty state and the dark theme's structure held
+up; the live defects were untokenized status colors (the exact class the
+palette gate cannot see until the token is used) and a stock text field
+fighting the user:
+
+- **FR-009 (status-token sweep)**: No user-facing chrome may color status
+  with raw system `.green`/`.red`/`.orange`/`.blue`. All status hues come
+  from `NaruColors` tokens (`reachable`/`warning`/`coral`), which are the
+  measured, theme-paired values: diagnostics rows, session quality chip,
+  session status icon, reconnect badge, profile list selected/status marks.
+  Selection marks use Signal Blue (BRANDING §7: blue = press/selected),
+  not green.
+- **FR-010 (profile editor input traits)**: The VNC host and helper host
+  fields MUST disable autocorrection and autocapitalization and use the URL
+  keyboard on iOS — a hostname field that autocapitalizes or opens on a
+  Korean IME page is a functional defect, not polish. The profile name
+  field disables autocorrection only.
+- **FR-011 (diagnostics stage codes)**: The machine stage code (`dns`,
+  `tcp`, …) stays for support conversations but renders tertiary, clearly
+  subordinate to the human title/detail.
+
+## Round 2 explicit non-changes
+
+- Empty home view: audited SHIP as-is (centered mark + subhead + one CTA
+  already match Quiet Ops).
+- Dark theme: no structural defect found in captures; FR-009 *is* the dark
+  sweep (raw system colors were the remaining theme-unsafe class).
+- Diagnostics sheet chrome (`SessionDiagnosticDetailSheet`): already quiet.
 
 ## Verification Matrix
 

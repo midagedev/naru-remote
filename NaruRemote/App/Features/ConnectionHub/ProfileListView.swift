@@ -96,8 +96,11 @@ public struct ProfileListView: View {
                             Spacer()
 
                             if isSelected {
+                                // Selection is the Signal Blue accent
+                                // (BRANDING §7), not a health verdict —
+                                // green here misread as "reachable".
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(NaruColors.signalBlue)
                                     .help("Selected profile")
                             }
                         }
@@ -115,7 +118,7 @@ public struct ProfileListView: View {
                         } label: {
                             Label("Edit", systemImage: "pencil")
                         }
-                        .tint(.blue)
+                        .tint(NaruColors.signalBlue)
                         .accessibilityIdentifier("naru.profile.row.edit")
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -188,13 +191,14 @@ private struct ProfileStatusDot: View {
     }
 
     private var color: Color {
+        // Palette tokens, not raw system colors (spec 016 FR-009).
         switch verdict {
         case .unknown:
             return .secondary.opacity(0.45)
         case .passed:
-            return .green
+            return NaruColors.reachable
         case .warning:
-            return .orange
+            return NaruColors.warning
         case .failed:
             return NaruColors.coral
         }

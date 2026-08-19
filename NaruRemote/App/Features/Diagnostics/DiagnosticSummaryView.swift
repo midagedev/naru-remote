@@ -54,7 +54,7 @@ public struct DiagnosticSummaryView: View {
 
                             Text(row.stage)
                                 .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.tertiary)
                         }
 
                         Spacer(minLength: 0)
@@ -118,13 +118,16 @@ private extension String {
     }
 
     var tint: Color {
+        // Status hues come from the measured palette tokens (spec 016
+        // FR-009) — raw system colors are not theme-paired and sit
+        // outside the `NaruColorContrastTests` gate.
         switch self {
         case "passed":
-            return .green
+            return NaruColors.reachable
         case "failed":
-            return .red
+            return NaruColors.coral
         case "running":
-            return .blue
+            return NaruColors.signalBlue
         case "skipped":
             return .secondary
         default:

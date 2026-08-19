@@ -91,7 +91,7 @@ struct SessionPerformanceHUDView: View {
             row("main blk", stats.averageMainActorResponsivenessDelayMilliseconds, stats.maxMainActorResponsivenessDelayMilliseconds, highlight: false)
             if stats.outboundInputEventTimeoutCount > 0 {
                 Text("input timeouts: \(stats.outboundInputEventTimeoutCount)")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(NaruColors.warning)
             }
             divider
             pacingReasonRow(stats)

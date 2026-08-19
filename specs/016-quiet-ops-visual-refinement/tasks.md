@@ -18,6 +18,24 @@
 Follow-on candidates (await founder's reaction): profile editor form styling,
 empty-state polish, dark-theme sweep, diagnostics sheet.
 
+## Round 2 (founder greenlit follow-on, 2026-08-20)
+
+- [x] **T010** Status-token sweep (FR-009): `DiagnosticSummaryView`,
+  `SessionViewportView` (quality chip, status icon, reconnect badge),
+  `ProfileListView` (selected mark → Signal Blue, status colors, edit tint),
+  `SessionPerformanceHUDView` (`.orange` → warning).
+- [x] **T011** Profile editor input traits (FR-010): host + helper host get
+  URL keyboard / no autocorrect / no autocap; name drops autocorrect.
+  File: `ProfileEditorView.swift`.
+- [x] **T012** Diagnostics stage code goes tertiary (FR-011). File:
+  `DiagnosticSummaryView.swift`.
+- [x] **T013** `swift test` green with the round-2 edits (one failure was the
+  spec 017 live gate's workload-dependent assertion — corrected in spec 017,
+  not a 016 defect); editor/diagnostics/selected captures re-shot on iPhone
+  light+dark; lead vision pass confirmed URL keyboard + token colors +
+  tertiary stage codes.
+- [~] **T014** Founder device pass (residual).
+
 ## Found while working here (not spec 016)
 
 - [x] **T009** The UX-audit capture harness's second mislabeling incident: a

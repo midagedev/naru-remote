@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-19 KST.
+Updated: 2026-08-20 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -65,9 +65,16 @@ same PR.
    `bolt.slash.fill` in the Coral token (the red `bolt.horizontal.circle`
    read as a messenger logo); the floating pill's Compose glyph no longer
    renders as "가|". Light Coral darkened `#E85D4F`→`#E2523F` (contrast gate
-   caught 2.98:1 on Surface Muted). Identifiers unchanged. Remaining: the
-   founder's reaction steers follow-on rounds (profile editor form, empty
-   states, dark sweep, diagnostics sheet).
+   caught 2.98:1 on Surface Muted). Identifiers unchanged. **Round 2
+   implemented 2026-08-20** (founder: "계속해서 개선해서 출시품질 가자"):
+   status-token sweep — no user-facing chrome colors status with raw system
+   `.green/.red/.orange/.blue` anymore (diagnostics rows, session quality
+   chip/status icon, reconnect badge, profile list; selection marks are
+   Signal Blue, not green); the profile editor's host fields got URL
+   keyboard / no autocorrect / no autocap (a hostname field opening on the
+   Korean IME page was a functional defect); diagnostics stage codes went
+   tertiary. Empty home + dark structure audited SHIP as-is. Remaining:
+   founder device pass.
 1e. **`specs/017` zoom-scoped streaming** — implemented 2026-08-19 after the
    founder asked whether VNC can stream only part of the screen. It can
    (RFC 6143 region requests) and the mechanism existed since spec 004
@@ -78,9 +85,30 @@ same PR.
    saves <10% — so un-zoomed sessions are byte-identical to before); power
    saver still forces full; the initial request stays full outside the
    RGB565 lanes. Live-measured on this Mac's Screen Sharing with the default
-   encoding: 5/5 region requests delivered, 0 out-of-region rects, stream
-   healthy after. Remaining: the founder's cellular device pass, and if
-   pan-reveal staleness is felt, a transform-change full-request hook.
+   encoding: 5/5 region requests delivered, stream healthy after.
+   **Ground-truth correction 2026-08-20**: a busy-screen rerun delivered 158
+   out-of-region rects from the same server — Apple does NOT reliably clip
+   to the region under load, so savings against Apple servers are
+   workload-dependent (correctness unaffected; RFC-clipping servers still
+   save; the live gate now prints in-region/straddling/fully-outside counts
+   per run instead of asserting one day's workload). Remaining: the
+   founder's cellular device pass, and if pan-reveal staleness is felt, a
+   transform-change full-request hook.
+1f. **Streaming performance levers — researched, not yet specified**
+   (2026-08-20, `artifacts/research/2026-08-20-streaming-performance-levers.md`,
+   web-research round; claims carry source URLs, unmeasured by us unless
+   noted). Top candidates by impact/effort: ① wire helper
+   `requestKeyframe`/stall recovery + VideoToolbox low-latency properties
+   (S); ② helper adaptive bitrate + cellular caps via
+   `NWPath.isExpensive`/Low Power Mode (S–M); ③ Apple `ScaleFactor 0x08`
+   message (what Screens 5 sells as "Compression": server-side 0.5×
+   downscale — the one cheap lever that works *against Apple's server*;
+   needs a live probe on the VNC-password auth path first); ④ HEVC on the
+   helper lane. Premise corrections recorded: Apple Screen Sharing has
+   private still-image codecs (0x3e8–0x3f3) + a server-push message (0x09)
+   + a reverse-engineered High-Performance HEVC path (iShareScreen, 2026) —
+   "no third-party path" from the 2026-07-05 analysis is stale. Each lever
+   needs its own spec + FAIL-first live probe before implementation.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
