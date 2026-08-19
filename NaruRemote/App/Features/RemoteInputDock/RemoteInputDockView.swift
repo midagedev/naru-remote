@@ -353,7 +353,7 @@ public struct RemoteInputDockView: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 8)
-        .background(.ultraThinMaterial)
+        .remoteChromeSurface()
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(NaruColors.hairline)
@@ -428,7 +428,7 @@ public struct RemoteInputDockView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
+        .remoteChromeSurface(Capsule())
         .clipShape(Capsule())
         .overlay(
             Capsule()
@@ -591,7 +591,7 @@ public struct RemoteInputDockView: View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(statusText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(NaruColors.mutedInk)
                 .lineLimit(2)
                 .multilineTextAlignment(.trailing)
 
@@ -599,7 +599,7 @@ public struct RemoteInputDockView: View {
                !helperStatusText.isEmpty {
                 Text(helperStatusText)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(NaruColors.mutedInk)
                     .lineLimit(1)
                     .multilineTextAlignment(.trailing)
                     .accessibilityIdentifier("naru.input.helper-status")
@@ -618,7 +618,7 @@ public struct RemoteInputDockView: View {
     private func compactStatusLine(_ text: String) -> some View {
         Text(text)
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(NaruColors.mutedInk)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("naru.input.compact-status")
@@ -662,7 +662,7 @@ public struct RemoteInputDockView: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(NaruColors.mutedInk)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -678,7 +678,7 @@ public struct RemoteInputDockView: View {
         if liveTypeThroughActive, let liveStatusText, !liveStatusText.isEmpty {
             Text(liveStatusText)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(NaruColors.mutedInk)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("naru.input.live-status")

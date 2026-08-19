@@ -965,12 +965,12 @@ private struct RemoteInputDockStatusLine: View {
     var body: some View {
         Text(text)
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(NaruColors.mutedInk)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
+            .remoteChromeSurface()
             .overlay(alignment: .top) {
                 Rectangle()
                     .fill(NaruColors.hairline)

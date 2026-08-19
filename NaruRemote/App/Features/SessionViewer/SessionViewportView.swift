@@ -624,11 +624,15 @@ public struct SessionViewportView: View {
             sessionToolsMenu(includesChecks: true, iconOnly: true)
         }
         .padding(6)
-        .background(.ultraThinMaterial)
+        .remoteChromeSurface(RoundedRectangle(cornerRadius: 8))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
+            // The bar is opaque app chrome now, so its edge comes from the
+            // Hairline token like every other app surface — a white edge only
+            // read as an edge back when the fill was a translucent material
+            // over a dark remote screen.
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .stroke(NaruColors.hairline, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
     }

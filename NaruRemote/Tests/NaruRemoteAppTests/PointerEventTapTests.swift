@@ -219,9 +219,102 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertNotEqual(exportAfter, exportBefore)
         XCTAssertTrue(exportAfter.contains("\"outboundInputEventSampleCount\" : 1"))
         XCTAssertTrue(exportAfter.contains("\"outboundInputEventTimeoutCount\" : 0"))
-        XCTAssertFalse(exportAfter.contains("\"x\""))
-        XCTAssertFalse(exportAfter.contains("\"y\""))
-        XCTAssertFalse(exportAfter.contains("512"))
+
+        // The tap maps to framebuffer (512, 384). Assert the leak structurally
+        // rather than by searching the document for "512": the export also
+        // carries latencies and byte counts, any of which may legitimately
+        // render those digits, so a whole-document substring search cannot tell
+        // a constitution §IV violation from an ordinary number — and under
+        // full-suite load, when latencies grow, it reported the wrong one
+        // (observed 2026-08-19; passes alone). Keys and string values are where
+        // a coordinate could actually appear.
+        let payload = try JSONSerialization.jsonObject(with: Data(exportAfter.utf8))
+        let keys = Self.allKeys(in: payload)
+
+        // A tap may move counters; it must never add a field. Since the export
+        // is a fixed safe-detail catalog, a leaked coordinate has to arrive as
+        // one — so this catches a leak under a key nobody thought to blocklist.
+        let keysBefore = Self.allKeys(
+            in: try JSONSerialization.jsonObject(with: Data(exportBefore.utf8))
+        )
+        XCTAssertEqual(
+            keys,
+            keysBefore,
+            "Tap dispatch changed the shape of the diagnostic export"
+        )
+        let positionalKeys = keys.intersection([
+            "x", "y", "tapX", "tapY", "point", "viewPoint", "position", "coordinate", "coordinates"
+        ])
+        XCTAssertTrue(
+            positionalKeys.isEmpty,
+            "The safe-detail catalog grew a positional field: \(positionalKeys.sorted())"
+        )
+
+        // Whole numbers, not substrings: the export carries SHA-256 digests,
+        // and a 64-character hex string contains almost every short digit run
+        // by accident (the first run of this check tripped on one). A leaked
+        // coordinate would appear as the complete number.
+        let leakedStrings = Self.allStringValues(in: payload).filter {
+            Self.containsNumberToken($0, anyOf: [512, 384])
+        }
+        XCTAssertTrue(
+            leakedStrings.isEmpty,
+            "A tap coordinate reached an exported string: \(leakedStrings)"
+        )
+    }
+
+    /// Every key in a decoded JSON tree, at any depth.
+    private static func allKeys(in value: Any) -> Set<String> {
+        switch value {
+        case let object as [String: Any]:
+            return object.reduce(into: Set(object.keys)) { keys, entry in
+                keys.formUnion(allKeys(in: entry.value))
+            }
+        case let array as [Any]:
+            return array.reduce(into: Set<String>()) { keys, element in
+                keys.formUnion(allKeys(in: element))
+            }
+        default:
+            return []
+        }
+    }
+
+    /// The leak detector above is only worth anything if it still fires on a
+    /// leak — so check the instrument itself, in both directions.
+    func testCoordinateLeakDetectorFiresOnALeakAndNotOnADigest() {
+        XCTAssertTrue(Self.containsNumberToken("tap at 512,384", anyOf: [512, 384]))
+        XCTAssertTrue(Self.containsNumberToken("pointer.x=512", anyOf: [512]))
+        XCTAssertFalse(
+            Self.containsNumberToken(
+                "sha256:68c5edcbc4335510514a1fa4f5121d4711b2fd6be1131bae83e2736dcdad8739",
+                anyOf: [512, 384]
+            ),
+            "A digest that merely contains the digits is not a leak"
+        )
+        XCTAssertFalse(Self.containsNumberToken("5120 ms", anyOf: [512]))
+    }
+
+    /// Whether `text` contains any of `numbers` as a complete run of digits.
+    private static func containsNumberToken(_ text: String, anyOf numbers: Set<Int>) -> Bool {
+        text
+            .split(whereSeparator: { !$0.isNumber })
+            .compactMap { Int($0) }
+            .contains { numbers.contains($0) }
+    }
+
+    /// Every string *value* in a decoded JSON tree — numbers stay out, which is
+    /// the distinction the old substring assertion could not make.
+    private static func allStringValues(in value: Any) -> [String] {
+        switch value {
+        case let object as [String: Any]:
+            return object.values.flatMap { allStringValues(in: $0) }
+        case let array as [Any]:
+            return array.flatMap { allStringValues(in: $0) }
+        case let string as String:
+            return [string]
+        default:
+            return []
+        }
     }
 
     func testRapidTapsStaySerializedAsClickPairsWhenWritesAreSlow() async throws {
