@@ -57,6 +57,17 @@ same PR.
    mode switch) over a 1×1 hidden first responder that keeps the IME boundary.
    Remaining: the founder's device pass on v1.1 with a real software keyboard,
    which the simulator (hardware keyboard attached) cannot show.
+1d. **`specs/016` quiet-ops visual refinement** — round 1 implemented
+   2026-08-19 after the founder called the host-list and session buttons
+   "미려하지 않아". Host cards: status dot-capsule + one tag row + radius
+   12/elevation + opaque `…` (no material over preview pixels); header `+` is
+   Signal Blue; session bar buttons share one icon weight and Disconnect is
+   `bolt.slash.fill` in the Coral token (the red `bolt.horizontal.circle`
+   read as a messenger logo); the floating pill's Compose glyph no longer
+   renders as "가|". Light Coral darkened `#E85D4F`→`#E2523F` (contrast gate
+   caught 2.98:1 on Surface Muted). Identifiers unchanged. Remaining: the
+   founder's reaction steers follow-on rounds (profile editor form, empty
+   states, dark sweep, diagnostics sheet).
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

@@ -644,7 +644,7 @@ public struct SessionViewportView: View {
             Label("Connections", systemImage: "square.grid.2x2")
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 44)
+                .frame(minHeight: 24)
         }
         .buttonStyle(.bordered)
         .disabled(onReturnToConnections == nil)
@@ -738,7 +738,7 @@ public struct SessionViewportView: View {
             if iconOnly {
                 Label("Session tools", systemImage: "ellipsis.circle")
                     .labelStyle(.iconOnly)
-                    .frame(width: 38, height: 34)
+                    .frame(width: 24, height: 24)
                     .accessibilityIdentifier("naru.session.tools.menu")
             } else {
                 Label("Session tools", systemImage: "ellipsis.circle")
@@ -907,15 +907,20 @@ public struct SessionViewportView: View {
         Button {
             onDisconnect?()
         } label: {
+            // `bolt.slash` = the lane severed. The old
+            // `bolt.horizontal.circle.fill` in red read as a messenger logo
+            // at icon size (spec 016 FR-005); the tint is the Coral *token*
+            // so both themes keep the branded hue.
             if horizontalSizeClass == .compact {
-                Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
+                Label("Disconnect", systemImage: "bolt.slash.fill")
                     .labelStyle(.iconOnly)
+                    .frame(width: 24, height: 24)
             } else {
-                Label("Disconnect", systemImage: "bolt.horizontal.circle.fill")
+                Label("Disconnect", systemImage: "bolt.slash.fill")
             }
         }
         .buttonStyle(.bordered)
-        .tint(.red)
+        .tint(NaruColors.coral)
         .disabled(onDisconnect == nil)
         .help("End the active session and stop auto-reconnect")
         .accessibilityLabel("Disconnect")
@@ -938,6 +943,9 @@ public struct SessionViewportView: View {
                 systemImage: pointerControlMode.isTrackpad ? "cursorarrow.rays" : "hand.tap"
             )
             .labelStyle(.iconOnly)
+            // Equal icon frames across the bar (spec 016 FR-005) — the three
+            // trailing controls carried three different visual weights.
+            .frame(width: 24, height: 24)
         }
         .buttonStyle(.bordered)
         .disabled(onTogglePointerMode == nil || session?.state != .active)

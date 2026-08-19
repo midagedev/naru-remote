@@ -77,10 +77,15 @@ public struct ConnectionGridView: View {
                 Button {
                     onAddProfile()
                 } label: {
-                    Label("Add Profile", systemImage: "plus")
-                        .labelStyle(.iconOnly)
+                    // The screen's one primary action — Signal Blue per the
+                    // BRANDING.md §7 usage rule (spec 016 FR-004); a gray
+                    // capsule read as a disabled control.
+                    Image(systemName: "plus")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .clipShape(Circle())
                 .help("Add Profile")
                 .accessibilityLabel("Add Profile")
                 .accessibilityIdentifier("naru.connection.grid.add")
@@ -180,11 +185,21 @@ public struct ConnectionGridView: View {
                 .accessibilityIdentifier("naru.connection.grid.delete")
             }
         } label: {
+            // Opaque key chrome, not a translucent material: the button sits
+            // over preview pixels, and a material's contrast is decided by
+            // whatever desktop the thumbnail happens to show — the same class
+            // BRANDING.md §7 bans for remote-screen chrome (spec 016 FR-003).
             Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 34, height: 34)
+                .background(NaruColors.surfaceKey, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
+                // Visual weight shrinks; the hit target keeps its 44pt.
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
-                .contentShape(Circle())
+                .contentShape(Rectangle())
         }
         .foregroundStyle(.primary)
         .accessibilityLabel("Actions for \(card.displayName)")
@@ -224,27 +239,31 @@ private struct ConnectionGridCardView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
 
-                        if card.hostKind == .advancedManualPublicEndpoint {
-                            Label("Public address", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(NaruColors.coral)
-                                .lineLimit(1)
+                        // One tag row instead of a stacked caption list (spec
+                        // 016 FR-001): the card reads name → address → traits,
+                        // not a debug listing.
+                        HStack(spacing: 6) {
+                            if card.hostKind == .advancedManualPublicEndpoint {
+                                metadataTag(
+                                    "Public address",
+                                    systemImage: "exclamationmark.triangle.fill",
+                                    iconTint: NaruColors.coral
+                                )
                                 .accessibilityIdentifier("naru.connection.grid.publicWarning")
-                        } else {
-                            Label(card.hostKind.gridLabel, systemImage: card.hostKind.symbolName)
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                            } else {
+                                metadataTag(
+                                    card.hostKind.gridLabel,
+                                    systemImage: card.hostKind.symbolName
+                                )
+                            }
 
-                        Label(
-                            card.helperVideoReadiness.label,
-                            systemImage: card.helperVideoReadiness.symbolName
-                        )
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(card.helperVideoReadiness.tint)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
+                            metadataTag(
+                                card.helperVideoReadiness.label,
+                                systemImage: card.helperVideoReadiness.symbolName,
+                                iconTint: card.helperVideoReadiness.tint
+                            )
+                            .accessibilityIdentifier("naru.connection.grid.helperVideo.\(card.helperVideoReadiness.identifier)")
+                        }
 
                         if let connecting = card.connecting {
                             // The progress lives on the card instead of on a
@@ -304,11 +323,35 @@ private struct ConnectionGridCardView: View {
             }
         }
         .background(NaruColors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(NaruColors.hairline, lineWidth: 1)
         }
+        // Quiet elevation (spec 016 FR-003): enough for the card to sit on
+        // the canvas instead of being a ruled box, low enough to stay matte.
+        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
+    }
+
+    /// Compact capsule tag for card traits (spec 016 FR-001). Text stays
+    /// neutral ink for AA; a status hue rides only on the icon (3:1 non-text).
+    private func metadataTag(
+        _ text: String,
+        systemImage: String,
+        iconTint: Color = .secondary
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(iconTint)
+            Text(text)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(NaruColors.surfaceMuted, in: Capsule())
     }
 
     @ViewBuilder
@@ -325,13 +368,13 @@ private struct ConnectionGridCardView: View {
             Rectangle()
                 .fill(NaruColors.surfaceMuted)
 
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: card.hostKind.symbolName)
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.tertiary)
 
                 Text("No preview yet")
-                    .font(.caption.weight(.medium))
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
             }
         }
@@ -340,14 +383,28 @@ private struct ConnectionGridCardView: View {
         .accessibilityIdentifier("naru.connection.grid.preview.placeholder")
     }
 
+    /// Status = colored dot + neutral text in a quiet capsule (spec 016
+    /// FR-002). Colored *text* on a light surface is where AA quietly dies
+    /// (Link Green on Surface is ~2.9:1); a dot needs only the 3:1 non-text
+    /// contrast and the words stay ink.
     private var statusBadge: some View {
-        Label(card.reachability.gridLabel, systemImage: card.reachability.symbolName)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(card.reachability.tint)
-            .labelStyle(.titleAndIcon)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .accessibilityIdentifier("naru.connection.grid.reachability.\(card.reachability.identifier)")
+        HStack(spacing: 5) {
+            Circle()
+                .fill(card.reachability.tint)
+                .frame(width: 7, height: 7)
+            Text(card.reachability.gridLabel)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .background(NaruColors.surfaceMuted, in: Capsule())
+        .overlay(Capsule().stroke(NaruColors.hairline, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(card.reachability.gridAccessibilityLabel)
+        .accessibilityIdentifier("naru.connection.grid.reachability.\(card.reachability.identifier)")
     }
 }
 

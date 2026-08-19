@@ -443,7 +443,10 @@ public struct RemoteInputDockView: View {
                 onSelectMode(.compose)
                 onRequestComposeExpansion(true)
             } label: {
-                Label("Compose", systemImage: "text.cursor")
+                // `text.cursor` renders as a localized letterform ("가|") on
+                // Korean devices — same defect the dock's mode toggle fixed
+                // in spec 015; spec 016 FR-006 closes it here too.
+                Label("Compose", systemImage: "square.and.pencil")
                     .font(.subheadline.weight(.semibold))
                     .labelStyle(.titleAndIcon)
                     .padding(.horizontal, 14)
@@ -708,7 +711,7 @@ public struct RemoteInputDockView: View {
         Button {
             onRequestComposeExpansion(true)
         } label: {
-            Label("Compose", systemImage: "text.cursor")
+            Label("Compose", systemImage: "square.and.pencil")
                 .font(.body.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: 40)

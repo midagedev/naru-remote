@@ -115,7 +115,12 @@ final class NaruColorContrastTests: XCTestCase {
             Pairing(text: NaruPalette.reachable, background: NaruPalette.surface, site: "reachable status"),
             Pairing(text: NaruPalette.warning, background: NaruPalette.surface, site: "degraded status"),
             Pairing(text: NaruPalette.coral, background: NaruPalette.surface, site: "failure status"),
-            Pairing(text: NaruPalette.signalBlue, background: NaruPalette.surface, site: "primary action label")
+            Pairing(text: NaruPalette.signalBlue, background: NaruPalette.surface, site: "primary action label"),
+            // Spec 016 FR-002: the host-card status dot and tag icons sit on
+            // the Surface Muted capsule; the hue is the non-text carrier.
+            Pairing(text: NaruPalette.reachable, background: NaruPalette.surfaceMuted, site: "grid status dot"),
+            Pairing(text: NaruPalette.warning, background: NaruPalette.surfaceMuted, site: "grid status dot"),
+            Pairing(text: NaruPalette.coral, background: NaruPalette.surfaceMuted, site: "grid status dot / public tag icon")
         ]
 
         for pairing in statusPairings {

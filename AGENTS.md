@@ -78,10 +78,9 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/015-single-row-input-dock` (keyboard-up dock
-reduced from six rows / 368pt to one row; v1.1: one-line Compose field, Send
-submits with Return, Type mode is a field-less soft-key row, 2026-08-19).
-Feature index —
+Current active feature: `specs/016-quiet-ops-visual-refinement` (host-list
+cards, session-bar buttons and the mode pill aligned to BRANDING.md's Quiet
+Ops Console; visual only, identifiers unchanged, 2026-08-19). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -94,7 +93,9 @@ checklist residual · 013 Three-Screen Consolidation: implemented · 014
 Multi-Display Focus: draft, deferred by the founder (spec only) · 015
 Single-Row Input Dock: implemented v1.1 (one row above the keyboard; Compose:
 `⋯` + one-line field + Send-submits-Return; Type: field-less soft-key row;
-status speaks only when degraded).
+status speaks only when degraded) · 016 Quiet Ops Visual Refinement: round 1
+implemented (host cards, session bar, mode pill; follow-on rounds await the
+founder's reaction).
 <!-- SPECKIT END -->
 
 ## Architecture

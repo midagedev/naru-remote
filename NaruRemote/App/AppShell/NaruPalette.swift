@@ -142,9 +142,14 @@ public enum NaruPalette: Sendable {
         dark: NaruPaletteColor(0x1A, 0x1E, 0x25)
     )
 
+    // Light Coral darkened #E85D4F → #E2523F on 2026-08-19 (spec 016 FR-002):
+    // the grid status dot put Coral on Surface Muted for the first time and
+    // the contrast gate measured 2.98:1 — under the 3:1 non-text floor. The
+    // new value is 3.30:1 there and 3.81:1 on Surface (was 3.44:1). Same
+    // precedent as the Muted Ink revision earlier the same day.
     public static let coral = NaruPaletteToken(
         "Coral",
-        light: NaruPaletteColor(0xE8, 0x5D, 0x4F),
+        light: NaruPaletteColor(0xE2, 0x52, 0x3F),
         dark: NaruPaletteColor(0xFF, 0x75, 0x6B)
     )
 

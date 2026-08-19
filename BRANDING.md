@@ -410,7 +410,7 @@ UI에서 반복되는 형태:
 | Signal Blue | `#2D7DFF` | primary action, selected |
 | Link Green | `#2FBF71` | connected, success |
 | Amber | `#E5A13A` | warning, degraded |
-| Coral | `#E85D4F` | error, blocked |
+| Coral | `#E2523F` | error, blocked (2026-08-19 개정 — 구 `#E85D4F`) |
 | Violet | `#7A5CFF` | agent accent only |
 
 ### Dark Theme
@@ -435,6 +435,10 @@ UI에서 반복되는 형태:
 앱이 실제로 만드는 (텍스트, 배경) 조합은 전부
 `NaruColorContrastTests`가 두 테마 모두에서 WCAG 2.1 대비를 계산해 지킨다
 (본문 텍스트 4.5:1, 상태색 3:1). 새 조합을 뷰에 도입하면 그 테스트에 행을 추가해야 한다.
+
+Light Coral은 2026-08-19에 `#E85D4F` → `#E2523F`로 어두워졌다. 실측: 그리드 상태
+점이 Coral을 Surface Muted 위에 처음 올렸는데 2.98:1로 3:1 비텍스트 하한 미달이었다.
+새 값은 Surface Muted 위 3.30:1, Surface 위 3.81:1.
 
 Light Muted Ink는 2026-08-19에 `#68707D` → `#5F6773`로 어두워졌다. 실측:
 Surface Raised(독) 위에서 4.41:1, Surface Muted 위에서 4.33:1로 둘 다 AA 미달이었고,
