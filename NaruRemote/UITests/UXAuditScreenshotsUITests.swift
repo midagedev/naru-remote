@@ -867,6 +867,7 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             .completed,
             "Store slot 3 must visibly hold the seeded Hangul draft"
         )
+        revealAccessoryPanelIfCollapsed(in: app)
         XCTAssertTrue(
             waitForStableElement(in: app, identifier: "naru.input.accessory.strip", timeout: 4).exists,
             "Store slot 3 should show the accessory strip riding above the editor"
@@ -875,6 +876,23 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         hideSoftKeyboardForTabletCaptureIfNeeded(in: app)
 
         try saveStoreScreen(slot: 3, named: "compose-korean", mode: mode)
+    }
+
+    /// Spec 015 hid the accessory keys behind `⋯` on compact width so the
+    /// keyboard-up dock is one row. The keys are one tap away, and a capture
+    /// that shows them takes that tap — which is how a user reaches them too.
+    /// At regular width (iPad) the panel never collapses, so this is a no-op.
+    private func revealAccessoryPanelIfCollapsed(in app: XCUIApplication) {
+        let strip = app.descendants(matching: .any)["naru.input.accessory.strip"]
+        if strip.exists {
+            return
+        }
+        let toggle = app.buttons["naru.input.accessory.panel-toggle"]
+        guard toggle.waitForExistence(timeout: 4) else {
+            return
+        }
+        toggle.tap()
+        _ = strip.waitForExistence(timeout: 4)
     }
 
     private func runStoreFunctionRow(mode: ColorMode) throws {
@@ -900,6 +918,8 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // Korean here too: the strip's whole point is that these keys stay
         // reachable while an IME keyboard owns the bottom of the screen.
         switchToKoreanSoftKeyboardIfAvailable(in: app)
+
+        revealAccessoryPanelIfCollapsed(in: app)
 
         let fnToggle = waitForStableElement(in: app, identifier: "naru.input.accessory.fn", timeout: 4)
         XCTAssertTrue(fnToggle.exists, "Store function-row capture needs the Fn toggle")

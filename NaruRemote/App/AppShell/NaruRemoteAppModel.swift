@@ -1048,6 +1048,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             liveFieldText: liveFieldText,
             liveReachedWindowStart: liveReachedWindowStart,
             stickyModifierState: stickyModifierState,
+            isRemoteInputAccessoryPanelExpanded: isRemoteInputAccessoryPanelExpanded,
             lastDiagnosticVerdict: lastDiagnosticVerdict
         )
     }
@@ -6024,6 +6025,24 @@ public final class NaruRemoteAppModel: ObservableObject {
         return .compose
     }
 
+    /// Is the compact dock's accessory key panel revealed (spec 015)?
+    /// Collapsed is the default: with the keyboard up, one row of chrome is
+    /// all the founder's terminal posture can afford (the pre-015 stack
+    /// measured 368pt — 42% of an iPhone 17 Pro screen). The flag lives here
+    /// rather than in the dock view because the compose-reveal placement swap
+    /// recreates that view, and the panel must survive it (FR-004). Never
+    /// persisted: a new session starts collapsed.
+    @Published public private(set) var isRemoteInputAccessoryPanelExpanded = false
+
+    /// Reveal or hide the accessory key panel. Hiding it also stops any
+    /// in-flight key repeat's owner from being off-screen with a held key —
+    /// the strip's own `onDisappear` does that, so this stays a pure toggle.
+    public func setRemoteInputAccessoryPanelExpanded(_ expanded: Bool) {
+        guard expanded != isRemoteInputAccessoryPanelExpanded else { return }
+        markTransientFrameDeliveryInteractionActivity()
+        isRemoteInputAccessoryPanelExpanded = expanded
+    }
+
     /// One-tap switch between the two dock modes. Switching is
     /// non-destructive (FR-012): the Compose draft is untouched, and
     /// leaving Type seals its window so no delete crosses the seal
@@ -6138,6 +6157,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         liveFieldText = ""
         liveTypeThroughMode = .composeDefault
         hasAppliedTypeThroughDefaultForCurrentSession = false
+        // Spec 015 FR-004: the keyboard-up dock is one row per session start.
+        isRemoteInputAccessoryPanelExpanded = false
     }
 
     /// Marks the per-session Live transport disclosure as shown (peer to

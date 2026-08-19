@@ -78,8 +78,9 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/011-simplified-input-ux` (implemented;
-two-mode Type/Compose dock + accessory strip + gesture fixes, 2026-08-17). Feature index —
+Current active feature: `specs/015-single-row-input-dock` (keyboard-up dock
+reduced from six rows / 368pt to one row; accessory keys behind `⋯`,
+2026-08-19). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -87,7 +88,11 @@ Bridge: implemented v1 · 007 Helper Video Stream: implemented, real-screen
 gate residual · 008 ARD Native Support: partial · 009 Live Type-Through:
 implemented, physical gates residual · 010 Helper Onboarding: implemented ·
 011 Simplified Input UX: implemented (two-mode dock; Direct retired as a
-surface).
+surface) · 012 External Pointer & Strip Completions: implemented, device
+checklist residual · 013 Three-Screen Consolidation: implemented · 014
+Multi-Display Focus: draft, deferred by the founder (spec only) · 015
+Single-Row Input Dock: implemented (one row above the keyboard; keys behind
+`⋯`; status speaks only when degraded).
 <!-- SPECKIT END -->
 
 ## Architecture

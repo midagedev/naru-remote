@@ -211,6 +211,9 @@ public struct NaruRemoteAppShell: View {
             },
             onRequestComposeExpansion: { requested in
                 composeExpansionRequested = requested
+            },
+            onSetAccessoryPanelExpanded: { expanded in
+                model.setRemoteInputAccessoryPanelExpanded(expanded)
             }
         )
         .equatable()
@@ -507,11 +510,27 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        if let statusLine = accessoryChrome.statusLine {
-                            RemoteInputDockStatusLine(text: statusLine.text)
-                        }
-
+                        // Spec 015 FR-006: the status line rides *above* the
+                        // dock as an overlay instead of as a stack row. Two
+                        // reasons, both measured: as a row it cost 25pt of an
+                        // iPhone screen whenever the field was focused, and
+                        // adding/removing that row mid-typing changed the
+                        // VStack's children — which is what previously
+                        // collapsed the keyboard safe-area layout under UIKit
+                        // IME and forced a permanent "Ready to compose
+                        // locally" placeholder to hold the slot open.
                         remoteInputDockHost(state: dockState)
+                            .overlay(alignment: .top) {
+                                if let statusLine = accessoryChrome.statusLine {
+                                    RemoteInputDockStatusLine(text: statusLine.text)
+                                        .alignmentGuide(.top) { $0[.bottom] }
+                                        // It is a sentence, not a control: as a
+                                        // row it could not steal taps, and as an
+                                        // overlay over the remote screen it must
+                                        // not start.
+                                        .allowsHitTesting(false)
+                                }
+                            }
                     }
                     .frame(maxWidth: pinnedDockColumnMaxWidth, alignment: .center)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -803,6 +822,13 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     var liveTypeThroughMode: LiveTypeThroughMode
     var liveTransportDisclosureText: String
     var liveStatusText: String?
+    /// Is the locked delivery tier one that loses something (clipboard
+    /// overwrite / ASCII-only)? Spec 009 FR-014 must always show those;
+    /// spec 015 FR-006 lets the compact dock stay quiet otherwise.
+    var liveTransportIsDegraded: Bool
+    /// Is the per-window status one the user can act on or be misled by
+    /// (failed, unconfirmed, ASCII last resort, window start)?
+    var liveStatusIsActionable: Bool
     var stickyModifierState: StickyModifierState
     var layoutStyle: RemoteInputDockLayoutStyle
     var showsCompactStatusText: Bool
@@ -814,6 +840,10 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     /// the floating placement immediately — BEFORE the keyboard rises —
     /// so the pinned instance owns the editor and first responder.
     var isComposeExpansionRequested: Bool
+    /// Spec 015 FR-004: model-owned so a placement swap cannot collapse the
+    /// panel, and part of `==` so toggling it actually repaints the equatable
+    /// dock host.
+    var isAccessoryPanelExpanded: Bool
 
     init(
         snapshot: NaruRemoteAppSnapshot,
@@ -830,6 +860,13 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
             : (snapshot.composeDraft?.text ?? "")
         self.liveTransportDisclosureText = snapshot.liveTransportDisclosureText
         self.liveStatusText = snapshot.liveStatusText
+        // Spec 015 FR-006 applies to the *compact* dock, where a sentence
+        // costs a row of an iPhone screen. Spec 009 FR-013/FR-014 are
+        // unchanged at standard width, which is where they were affordable all
+        // along; these two flags are what lets the compact dock keep only the
+        // lines a user can act on or be misled by.
+        self.liveTransportIsDegraded = snapshot.liveDegradedTransportDisclosureText != nil
+        self.liveStatusIsActionable = snapshot.liveActionableStatusText != nil
         self.statusText = isLiveSession ? "" : snapshot.inputStatusText
         self.helperStatusText = isLiveSession ? nil : snapshot.inputHelperStatusText
         self.stickyModifierState = snapshot.stickyModifierState
@@ -844,6 +881,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         self.showsComposeQuickKeys = snapshot.session?.state == .active
         self.isComposeFieldFocused = isComposeFieldFocused
         self.isComposeExpansionRequested = isComposeExpansionRequested
+        self.isAccessoryPanelExpanded = snapshot.isRemoteInputAccessoryPanelExpanded
     }
 
     nonisolated static func resolvedLayoutStyle(
@@ -887,7 +925,11 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         guard lhs.directKeystrokeMode == rhs.directKeystrokeMode,
               lhs.liveTypeThroughMode == rhs.liveTypeThroughMode,
               lhs.isComposeFieldFocused == rhs.isComposeFieldFocused,
-              lhs.isComposeExpansionRequested == rhs.isComposeExpansionRequested
+              lhs.isComposeExpansionRequested == rhs.isComposeExpansionRequested,
+              // Ahead of the focus freeze below: revealing the key panel is a
+              // deliberate user action and must repaint even while the compose
+              // field holds UIKit focus.
+              lhs.isAccessoryPanelExpanded == rhs.isAccessoryPanelExpanded
         else {
             return false
         }
@@ -921,10 +963,17 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     }
 }
 
+/// The live session's single status line, rendered above the dock and outside
+/// the equatable input host (a focused Compose field is a UIKit-owned
+/// transaction; status churn must not repaint the `UITextView` bridge).
+///
+/// Spec 015 FR-006/FR-007: this line costs a row, so it earns one only when it
+/// carries something the user can act on or be misled by. A nominal send is
+/// signalled by the crossing pulse overlay, which has no height — it is not
+/// worth 25pt of an iPhone's screen to say "Ready to compose locally" or
+/// "Sent" to someone watching the remote screen react.
 struct RemoteInputDockStatusLineState: Equatable, Sendable {
     var text: String
-
-    static let focusedStatusText = "Ready to compose locally"
 
     init?(
         snapshot: NaruRemoteAppSnapshot,
@@ -935,19 +984,15 @@ struct RemoteInputDockStatusLineState: Equatable, Sendable {
             return nil
         }
 
-        if isComposeFieldFocused {
-            // Focused Compose is a UIKit-owned transaction. Keep status
-            // chrome outside the equatable input host so clearing a stale
-            // send result, helper status, or stream quality update cannot
-            // repaint the active UITextView bridge.
-            self.text = Self.focusedStatusText
-            return
-        }
-
-        let statusText = snapshot.inputStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if snapshot.latestInjectionAttempt != nil, !statusText.isEmpty {
-            self.text = statusText
-            return
+        // A delivery that failed or could not be confirmed keeps the user's
+        // text locally and must say so (FR-013 honesty); a delivery that
+        // landed says nothing.
+        if let attempt = snapshot.latestInjectionAttempt, attempt.status != .sent {
+            let statusText = snapshot.inputStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !statusText.isEmpty {
+                self.text = statusText
+                return
+            }
         }
 
         let helperStatusText = snapshot.inputHelperStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -998,6 +1043,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
     var onDismissDirectModeWarning: () -> Void
     var onComposeFocusChange: (Bool) -> Void
     var onRequestComposeExpansion: (Bool) -> Void
+    var onSetAccessoryPanelExpanded: (Bool) -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.state == rhs.state
@@ -1020,6 +1066,8 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             liveTypeThroughActive: state.liveTypeThroughMode.isActive,
             liveTransportDisclosureText: state.liveTransportDisclosureText,
             liveStatusText: state.liveStatusText,
+            liveTransportIsDegraded: state.liveTransportIsDegraded,
+            liveStatusIsActionable: state.liveStatusIsActionable,
             onToggleDirectMode: onToggleDirectMode,
             onSelectMode: onSelectMode,
             onSetDirectInputSurface: onSetDirectInputSurface,
@@ -1034,7 +1082,9 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             onDismissDirectModeWarning: onDismissDirectModeWarning,
             onComposeFocusChange: onComposeFocusChange,
             composeExpansionRequested: state.isComposeExpansionRequested,
-            onRequestComposeExpansion: onRequestComposeExpansion
+            onRequestComposeExpansion: onRequestComposeExpansion,
+            accessoryPanelExpanded: state.isAccessoryPanelExpanded,
+            onSetAccessoryPanelExpanded: onSetAccessoryPanelExpanded
         )
     }
 }

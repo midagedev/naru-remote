@@ -158,6 +158,52 @@ final class SimplifiedInputUxModelTests: XCTestCase {
         )
     }
 
+    // MARK: - Spec 015 — accessory panel state
+
+    /// FR-004. The flag lives on the model, not in the dock view, because the
+    /// compose-reveal placement swap recreates that view mid-session — view
+    /// `@State` would collapse the panel under the user's finger. The model is
+    /// also where "collapsed for each new session" can be true without
+    /// persisting anything to disk.
+    func testAccessoryPanelStartsCollapsedAndTogglesFromTheModel() async throws {
+        let model = try await makeConnectedModel(connector: connector)
+
+        XCTAssertFalse(
+            model.isRemoteInputAccessoryPanelExpanded,
+            "The founder asked for the special keys hidden by default — one row above the keyboard."
+        )
+        XCTAssertFalse(
+            model.snapshot.isRemoteInputAccessoryPanelExpanded,
+            "The dock renders off the snapshot, so the flag has to reach it there."
+        )
+
+        model.setRemoteInputAccessoryPanelExpanded(true)
+        XCTAssertTrue(model.snapshot.isRemoteInputAccessoryPanelExpanded)
+
+        // Idempotent: re-asserting the same state is not a toggle. The
+        // prelock hook taught this lesson once already — a hook that
+        // re-applied its input walked the sticky modifier past `locked`.
+        model.setRemoteInputAccessoryPanelExpanded(true)
+        XCTAssertTrue(model.snapshot.isRemoteInputAccessoryPanelExpanded)
+
+        model.setRemoteInputAccessoryPanelExpanded(false)
+        XCTAssertFalse(model.snapshot.isRemoteInputAccessoryPanelExpanded)
+    }
+
+    /// FR-004's other half: a new session starts collapsed, so the row the
+    /// user meets when they connect is one row.
+    func testAccessoryPanelCollapsesWhenTheSessionRestarts() async throws {
+        let model = try await makeConnectedModel(connector: connector)
+        model.setRemoteInputAccessoryPanelExpanded(true)
+        XCTAssertTrue(model.isRemoteInputAccessoryPanelExpanded)
+
+        model.disconnect()
+        XCTAssertFalse(
+            model.isRemoteInputAccessoryPanelExpanded,
+            "Session teardown resets the panel with the rest of the per-session Live state."
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeConnectedModel(

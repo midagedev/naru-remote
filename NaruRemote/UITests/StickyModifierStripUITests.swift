@@ -109,6 +109,24 @@ final class StickyModifierStripUITests: XCTestCase {
             app.launchEnvironment["NARU_TEST_PRELOCK_MODIFIERS"] = prelockedModifiers
         }
         app.launch()
+        revealAccessoryPanel(in: app)
         return app
+    }
+
+    /// Spec 015 put the strip behind `⋯` on compact width (the keyboard-up
+    /// dock is one row now). The modifiers are still one tap away; this is
+    /// that tap. At regular width the panel is permanent, so the toggle is
+    /// absent and this does nothing.
+    private func revealAccessoryPanel(in app: XCUIApplication) {
+        let strip = app.descendants(matching: .any)["naru.input.accessory.strip"]
+        if strip.waitForExistence(timeout: 4) {
+            return
+        }
+        let toggle = app.buttons["naru.input.accessory.panel-toggle"]
+        guard toggle.waitForExistence(timeout: 6) else {
+            return
+        }
+        toggle.tap()
+        _ = strip.waitForExistence(timeout: 4)
     }
 }

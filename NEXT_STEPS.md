@@ -37,6 +37,21 @@ same PR.
    and `RemoteControlSurfacePolicy` (Core) derives the surface from
    `(sessionState, hasFramebuffer)`. Remaining: a real failed connect, a real
    connect, and a real mid-session drop on device.
+1c. **`specs/015` single-row input dock** — **implemented 2026-08-19** after the
+   founder asked whether the keyboard-up dock was compact enough. It was not:
+   measured six rows and **368pt above the keyboard on iPhone 17 Pro — 42% of
+   the screen** (Type mode; Compose 349pt). With a software keyboard up that
+   left the remote screen ~24%. Now one row (`⋯` · field · mode · Send), span
+   40pt in Type and 88pt in Compose; modifiers, Esc/Tab/⌃C/arrows/Del, Fn,
+   remote ⌫/↵ and the Mac window controls sit behind `⋯` (model-owned so a
+   placement swap cannot collapse it, collapsed per session); the three status
+   surfaces collapsed into one line that speaks only when the transport is
+   degraded or a delivery failed, and the "Ready to compose locally"
+   placeholder is gone. Gate: `KeyboardUpDockHeightUITests` measures **rows**
+   (bands of vertically overlapping elements) from an identifier list of every
+   dock row, so a new row cannot be silently excluded. Remaining: the founder's
+   device pass — and the felt result with a real software keyboard, which the
+   simulator (hardware keyboard attached) cannot show.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

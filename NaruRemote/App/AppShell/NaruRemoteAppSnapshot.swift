@@ -1032,6 +1032,14 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// render off the snapshot, not by reaching back into the
     /// `@MainActor` model directly.
     public var stickyModifierState: StickyModifierState
+    /// Is the compact dock's accessory key panel revealed (spec 015 FR-004)?
+    /// The keyboard-up dock is one row; modifiers, terminal keys, `Fn`, remote
+    /// ⌫/↵ and the Mac window controls live behind its `⋯` toggle. Carried on
+    /// the snapshot rather than in the dock's `@State` because a compose
+    /// placement swap recreates that view mid-session, and the panel must not
+    /// collapse under the user's finger. Memory-only: each session starts
+    /// collapsed, and nothing about it is persisted.
+    public var isRemoteInputAccessoryPanelExpanded: Bool
     /// Per-profile diagnostic verdict cache (UX punch-list #109).
     /// Memory-only — never persisted.  Populated whenever a
     /// `ConnectionDiagnosticRun` finishes for a profile so the
@@ -1069,6 +1077,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         liveFieldText: String = "",
         liveReachedWindowStart: Bool = false,
         stickyModifierState: StickyModifierState = StickyModifierState(),
+        isRemoteInputAccessoryPanelExpanded: Bool = false,
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     ) {
         self.profiles = profiles
@@ -1097,6 +1106,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.liveFieldText = liveFieldText
         self.liveReachedWindowStart = liveReachedWindowStart
         self.stickyModifierState = stickyModifierState
+        self.isRemoteInputAccessoryPanelExpanded = isRemoteInputAccessoryPanelExpanded
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
     }
 
@@ -1275,6 +1285,50 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
             }
         }
         return "Live type-through — committed text flows as you type."
+    }
+
+    /// The subset of `liveTransportDisclosureText` that earns a line of the
+    /// keyboard-up dock (spec 015 FR-006). Spec 009 FR-014 requires disclosing
+    /// a **degraded** transport — the clipboard path overwrites the remote
+    /// clipboard and settles late, and the ASCII path cannot carry Korean at
+    /// all. Those must always be visible. The helper path and the
+    /// pre-tier default are nominal: their sentence stays available in the
+    /// accessory panel and in session diagnostics rather than holding 25pt of
+    /// an iPhone screen open while the user types.
+    public var liveDegradedTransportDisclosureText: String? {
+        guard liveTypeThroughMode.isActive,
+              let tier = liveTypeThroughMode.selectedTier
+        else {
+            return nil
+        }
+        switch tier {
+        case .helperNativeInsert:
+            return nil
+        case .clipboardChunk, .keyEvent:
+            let text = liveTransportDisclosureText
+            return text.isEmpty ? nil : text
+        }
+    }
+
+    /// The subset of `liveStatusText` that earns a line (spec 015 FR-006):
+    /// anything the user can act on or be misled by. A delivery that landed
+    /// is signalled by the crossing pulse overlay, which costs no height —
+    /// FR-013 forbids reporting an observed helper delivery as "unknown", not
+    /// staying quiet about a success the user is already watching happen on
+    /// the remote screen.
+    public var liveActionableStatusText: String? {
+        guard liveTypeThroughMode.isActive else {
+            return nil
+        }
+        if liveReachedWindowStart {
+            return liveStatusText
+        }
+        switch liveTypeThroughMode.lastStatus {
+        case .idle, .delivering, .deliveredObserved:
+            return nil
+        case .unconfirmedClipboard, .asciiLastResort, .retainedFailure:
+            return liveStatusText
+        }
     }
 
     /// Per-window Live delivery status line (spec 009 FR-013). Fixed
