@@ -1004,8 +1004,16 @@ public struct SessionViewportView: View {
             : "Startup warm-up disabled — tap to enable"
     }
 
+    /// The startup glance scale applies to the *next* stream, and it used to be
+    /// hidden once the session went active — which was reachable back when the
+    /// connecting state rendered this surface. Spec 013 moved connecting onto
+    /// the host list (2026-08-19), so `state != .active` left the control
+    /// visible only in the reconnecting and degraded states: a tuning knob you
+    /// could reach only while things were going wrong. It now shows wherever
+    /// the profile qualifies; the setting still takes effect on the next
+    /// stream, which is what its label says.
     private var showsStartupGlanceScaleModeButton: Bool {
-        session?.state != .active && canUseStartupGlanceScaleMode
+        canUseStartupGlanceScaleMode
     }
 
     private var startupGlanceScaleModeLabelText: String {
