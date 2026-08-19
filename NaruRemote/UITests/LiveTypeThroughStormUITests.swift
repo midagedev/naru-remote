@@ -20,7 +20,13 @@ final class LiveTypeThroughStormUITests: XCTestCase {
         let editor = focusedLiveEditor(in: app)
         XCTAssertTrue(editor.waitForExistence(timeout: 8), "Live editor must be present after entering Live mode")
 
-        editor.tap()
+        // On the standard (pre-session) layout the editor is visible and the
+        // tap focuses it. In a live session's compact dock (spec 015 v1.1)
+        // the editor is a 1×1 hidden first responder — not hittable, already
+        // focused by the reveal — so the tap is conditional.
+        if editor.isHittable {
+            editor.tap()
+        }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
 
         // A rapid multilingual storm: Hangul syllables interleaved with ASCII.
@@ -29,7 +35,7 @@ final class LiveTypeThroughStormUITests: XCTestCase {
         let syllables = ["안", "녕", "하", "세", "요", " ", "n", "a", "r", "u"]
         var expected = ""
         for syllable in syllables {
-            editor.typeText(syllable)
+            app.typeText(syllable)
             expected += syllable
         }
 

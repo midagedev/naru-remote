@@ -353,6 +353,45 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         XCTAssertTrue(connector.pasteCommands.isEmpty)
     }
 
+    // MARK: - Compose Send submits with Return (spec 015 v1.1 FR-010)
+
+    func testComposeSendSubmittingWithReturnEndsWithAReturnKeypress() async throws {
+        let connector = LiveRoutingConnector(width: 80, height: 60, name: "Desk")
+        let model = try await makeConnectedModel(
+            connector: connector,
+            helper: nil,
+            helperReachable: false
+        )
+
+        model.setRemoteInputDockMode(.compose)
+        model.updateComposeDraftText("ls -la")
+        model.sendComposedTextUsingPreferredDelivery("ls -la", submittingWithReturn: true)
+
+        // The command types through, then one Return (0xFF0D) runs it — the
+        // Send button is the submit, not a second tap on ↵.
+        try await waitFor {
+            connector.recordedKeyEvents.contains { $0.keysym == 0xFF0D }
+        }
+        // Each keysym rides as a down/up pair; exactly one Return press, last.
+        let downKeysyms = connector.recordedKeyEvents.filter(\.isDown).map(\.keysym)
+        XCTAssertEqual(downKeysyms.last, 0xFF0D)
+        XCTAssertEqual(downKeysyms.filter { $0 == 0xFF0D }.count, 1)
+    }
+
+    func testComposeSubmitPayloadAppendsExactlyOneTrailingReturn() {
+        XCTAssertEqual(NaruRemoteAppModel.composeSubmitPayload(for: "ls"), "ls\n")
+        XCTAssertEqual(
+            NaruRemoteAppModel.composeSubmitPayload(for: "ls\n"),
+            "ls\n",
+            "A draft the user already ended with a newline must not run twice"
+        )
+        XCTAssertEqual(
+            NaruRemoteAppModel.composeSubmitPayload(for: ""),
+            "",
+            "An empty draft stays empty so the send paths keep rejecting it"
+        )
+    }
+
     // MARK: - Clipboard mode + Korean auto-routes to keystroke (no failure)
 
     func testClipboardModeKoreanAutoRoutesToKeystrokeInsteadOfFailing() async throws {

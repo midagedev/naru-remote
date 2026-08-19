@@ -39,35 +39,13 @@ final class RemoteInputDockRenderStateTests: XCTestCase {
                 expansionRequested: false
             )
         )
-        XCTAssertEqual(
-            RemoteInputDockView.compactComposeEditorMaxHeight(
-                isFocused: false,
-                text: ""
-            ),
-            RemoteInputDockView.compactComposeIdleMaxHeight
-        )
-        XCTAssertEqual(
-            RemoteInputDockView.compactComposeEditorMaxHeight(
-                isFocused: true,
-                text: ""
-            ),
-            RemoteInputDockView.compactComposeExpandedMaxHeight
-        )
-        XCTAssertEqual(
-            RemoteInputDockView.compactComposeEditorMaxHeight(
-                isFocused: false,
-                text: "입력"
-            ),
-            RemoteInputDockView.compactComposeExpandedMaxHeight
-        )
-        XCTAssertEqual(
-            RemoteInputDockView.compactComposeEditorMaxHeight(
-                isFocused: false,
-                text: "",
-                expansionRequested: true
-            ),
-            RemoteInputDockView.compactComposeExpandedMaxHeight
-        )
+    }
+
+    /// Spec 015 v1.1: the compact Compose field is one line, always — the
+    /// founder read the old 88pt focused height as a multi-line editor. 40pt
+    /// is the row's control height; growth would rebuild the tall dock.
+    func testCompactComposeEditorIsOneLineTall() {
+        XCTAssertEqual(RemoteInputDockView.compactComposeEditorHeight, 40)
     }
 
     /// Compose-reveal fix (2026-07-05): tapping the floating "Compose"

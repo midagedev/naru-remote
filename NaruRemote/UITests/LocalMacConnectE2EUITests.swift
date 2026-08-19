@@ -268,11 +268,12 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         }
         XCTAssertTrue(revealed, "Type editor must be reachable from the floating strip")
 
+        // Spec 015 v1.1: Type mode's editor is a 1×1 hidden first responder —
+        // nothing to tap. The reveal already focused it; type at the app.
         let editor = app.textViews["Remote input text"]
-        editor.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
 
-        editor.typeText(payload)
+        app.typeText(payload)
         try saveScreen(named: "21-type-typed.png")
 
         // In Type mode the local mirror accumulates the committed line;

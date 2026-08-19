@@ -49,9 +49,14 @@ same PR.
    degraded or a delivery failed, and the "Ready to compose locally"
    placeholder is gone. Gate: `KeyboardUpDockHeightUITests` measures **rows**
    (bands of vertically overlapping elements) from an identifier list of every
-   dock row, so a new row cannot be silently excluded. Remaining: the founder's
-   device pass — and the felt result with a real software keyboard, which the
-   simulator (hardware keyboard attached) cannot show.
+   dock row, so a new row cannot be silently excluded. **v1.1 (same day)**,
+   from the founder's build-3 device pass: Compose field is one line (40pt,
+   scrolls), Compose Send submits with a trailing Return (real Return keypress
+   on the keystroke default), and Type mode dropped the text field entirely —
+   its row is the soft-key strip (remote ⌫/↵ leading, keyboard-dismiss key,
+   mode switch) over a 1×1 hidden first responder that keeps the IME boundary.
+   Remaining: the founder's device pass on v1.1 with a real software keyboard,
+   which the simulator (hardware keyboard attached) cannot show.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

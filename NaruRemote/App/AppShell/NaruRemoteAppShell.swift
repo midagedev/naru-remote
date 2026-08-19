@@ -167,7 +167,7 @@ public struct NaruRemoteAppShell: View {
     private func remoteInputDockHost(state: RemoteInputDockRenderState) -> some View {
         RemoteInputDockEquatableHost(
             state: state,
-            onSend: { model.sendComposedTextUsingPreferredDelivery($0) },
+            onSend: { model.sendComposedTextUsingPreferredDelivery($0, submittingWithReturn: true) },
             onTextChange: { model.updateComposeDraftText($0) },
             onComposeSendPreparation: { model.recordComposeSendPreparation($0) },
             onToggleDirectMode: { model.toggleDirectKeystrokeMode() },

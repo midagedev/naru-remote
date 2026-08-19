@@ -2,9 +2,9 @@
 
 **Feature Branch**: `015-single-row-input-dock`
 **Created**: 2026-08-19
-**Status**: Implemented 2026-08-19 — Type mode measures **1 row / 41pt** above the keyboard (from 6 rows / 368pt), Compose 1 row / 88pt, `⋯` open exactly 2 rows; iPad keeps the permanent strip (2 rows). Gates: `swift test` 1597/0 failures; `KeyboardUpDockHeightUITests` 4/4 on iPhone 17 Pro and iPad Pro 13-inch; full `NaruRemoteUITests` 75 tests green on iPhone 17 Pro Max. Residual: the founder's device pass (§Residual Risk).
+**Status**: Implemented 2026-08-19, **amended to v1.1 the same day** after the founder used build 3 on device. v1.1 changes: the compact Compose field is one line tall (40pt, was 88pt); Compose Send submits with a trailing Return; Type mode has **no visible text field** — its row is the soft-key strip itself (remote ⌫/↵ leading, no `⋯`), with the mirror editor surviving as a 1×1 hidden first responder and a keyboard-dismiss key replacing the field's drag-dismiss.
 **Product**: Naru Remote
-**Input**: Founder direction 2026-08-19 — "키보드 입력시 하단 영역 충분히 컴팩트해졌니? 나는 아예 특수키도 기본적으로 …이나 햄버거로 숨겨서 키보드 위에 딱 한 줄만 나오게 만들고 [싶다]". Measured against the shipped build before any change (numbers below).
+**Input**: Founder direction 2026-08-19 — "키보드 입력시 하단 영역 충분히 컴팩트해졌니? 나는 아예 특수키도 기본적으로 …이나 햄버거로 숨겨서 키보드 위에 딱 한 줄만 나오게 만들고 [싶다]". Measured against the shipped build before any change (numbers below). **v1.1 input**, after the founder ran build 3 on device: "키보드 컨트롤 레이아웃이 아직도 너무 상하로 높아 — 멀티라인 입력용 필드인 것 같은데 한 줄짜리로. 컴포즈 모드의 쓰기 버튼은 기본적으로 submit(엔터)이 포함되어야 해. type 모드는 굳이 텍스트 표시 필드 필요 없어 — 백스페이스와 엔터만 잘 되면 되니 소프트키 한 줄만."
 
 ## Problem
 
@@ -120,11 +120,16 @@ saying so, because that one can lose their Korean.
 - **FR-001**: The compact (`compact` horizontal size class) dock MUST, with the
   keyboard up and no degraded/failed state, present exactly one row of chrome above the
   keyboard, ≤ 72pt including the dock surface padding.
-- **FR-002**: That row MUST contain, in order: the `⋯` key-panel toggle, the input
-  field, the Type⇄Compose toggle, and — in Compose only — Send.
+- **FR-002** *(v1.1)*: **Compose**'s row MUST contain, in order: the `⋯` key-panel
+  toggle, a **one-line (40pt) input field** — long drafts scroll inside it, never grow
+  it — the Type⇄Compose toggle, and Send. **Type**'s row MUST contain: the soft-key
+  strip (see FR-008), a keyboard-dismiss key, and the Type⇄Compose toggle — no text
+  field, no `⋯`, no Send.
 - **FR-003**: Sticky modifiers, Esc/Tab/⌃C/arrows/Del, the `Fn` expansion, remote ⌫/↵,
   and the Mac window controls MUST move into the `⋯` panel, keeping their existing
-  identifiers, emission paths and wire envelopes.
+  identifiers, emission paths and wire envelopes. *(v1.1)* In Type mode the same strip
+  renders inside the row itself, with remote ⌫/↵ leading (the founder named them the
+  keys that must never need a scroll); Compose keeps the spec 012 order.
 - **FR-004**: The panel's expanded/collapsed state MUST live on the app model
   (surviving dock recreation), MUST default to collapsed for each session, and MUST NOT
   persist to disk.
@@ -134,11 +139,22 @@ saying so, because that one can lose their Korean.
   failure/limit statuses MUST still render, with copy unchanged from spec 009.
 - **FR-007**: The "Ready to compose locally" focused-status placeholder MUST be
   removed — it costs a row and carries nothing actionable.
-- **FR-008**: Type mode's mirror field MUST be single-line height; Compose keeps its
-  multi-line editor.
+- **FR-008** *(v1.1, supersedes "single-line mirror field")*: Type mode MUST render
+  **no visible text field**. The mirror editor survives as a 1×1pt hidden view because
+  it is the first responder that keeps the software keyboard raised and owns the IME
+  marked→committed boundary — every delivery path, commit trigger and local-echo
+  behavior from spec 009 is unchanged. Because removing the field removes its
+  interactive drag, the row MUST carry a keyboard-dismiss key.
 - **FR-009**: A UI test MUST measure the chrome above the keyboard and fail when the
   budget is exceeded, measuring from an identifier list of all dock rows so a future
   row cannot be silently excluded.
+- **FR-010** *(v1.1)*: Compose Send MUST submit: the draft leaves with exactly one
+  trailing Return — appended only when the draft does not already end in a newline,
+  and never to an empty draft. On the keystroke-stream path (the product default)
+  this is a real Return keypress (keysym 0xFF0D) after the text; on the clipboard and
+  helper paths it is a trailing newline in the payload, which a terminal executes and
+  a GUI text field renders as a line break (honest limit — those transports cannot
+  order a separate key event after their own delivery).
 
 ### Key Entities
 
@@ -153,7 +169,8 @@ saying so, because that one can lose their Korean.
 | --- | --- |
 | `swift test` — `SimplifiedInputUxModelTests`, new dock-plan unit tests | panel default/toggle/persistence-free state; status slot priority; nominal → no line |
 | `swift test` — existing strip emission tests | wire envelopes unchanged after the move into the panel |
-| XCUITest — `KeyboardUpDockHeightUITests` (iPhone 17 Pro, iOS 26.2) | FR-001/FR-009 geometry: one row ≤ 72pt in Type, ≤ 152pt in Compose |
+| XCUITest — `KeyboardUpDockHeightUITests` (iPhone 17 Pro, iOS 26.2) | FR-001/FR-009 geometry: one row ≤ 72pt in both modes (v1.1); Type has no visible editor and no `⋯` |
+| `swift test` — `LiveTypeThroughRoutingTests` submit tests (v1.1) | FR-010: keystroke Send ends with exactly one Return press; payload helper never doubles or fires empty |
 | XCUITest — `StickyModifierStripUITests`, `UXAuditScreenshotsUITests` | modifiers and store screenshots survive the panel move |
 | XCUITest — iPad Pro 13-inch (M5) | FR-005: regular-width strip still visible untapped |
 | Manual device (iPhone, residual) | the founder's own judgement on the collapsed row during a real terminal session |
@@ -167,3 +184,11 @@ saying so, because that one can lose their Korean.
 - Hiding the strip by default costs one tap for users who want it always on. Mitigated
   by FR-004 (it stays open once opened, across dock recreation). If the founder wants
   it remembered across sessions, that is a one-line change to persist the flag.
+- *(v1.1)* With no visible Type-mode field, an **in-flight Korean syllable** (marked
+  text, not yet committed) has no local echo — committed text echoes on the remote
+  screen itself, which is the type-through contract, but the syllable being composed
+  is invisible until it commits. Accepted by the founder's direction ("백스페이스와
+  엔터만 잘 되면"); Compose remains the surface for watching Korean text form.
+- *(v1.1)* FR-010's submit is a payload newline on the clipboard/helper paths, not a
+  Return keypress — a GUI chat app reached over those transports gets a line break,
+  not a send. The keystroke-stream default is unaffected.

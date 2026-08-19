@@ -73,3 +73,21 @@ Status legend: `[x]` done · `[ ]` open · `[~]` needs the founder's hardware.
   that cannot produce the outcome under test. Now defaults to `127.0.0.1`, this
   Mac's own Screen Sharing server (the same target `LiveMac*` tests use), with
   `NARU_E2E_HOST` still overriding.
+
+## v1.1 — founder's on-device feedback (2026-08-19, build 3)
+
+- [x] **T023** One-line Compose field: `compactComposeEditorHeight = 40`
+  replaces the 44/88 idle/expanded pair; long drafts scroll inside the line.
+- [x] **T024** Compose Send submits: `sendComposedTextUsingPreferredDelivery(_:
+  submittingWithReturn:)` appends exactly one trailing Return via
+  `composeSubmitPayload` (never doubles, never fires on an empty draft); shell
+  passes `true`. Keystroke path verified to end with one 0xFF0D press
+  (`LiveTypeThroughRoutingTests`).
+- [x] **T025** Type mode row = soft-key strip: visible field removed, mirror
+  editor kept as a 1×1 hidden first responder (IME commit boundary intact),
+  remote ⌫/↵ lead the strip, `⋯` gone from Type (nothing left to reveal).
+- [x] **T026** Keyboard-dismiss key (`naru.input.keyboard-dismiss`) replaces
+  the removed field's interactive drag as the way to lower the keyboard.
+- [x] **T027** Gate rework: `KeyboardUpDockHeightUITests` — Type asserts
+  strip-untapped/no-`⋯`/editor ≤ 1pt at every width; Compose budget tightened
+  to the shared 72pt; FR-005 and `⋯` tests re-anchored on Compose.

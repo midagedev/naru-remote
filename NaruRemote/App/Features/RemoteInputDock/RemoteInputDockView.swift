@@ -12,8 +12,10 @@ public enum RemoteInputDockLayoutStyle: Sendable, Equatable {
 }
 
 public struct RemoteInputDockView: View {
-    nonisolated static let compactComposeIdleMaxHeight: CGFloat = 44
-    nonisolated static let compactComposeExpandedMaxHeight: CGFloat = 88
+    /// Spec 015 v1.1: the compact Compose field is one line tall, full stop.
+    /// The founder read the old 88pt box as a multi-line editor eating the
+    /// remote screen; long drafts scroll inside this height instead.
+    nonisolated static let compactComposeEditorHeight: CGFloat = 40
     nonisolated static let minimumFloatingModeTargetDiameter: CGFloat = 44
     nonisolated static let composeSendFastSnapshotCount = 3
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
@@ -371,7 +373,9 @@ public struct RemoteInputDockView: View {
     /// `KeyboardUpDockHeightUITests`.
     private var compactAccessoryBody: some View {
         VStack(spacing: 8) {
-            if showsAccessoryPanel {
+            // Type mode hosts the strip inside its own row (spec 015 v1.1
+            // FR-008): rendering the panel here too would show it twice.
+            if !liveTypeThroughActive, showsAccessoryPanel {
                 accessoryKeyStrip
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -480,39 +484,38 @@ public struct RemoteInputDockView: View {
         VStack(spacing: 8) {
             liveDisclosureBadge
 
-            HStack(spacing: 8) {
-                // At regular width the panel never hides, so a toggle for it
-                // would be a button that does nothing (FR-005).
-                if !panelIsPermanent {
-                    accessoryPanelToggleButton
-                }
+            if liveTypeThroughActive {
+                liveSoftKeyRow
+            } else {
+                HStack(spacing: 8) {
+                    // At regular width the panel never hides, so a toggle for
+                    // it would be a button that does nothing (FR-005).
+                    if !panelIsPermanent {
+                        accessoryPanelToggleButton
+                    }
 
-                if showsCompactComposeEditor {
-                    composeTextEditor
-                        .frame(height: compactEditorRowHeight)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 10)
-                        .background(NaruColors.surfaceEditor)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(NaruColors.hairline, lineWidth: 1)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                        .simultaneousGesture(TapGesture().onEnded {
-                            focusComposeEditor()
-                        })
-                        .composeEditorShellAccessibility()
-                } else {
-                    compactComposeRevealButton
-                }
+                    if showsCompactComposeEditor {
+                        composeTextEditor
+                            .frame(height: Self.compactComposeEditorHeight)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 10)
+                            .background(NaruColors.surfaceEditor)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(NaruColors.hairline, lineWidth: 1)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                            .simultaneousGesture(TapGesture().onEnded {
+                                focusComposeEditor()
+                            })
+                            .composeEditorShellAccessibility()
+                    } else {
+                        compactComposeRevealButton
+                    }
 
-                compactModeToggleButton
-
-                // Live type-through has no Send — commit is the trigger
-                // (spec 009 FR-002).
-                if !liveTypeThroughActive {
+                    compactModeToggleButton
                     compactSendButton
                 }
             }
@@ -520,6 +523,55 @@ public struct RemoteInputDockView: View {
             liveStatusLine
         }
     }
+
+    /// Type mode's whole keyboard-up dock (spec 015 v1.1 FR-008): one row of
+    /// soft keys, no text field. The mirror editor still exists — 1×1pt,
+    /// invisible — because it is the first responder that keeps the software
+    /// keyboard raised and owns the IME commit boundary (marked → committed);
+    /// what the founder types leaves through it exactly as before. What shows
+    /// is the strip (remote ⌫/↵ leading), a keyboard-dismiss key, and the
+    /// mode switch.
+    private var liveSoftKeyRow: some View {
+        HStack(spacing: 8) {
+            composeTextEditor
+                .frame(width: 1, height: 1)
+
+            accessoryKeyStrip
+
+            #if os(iOS) && canImport(UIKit)
+            // With the visible field gone, the field's interactive drag was
+            // the last way to lower the keyboard — this key replaces it.
+            keyboardDismissButton
+            #endif
+
+            compactModeToggleButton
+        }
+    }
+
+    #if os(iOS) && canImport(UIKit)
+    private var keyboardDismissButton: some View {
+        Button {
+            composeCommitController.blur()
+        } label: {
+            Image(systemName: "keyboard.chevron.compact.down")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .background(NaruColors.surfaceKey)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(NaruColors.hairline, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: true, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Hide keyboard")
+        .accessibilityIdentifier("naru.input.keyboard-dismiss")
+    }
+    #endif
 
     /// Is the key panel on screen? Compact width hides it until `⋯` (FR-001);
     /// regular width keeps it (FR-005) — the height pressure this spec closes
@@ -534,13 +586,6 @@ public struct RemoteInputDockView: View {
         #else
         return true
         #endif
-    }
-
-    /// Type mode mirrors one line at a time (FR-008): its text leaves as it
-    /// commits, so a three-line box was holding 48pt of remote screen for
-    /// nothing. Compose keeps the multi-line editor it needs.
-    private var compactEditorRowHeight: CGFloat {
-        liveTypeThroughActive ? 40 : compactComposeEditorMaxHeight
     }
 
     /// `⋯` — the one affordance spec 015 adds. Reveals the accessory key
@@ -634,14 +679,6 @@ public struct RemoteInputDockView: View {
         )
     }
 
-    private var compactComposeEditorMaxHeight: CGFloat {
-        Self.compactComposeEditorMaxHeight(
-            isFocused: composeFieldFocused,
-            text: text,
-            expansionRequested: composeExpansionRequested
-        )
-    }
-
     /// Focus the compose editor after the shell granted an expansion
     /// request (see `composeExpansionRequested`). Called from both
     /// `onAppear` (placement swap recreated the dock) and the request's
@@ -665,20 +702,6 @@ public struct RemoteInputDockView: View {
     ) -> Bool {
         let hasDraft = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return isFocused || hasDraft || expansionRequested
-    }
-
-    nonisolated static func compactComposeEditorMaxHeight(
-        isFocused: Bool,
-        text: String,
-        expansionRequested: Bool = false
-    ) -> CGFloat {
-        Self.shouldShowCompactComposeEditor(
-            isFocused: isFocused,
-            text: text,
-            expansionRequested: expansionRequested
-        )
-            ? compactComposeExpandedMaxHeight
-            : compactComposeIdleMaxHeight
     }
 
     private var compactComposeRevealButton: some View {
@@ -966,55 +989,51 @@ public struct RemoteInputDockView: View {
             HStack(spacing: 6) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
-                            ModifierKeyButton(
-                                label: modifier.stripLabel,
-                                modifier: modifier,
-                                slot: stickyModifierState.slot(for: modifier),
-                                // Glyph labels (spec 012 US2-3) fit
-                                // 36pt, which is what gets Esc/Tab/⌃C
-                                // inside an iPhone-width strip.
-                                widthUnits: 1.5,
-                                unitWidth: 24,
-                                height: 36
-                            ) {
-                                onTapDirectKey(.modifier(modifier))
-                            }
-                            .disabled(!showsComposeQuickKeys)
-                        }
-
-                        // Frequency order for an AI-CLI session
-                        // (spec 012 US2-3): the interrupt sits with
-                        // Esc/Tab so it never needs a scroll; arrows
-                        // and Del follow one short scroll away.
-                        accessoryKeyButton(.escape)
-                        accessoryKeyButton(.tab)
-                        composeControlCStripButton()
-                        accessoryKeyButton(.arrowLeft)
-                        accessoryKeyButton(.arrowUp)
-                        accessoryKeyButton(.arrowDown)
-                        accessoryKeyButton(.arrowRight)
-                        accessoryKeyButton(.delete)
-
-                        // Spec 015 FR-003: remote ⌫/↵ lost their own row and
-                        // joined the panel. They stay `ComposeQuickKey`
-                        // emissions rather than raw keysyms because in Type
-                        // mode they must drive the local mirror in step with
-                        // the remote (spec 009 D1) — an `AccessoryKey`
-                        // backspace would desync it.
-                        if hostsRowMigratedControls {
+                        if liveTypeThroughActive, hostsRowMigratedControls {
+                            // Type mode's strip IS its whole dock row (spec
+                            // 015 v1.1 FR-008), and the founder named remote
+                            // ⌫/↵ as the keys that must work without a
+                            // thought — they lead. ⌃C comes third: with Fn,
+                            // the dismiss key and the mode switch pinned
+                            // after the scroll, an interrupt placed any
+                            // later clips at iPhone width (measured), and
+                            // spec 012 US2-2 puts it in the no-scroll zone.
                             composeRemoteKeyStripButton(.backspace, label: "⌫")
                             composeRemoteKeyStripButton(.enter, label: "↵")
+                            composeControlCStripButton()
+                            accessoryKeyButton(.escape)
+                            accessoryKeyButton(.tab)
+                            accessoryKeyButton(.arrowLeft)
+                            accessoryKeyButton(.arrowUp)
+                            accessoryKeyButton(.arrowDown)
+                            accessoryKeyButton(.arrowRight)
+                            accessoryKeyButton(.delete)
+                            accessoryModifierKeys
+                        } else {
+                            // Compose / standard: frequency order for an
+                            // AI-CLI session (spec 012 US2-3) — modifiers
+                            // then Esc/Tab/⌃C in the no-scroll zone.
+                            accessoryModifierKeys
+                            accessoryTerminalKeys
 
-                            // Inside the scroll, not pinned beside `Fn`:
-                            // pinned, it took ~52pt of the fixed width and
-                            // pushed ⌃C out of the no-scroll zone, which spec
-                            // 012 US2-2 put there on purpose (an interrupt you
-                            // have to scroll for is an interrupt you don't
-                            // reach in time).
-                            if showsMacSessionControls {
-                                compactMacControlMenu
+                            // Spec 015 FR-003: remote ⌫/↵ lost their own row
+                            // and joined the panel. They stay
+                            // `ComposeQuickKey` emissions rather than raw
+                            // keysyms because in Type mode they must drive
+                            // the local mirror in step with the remote (spec
+                            // 009 D1) — an `AccessoryKey` backspace would
+                            // desync it.
+                            if hostsRowMigratedControls {
+                                composeRemoteKeyStripButton(.backspace, label: "⌫")
+                                composeRemoteKeyStripButton(.enter, label: "↵")
                             }
+                        }
+
+                        // Inside the scroll, not pinned beside `Fn`: pinned,
+                        // it took ~52pt of the fixed width and pushed keys
+                        // out of the no-scroll zone (spec 012 US2-2).
+                        if hostsRowMigratedControls, showsMacSessionControls {
+                            compactMacControlMenu
                         }
                     }
                     .padding(.vertical, 2)
@@ -1062,6 +1081,36 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.input.accessory.fn-row")
             }
         }
+    }
+
+    /// Sticky modifiers, glyph-labelled (spec 012 US2-3): the 36pt keys are
+    /// what fit Esc/Tab/⌃C inside an iPhone-width strip.
+    private var accessoryModifierKeys: some View {
+        ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
+            ModifierKeyButton(
+                label: modifier.stripLabel,
+                modifier: modifier,
+                slot: stickyModifierState.slot(for: modifier),
+                widthUnits: 1.5,
+                unitWidth: 24,
+                height: 36
+            ) {
+                onTapDirectKey(.modifier(modifier))
+            }
+            .disabled(!showsComposeQuickKeys)
+        }
+    }
+
+    @ViewBuilder
+    private var accessoryTerminalKeys: some View {
+        accessoryKeyButton(.escape)
+        accessoryKeyButton(.tab)
+        composeControlCStripButton()
+        accessoryKeyButton(.arrowLeft)
+        accessoryKeyButton(.arrowUp)
+        accessoryKeyButton(.arrowDown)
+        accessoryKeyButton(.arrowRight)
+        accessoryKeyButton(.delete)
     }
 
     /// The compact panel absorbed the rows that used to sit above the editor
@@ -1969,6 +2018,12 @@ final class ComposeTextCommitController {
 
     func focus() {
         textView?.becomeFirstResponder()
+    }
+
+    /// Type mode's keyboard-dismiss key (spec 015 v1.1): with no visible
+    /// field there is no drag surface left to lower the keyboard with.
+    func blur() {
+        _ = textView?.resignFirstResponder()
     }
 
     func updateCurrentText(from textView: UITextView) {

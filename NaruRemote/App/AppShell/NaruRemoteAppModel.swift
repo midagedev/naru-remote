@@ -932,13 +932,34 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// type-through, the verified multilingual path on macOS Screen Sharing)
     /// or clipboard-paste (only reliable where the server negotiated UTF-8
     /// clipboard; Korean/CJK auto-falls back to keystroke otherwise).
-    public func sendComposedTextUsingPreferredDelivery(_ text: String) {
+    public func sendComposedTextUsingPreferredDelivery(
+        _ text: String,
+        submittingWithReturn: Bool = false
+    ) {
+        // Spec 015 v1.1 FR-010: the Compose Send button submits — the draft
+        // leaves with a trailing Return. On the keystroke path the transcoder
+        // turns it into a real Return keypress (0xFF0D); on the clipboard and
+        // helper paths it is a trailing newline in the payload, which a
+        // terminal executes and a GUI editor renders as a line break.
+        let payload = submittingWithReturn
+            ? Self.composeSubmitPayload(for: text)
+            : text
         switch appSettings.composeDelivery {
         case .clipboardPaste:
-            sendComposedText(text)
+            sendComposedText(payload)
         case .keystrokeStream:
-            sendComposedTextAsKeystrokes(text)
+            sendComposedTextAsKeystrokes(payload)
         }
+    }
+
+    /// One trailing Return, never two: a draft the user already ended with a
+    /// newline submits as-is, and an empty draft stays empty so the send
+    /// paths keep rejecting it instead of running a bare Enter.
+    nonisolated static func composeSubmitPayload(for text: String) -> String {
+        guard !text.isEmpty, !text.hasSuffix("\n") else {
+            return text
+        }
+        return text + "\n"
     }
 
     public func setStreamEncodingMode(_ mode: StreamEncodingMode) {

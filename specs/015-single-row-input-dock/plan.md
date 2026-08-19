@@ -98,3 +98,31 @@ is answered by running one test instead of by reading SwiftUI.
   would trade a real honesty requirement for 25pt.
 - **Collapse the strip at regular width too.** iPad has the height; FR-005 keeps
   it permanent there, which also keeps the iPad store captures honest.
+
+## v1.1 amendment (2026-08-19, after the founder's build-3 device pass)
+
+Three founder calls, one structural theme — the row should hold *controls*, not
+*canvas*:
+
+1. **Compose field → one line (40pt).** The 88pt focused height read as a
+   multi-line editor. The field is now a fixed-height scrolling line; the
+   height pair (`compactComposeIdleMaxHeight`/`compactComposeExpandedMaxHeight`)
+   and its branching are deleted rather than tuned, so there is no code path
+   left that can grow the field.
+2. **Send = submit.** One owner: `sendComposedTextUsingPreferredDelivery`
+   transforms the payload (`composeSubmitPayload`) before choosing a transport,
+   so every delivery branch inherits it and none can race a separately-ordered
+   key event. Keystroke path: real Return press. Clipboard/helper: trailing
+   newline (documented limit in the spec's residuals).
+3. **Type mode row = the strip.** The visible mirror was information the
+   founder doesn't use — the remote screen is the echo. The editor survives at
+   1×1 because UIKit's first responder is what holds the keyboard up and owns
+   the marked→committed IME boundary; deleting it would have rebuilt spec 009.
+   Removing the field removed the last keyboard-dismiss surface, so the row
+   gains an explicit dismiss key.
+
+Gate deltas: `KeyboardUpDockHeightUITests` re-pinned (Type: no `⋯`, no visible
+editor, one strip row at every width; Compose: 72pt shared budget);
+`LiveTypeThroughRoutingTests` gained the FR-010 submit contract; storm/E2E
+suites stopped tapping an editor that is no longer tappable and type at the
+app's focused element instead.

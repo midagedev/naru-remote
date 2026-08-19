@@ -18,15 +18,49 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
     /// A row's controls are 40pt; with the surface's 8pt top and bottom
     /// padding a single-row dock spans ~56pt. 72pt leaves room for a taller
     /// control without admitting a second row (which costs ≥44pt more).
+    /// Since v1.1 the Compose editor is one line tall too, so a single budget
+    /// covers both modes.
     private static let singleRowSpanBudget: CGFloat = 72
 
-    /// Compose legitimately owns a multi-line editor (88pt) on its row.
-    private static let composeRowSpanBudget: CGFloat = 128
-
-    func testTypeModeKeepsOneRowOfChromeAboveTheKeyboard() throws {
+    /// Spec 015 v1.1 FR-008: Type mode's row IS the soft-key strip — no text
+    /// field, no `⋯` (there is nothing left to reveal), at every width. The
+    /// mirror editor still exists at 1×1pt as the keyboard's first responder;
+    /// visibly growing it would rebuild the field the founder asked removed.
+    func testTypeModeIsOneRowOfSoftKeysWithNoTextField() throws {
         let app = launchLiveSession()
         try raiseKeyboard(in: app, via: "naru.input.type-reveal")
-        try skipUnlessCompactDock(app, requirement: "FR-001's one-row budget")
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["naru.input.accessory.strip"]
+                .waitForExistence(timeout: 6),
+            "Type mode's row is the strip; it must be on screen untapped"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.input.accessory.panel-toggle"].exists,
+            "Type mode has no ⋯ — the strip is already its row"
+        )
+        let editor = app.descendants(matching: .any)["naru.input.editor"].firstMatch
+        if editor.exists {
+            XCTAssertLessThanOrEqual(
+                editor.frame.height,
+                1.5,
+                "Type mode's mirror editor is a hidden first responder, not a visible field"
+            )
+            // Invisible must not mean dead: the 1×1 editor is what receives
+            // the keystrokes, so it has to actually hold keyboard focus after
+            // the reveal — a field that is hidden AND unfocused is a Type
+            // mode that silently types nothing.
+            let deadline = Date().addingTimeInterval(6)
+            var editorHasFocus = false
+            while Date() < deadline, !editorHasFocus {
+                editorHasFocus = (editor.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+                if !editorHasFocus { usleep(250_000) }
+            }
+            XCTAssertTrue(
+                editorHasFocus,
+                "The hidden mirror editor must hold keyboard focus so Type mode still streams keystrokes"
+            )
+        }
 
         let measurement = try measureChrome(in: app, mode: "type")
         XCTAssertEqual(
@@ -58,17 +92,19 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         )
         XCTAssertLessThanOrEqual(
             measurement.span,
-            Self.composeRowSpanBudget,
-            "Compose's row grew past its editor: \(measurement.description)"
+            Self.singleRowSpanBudget,
+            "Compose's one-line row grew: \(measurement.description)"
         )
     }
 
-    /// FR-005: at regular width the panel is permanent, so there is nothing to
-    /// reveal and no `⋯` to reveal it with. iPad has the height; the six rows
-    /// this spec closes were an iPhone problem.
+    /// FR-005: at regular width the Compose panel is permanent, so there is
+    /// nothing to reveal and no `⋯` to reveal it with. iPad has the height;
+    /// the six rows this spec closes were an iPhone problem. (Type mode is
+    /// the same single row at every width since v1.1, so the permanent-panel
+    /// contract is Compose's.)
     func testRegularWidthKeepsTheKeysWithoutATap() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.type-reveal")
+        try raiseKeyboard(in: app, via: "naru.input.compose-reveal")
 
         guard !app.buttons["naru.input.accessory.panel-toggle"].exists else {
             throw XCTSkip("Compact dock — FR-005 is about the regular-width dock")
@@ -88,12 +124,13 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
     }
 
     /// The `⋯` panel is opt-in, so it is allowed to add a row — but exactly
-    /// one, and only while it is open (FR-003).
+    /// one, and only while it is open (FR-003). Since v1.1 the `⋯` lives on
+    /// Compose's row only.
     func testRevealingTheKeyPanelAddsExactlyOneRow() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.type-reveal")
+        try raiseKeyboard(in: app, via: "naru.input.compose-reveal")
         try skipUnlessCompactDock(app, requirement: "the ⋯ panel")
-        let collapsed = try measureChrome(in: app, mode: "type-collapsed")
+        let collapsed = try measureChrome(in: app, mode: "compose-collapsed")
 
         let toggle = app.buttons["naru.input.accessory.panel-toggle"]
         XCTAssertTrue(
@@ -111,7 +148,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
                 .waitForExistence(timeout: 4),
             "One tap on ⋯ reveals the accessory strip"
         )
-        let expanded = try measureChrome(in: app, mode: "type-expanded")
+        let expanded = try measureChrome(in: app, mode: "compose-expanded")
         XCTAssertEqual(
             expanded.bands.count,
             collapsed.bands.count + 1,
@@ -175,6 +212,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         "naru.input.accessory.fn",
         "naru.input.accessory.fn-row",
         "naru.input.mode-toggle",
+        "naru.input.keyboard-dismiss",
         "naru.input.mode-picker",
         "naru.input.mac-controls.menu",
         "naru.input.editor",
