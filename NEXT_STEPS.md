@@ -82,6 +82,22 @@ same PR.
 
 ## Near term (P1)
 
+- **`specs/014` multi-display focus** — the founder's Mac has three displays and
+  Screen Sharing serves all of them as one framebuffer, so on a phone every
+  desktop is a third of an already small screen and none is usable ("이거 한꺼번에
+  모니터 세개가 나오는군", 2026-08-19). It is also the most likely reason
+  trackpad hover looked dead on device: the protocol path is proven good
+  (`LiveMacPointerHoverTests` — the real pointer moves, 1527 px repaint) and the
+  founder confirmed on re-test that the pointer does follow, so the residual
+  complaint is scale, not events. Research is measured and recorded in the spec:
+  macOS announces **no** screen layout (ExtendedDesktopSize rectangles = 0 with
+  the encoding advertised — `LiveMacDisplayLayoutTests`), so display bounds must
+  be declared by the user (or reported by the helper) and focus must be a local
+  view transform. Blocking input before planning: run
+  `swift test --filter LiveMacDisplayLayoutTests` with `NARU_LIVE_MAC_*` pointed
+  at the three-display Mac, and check `nc -vz <mac> 5901 5902` — per-display
+  ports, if `specs/008/research.md:44` is right about modern macOS, would be a
+  better answer than cropping.
 - **iPad diagnostics sheet clips its last row** — on a 13" iPad the sheet is a
   fixed-height form sheet and "First frame received" plus the Share Diagnostics
   button fall outside it; on iPhone all five rows fit. Found while shooting
