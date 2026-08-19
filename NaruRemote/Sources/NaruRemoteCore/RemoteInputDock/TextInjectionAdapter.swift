@@ -253,6 +253,23 @@ public protocol RemoteClipboardTextClient: AnyObject {
     /// fakes (used only for the outgoing send-side path) keep compiling
     /// without opting in to the receive side.
     func receiveServerCutText(timeout: TimeInterval) throws -> String
+
+    /// Hands back the most recent server clipboard text the client has already
+    /// received, and clears it — `nil` when none has arrived since the last
+    /// call.
+    ///
+    /// This is the streaming path's answer to the same question
+    /// ``receiveServerCutText(timeout:)`` asks, and it exists because the
+    /// answer must not come from a second reader. A `ServerCutText` arrives
+    /// interleaved with framebuffer updates on one connection, and a reader
+    /// dedicated to clipboard racing the frame pump splits an update header
+    /// between the two (measured: `unexpectedMessageType` out of a half-read
+    /// FBUpdate). The frame loop already dispatches by message type, so it is
+    /// the only reader; it keeps what it decodes here for the caller to drain.
+    ///
+    /// The default implementation returns `nil` so in-process fakes that only
+    /// exercise the send side keep compiling.
+    func takeIncomingClipboardText() -> String?
 }
 
 public extension RemoteClipboardTextClient {
@@ -263,6 +280,8 @@ public extension RemoteClipboardTextClient {
             "Remote clipboard receive is not supported by this client."
         )
     }
+
+    func takeIncomingClipboardText() -> String? { nil }
 }
 
 public enum TextInjectionError: Error, Equatable, LocalizedError {

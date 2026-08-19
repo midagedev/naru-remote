@@ -36,7 +36,7 @@
 | 4 | Diagnostics (DNS/TCP/RFB/auth 단계 + 안전 export) | ✅ |
 | 5 | Live session viewport (Metal 렌더, zoom-fill, trackpad/direct) | ✅ |
 | 6 | Remote Input Dock (Type / Compose) | ✅ 코드·단위 테스트, 키보드-up XCUITest 재실행 잔여 |
-| 7 | Incoming clipboard 리뷰 배너 | ⚠️ **프로덕션 세션에서 비활성** — 배너·리뷰 UI와 단위 테스트는 완비지만, 설치 앱이 쓰는 스트리밍 경로에서는 `startIncomingClipboardReceive`가 호출되지 않는다(`NaruRemoteAppModel.swift:3765-3786` 주석의 task #30: 클립보드 리더와 프레임 펌프가 같은 `NWConnection`에서 경쟁 → 단일 RFB 멀티플렉서 전까지 의도적 차단). 2026-08-17 코드 감사 P1-4. 스토어 카피·스크린샷에서 원격→로컬 클립보드 리뷰를 주장하지 말 것 |
+| 7 | Incoming clipboard 리뷰 배너 | ⚠️ **코드는 연결됨, macOS는 보내지 않음** — task #30(단일 RFB 멀티플렉서)은 2026-08-19에 닫혔다. 프레임 루프가 이미 msg_type으로 분기하고 있었고 `ServerCutText`의 본문만 버리고 있어서, 이제 그 텍스트를 보관하고 세션이 프레임마다 회수해 리뷰 배너를 띄운다(픽스처 `testServerCutTextArrivingBetweenFramesIsKeptAndDoesNotDisturbTheFrame` + 모델 E2E 테스트, 둘 다 FAIL-first 확인). **다만 실측(`LiveMacIncomingClipboardTests`, 2026-08-19): macOS Screen Sharing은 세션 중 호스트 클립보드가 바뀌어도 `ServerCutText`를 전혀 보내지 않는다 — 본문은 물론 확장 클립보드 caps조차.** 즉 원격→로컬 클립보드는 서버 역량 문제이고 주력 대상인 Mac에서는 현재 동작하지 않는다. 스토어 카피·스크린샷에서 계속 주장하지 말 것 |
 | 8 | Helper video / PiP Watch 레이어 (옵션) | ✅ (PiP는 watch-only, 실기기 검증 잔여) |
 
 ## 3. App Store Connect 실행 현황

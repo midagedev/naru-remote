@@ -85,15 +85,6 @@ same PR.
   at the three-display Mac, and check `nc -vz <mac> 5901 5902` — per-display
   ports, if `specs/008/research.md:44` is right about modern macOS, would be a
   better answer than cropping.
-- **Single RFB read multiplexer (unblocks incoming clipboard)** — the
-  installed app always connects through `RFBStreamingClient`, and on that
-  path `startIncomingClipboardReceive` is deliberately never called: the
-  clipboard reader and the frame pump both `readExactly` on the same
-  `NWConnection` and split the FBUpdate header (`NaruRemoteAppModel.swift`
-  task #30 comment). So the remote→local clipboard review banner ships
-  inert. Fix is one reader that dispatches by `msg_type`; until then
-  `SUBMISSION_READINESS.md` §2 #7 carries the ⚠️ and store copy must not
-  claim it. Found by the 2026-08-17 code audit (P1-4).
 - **Specify helper production packaging before implementation** — menu-bar app
   wrapper, notarization, launchd auto-start, capability/status disclosure, and
   revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
