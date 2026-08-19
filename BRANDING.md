@@ -405,7 +405,7 @@ UI에서 반복되는 형태:
 | Surface | `#FFFFFF` | 패널, modal |
 | Surface Raised | `#EEF1F4` | toolbar, dock background |
 | Ink | `#171A1F` | 기본 텍스트 |
-| Muted Ink | `#68707D` | 보조 텍스트 |
+| Muted Ink | `#5F6773` | 보조 텍스트 (2026-08-19 개정 — 구 `#68707D`) |
 | Hairline | `#D9DEE5` | 경계선 |
 | Signal Blue | `#2D7DFF` | primary action, selected |
 | Link Green | `#2FBF71` | connected, success |
@@ -428,6 +428,24 @@ UI에서 반복되는 형태:
 | Amber | `#F0B957` | warning |
 | Coral | `#FF756B` | error |
 | Violet | `#9B87FF` | agent accent only |
+
+### 대비 계약 (Contrast Contract)
+
+팔레트 값은 `NaruRemote/App/AppShell/NaruPalette.swift`에 **한 번만** 존재하고,
+앱이 실제로 만드는 (텍스트, 배경) 조합은 전부
+`NaruColorContrastTests`가 두 테마 모두에서 WCAG 2.1 대비를 계산해 지킨다
+(본문 텍스트 4.5:1, 상태색 3:1). 새 조합을 뷰에 도입하면 그 테스트에 행을 추가해야 한다.
+
+Light Muted Ink는 2026-08-19에 `#68707D` → `#5F6773`로 어두워졌다. 실측:
+Surface Raised(독) 위에서 4.41:1, Surface Muted 위에서 4.33:1로 둘 다 AA 미달이었고,
+독은 이 토큰이 가장 자주 읽히는 표면이다. 새 값은 각각 5.04:1, 4.95:1이다.
+
+**원격 화면 위에 뜨는 크롬은 재질(material)을 쓰지 않는다.** 독·상태줄·몰입형
+컨트롤 바는 원격 머신이 소유한 픽셀 위에 앉으므로, `.ultraThinMaterial`을 쓰면
+대비가 원격 데스크톱 내용에 따라 정해진다(라이트 테마 + 어두운 원격 화면에서 약 2:1까지
+떨어지는 것이 실측됐다). 그 표면들은 `remoteChromeSurface()`
+(`RemoteChromeSurface.swift`)로 Surface Raised를 불투명하게 칠한다 — 재질은 게이트할 수
+없지만 토큰은 게이트할 수 있기 때문이다.
 
 ### 사용 규칙
 

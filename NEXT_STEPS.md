@@ -63,22 +63,9 @@ same PR.
    five iPhone, four iPad, all dark — is
    `artifacts/app-store/20260819-build2/`; raw captures stay local in
    `artifacts/screenshots/store/`. Procedure and framing rationale:
-   `docs/store-screenshots.md`. The light set is comparison-only until the
-   dock-contrast item below is fixed.
-6. **Light-mode dock contrast over a live session** — found while shooting the
-   store captures. `RemoteInputDockView`'s compact/floating body uses
-   `.background(.ultraThinMaterial)`, so over a dark remote screen the material
-   resolves to a mid-gray while `.secondary` text stays dark: "Ready to compose
-   locally" and the Type/Compose picker land near 2:1 contrast (WCAG AA wants
-   4.5:1). Dark mode is unaffected, which is why the shipped store set is dark.
-   Structural fix: the dock chrome sits over remote pixels nobody controls, so
-   its contrast must come from app tokens — give that surface an opaque
-   `NaruColors.dock` background (a design call: it trades the glass look for
-   legibility) or an explicit high-contrast label token. Recurrence gate:
-   compute the WCAG ratio from the token hexes in a plain Swift test, both
-   appearances. Reproduce:
-   `-only-testing:NaruRemoteUITests/UXAuditScreenshotsUITests/testStoreKoreanCompose_light`
-   on iPhone 17 Pro Max and compare with the `_dark` sibling.
+   `docs/store-screenshots.md`. The light captures predate the 2026-08-19 dock
+   contrast fix; the light iPhone slots 2 and 3 have been re-shot, the rest
+   would need re-shooting before a light set could be uploaded.
 
 ## Near term (P1)
 
@@ -127,13 +114,6 @@ same PR.
   `testStartupGlanceScaleOverrideIsScopedToLowTrafficProfiles` cannot find a
   grid card to tap. The first is a real landscape layout question, not just a
   test threshold.
-- **Two load-dependent flakes in `swift test`** — both pass in isolation and
-  fail only under full-suite load, so they are timing, not logic:
-  `PointerEventTapTests.testSendTapAtRecordsOnlySafeOutboundInputDiagnostics`
-  (asserts the diagnostic export contains no `"512"`; guards constitution §IV)
-  and `DirectKeystrokeModeTests.testTimedOutPointerInputDoesNotDisableLaterKeys`
-  ("Timed out waiting for 2 key events; got 0", observed 2026-08-19, passes 2/2
-  alone). They deserve a real diagnosis rather than a retry.
 - **Specify helper production packaging before implementation** — menu-bar app
   wrapper, notarization, launchd auto-start, capability/status disclosure, and
   revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only

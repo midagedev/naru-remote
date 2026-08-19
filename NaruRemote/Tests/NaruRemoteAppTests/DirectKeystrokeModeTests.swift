@@ -7,6 +7,27 @@ import NaruRemoteCore
 @MainActor
 final class DirectKeystrokeModeTests: XCTestCase {
 
+    /// Outbound-input timeout for the four "a stalled write must not disable
+    /// later input" tests.
+    ///
+    /// Those tests stall one write by 10 seconds and then require the *next*
+    /// write to succeed. It used to be 60 ms, and that made them fail under
+    /// full-suite load while passing alone ("got 0", observed 2026-08-19): a
+    /// single executor hop over 60 ms timed out the healthy write too.
+    ///
+    /// 60 ms was not arbitrary, though, which is why simply raising it made all
+    /// four fail outright. Measured cause: the fake connector shipped a
+    /// three-frame supply and threw once it ran out, the model read that as a
+    /// dropped stream and began reconnecting ~100 ms in, and the timeout
+    /// record's guard (`activeFrameStreamID == streamID`) then dropped it. 60 ms
+    /// was the value that beat the reconnect. The fake now repeats its last
+    /// frame for these tests (`repeatsFinalFramebuffer`), so the stream stays
+    /// alive and the timeout no longer races an unrelated reconnect — which is
+    /// what lets this be generous. Nothing waits on this value, so do not
+    /// tighten it to save time.
+    private static let stalledInputRecoveryTimeout: Duration = .milliseconds(500)
+
+
     // MARK: - Initial state
 
     func testFreshModelIsInComposeMode() {
@@ -310,7 +331,8 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            pointerEventDelay: .seconds(10)
+            pointerEventDelay: .seconds(10),
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
@@ -365,7 +387,8 @@ final class DirectKeystrokeModeTests: XCTestCase {
             name: "Desk",
             framebuffer: framebuffers[0],
             framebuffers: framebuffers,
-            pointerEventDelay: .seconds(10)
+            pointerEventDelay: .seconds(10),
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
@@ -430,7 +453,8 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            pointerEventDelay: .seconds(10)
+            pointerEventDelay: .seconds(10),
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
@@ -514,13 +538,14 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            keyEventDelay: .seconds(10)
+            keyEventDelay: .seconds(10),
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
             connectorFactory: { connector },
-            outboundInputEventTimeout: .milliseconds(60)
+            outboundInputEventTimeout: Self.stalledInputRecoveryTimeout
         )
 
         await model.connectSelectedProfile()
@@ -567,13 +592,14 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            keyEventDelays: [.seconds(10), nil, nil]
+            keyEventDelays: [.seconds(10), nil, nil],
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
             connectorFactory: { connector },
-            outboundInputEventTimeout: .milliseconds(60)
+            outboundInputEventTimeout: Self.stalledInputRecoveryTimeout
         )
 
         await model.connectSelectedProfile()
@@ -615,13 +641,14 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            pointerEventDelay: .seconds(10)
+            pointerEventDelay: .seconds(10),
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
             connectorFactory: { connector },
-            outboundInputEventTimeout: .milliseconds(60)
+            outboundInputEventTimeout: Self.stalledInputRecoveryTimeout
         )
 
         await model.connectSelectedProfile()
@@ -662,13 +689,14 @@ final class DirectKeystrokeModeTests: XCTestCase {
                 height: 60,
                 fill: RFBColor(red: 10, green: 20, blue: 30)
             ),
-            pointerEventDelays: [.seconds(10), nil, nil]
+            pointerEventDelays: [.seconds(10), nil, nil],
+            repeatsFinalFramebuffer: true
         )
         let model = NaruRemoteAppModel(
             snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
             frameStreamConfiguration: RFBFramePumpConfiguration(frameInterval: 1),
             connectorFactory: { connector },
-            outboundInputEventTimeout: .milliseconds(60)
+            outboundInputEventTimeout: Self.stalledInputRecoveryTimeout
         )
 
         await model.connectSelectedProfile()
@@ -1099,6 +1127,7 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
         var requestedFramebufferUpdateCount: Int = 0
         var keyEventDelays: [Duration?]
         var pointerEventDelays: [Duration?]
+        var repeatsFinalFramebuffer: Bool
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -1115,7 +1144,8 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
         keyEventDelay: Duration? = nil,
         keyEventDelays: [Duration?]? = nil,
         pointerEventDelay: Duration? = nil,
-        pointerEventDelays: [Duration?]? = nil
+        pointerEventDelays: [Duration?]? = nil,
+        repeatsFinalFramebuffer: Bool = false
     ) {
         self.width = width
         self.height = height
@@ -1127,7 +1157,8 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
             initialState: Recording(
                 framebuffers: resolvedFramebuffers,
                 keyEventDelays: resolvedKeyEventDelays,
-                pointerEventDelays: resolvedPointerEventDelays
+                pointerEventDelays: resolvedPointerEventDelays,
+                repeatsFinalFramebuffer: repeatsFinalFramebuffer
             )
         )
     }
@@ -1188,6 +1219,14 @@ private class KeyCapturingStreamingConnector: RFBStreamingClient, @unchecked Sen
     func requestRawFramebufferUpdate(incremental: Bool, timeout: TimeInterval) throws -> RFBRawFramebuffer {
         let framebuffer = recording.withLock { state -> RFBRawFramebuffer? in
             state.requestedFramebufferUpdateCount += 1
+            // With `repeatsFinalFramebuffer` the supply never runs out, so the
+            // stream stays alive for the whole test. Without it the fake throws
+            // once its list is empty, the model treats that as a dropped stream
+            // and reconnects — which is right for tests *about* reconnecting,
+            // and pure noise for tests about an input lane.
+            if state.repeatsFinalFramebuffer, state.framebuffers.count <= 1 {
+                return state.framebuffers.first
+            }
             return state.framebuffers.isEmpty ? nil : state.framebuffers.removeFirst()
         }
         guard let framebuffer else {
