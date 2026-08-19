@@ -707,7 +707,14 @@ struct NaruRemoteApplication: App {
             }
             guard !Task.isCancelled, model.session != nil else { return }
             try? await Task.sleep(for: .milliseconds(250))
-            applyStickyModifierPrelock(modifiers, to: model)
+            // Only the modifiers the connect path actually cleared. A fixture
+            // snapshot hands the app a session at launch, so nothing resets
+            // anything and this second pass used to double-tap an
+            // already-locked modifier straight back out of the lock —
+            // idle → armed → locked → idle → armed (measured 2026-08-19).
+            let unlocked = modifiers.filter { model.stickyModifierState.slot(for: $0) != .locked }
+            guard !unlocked.isEmpty else { return }
+            applyStickyModifierPrelock(unlocked, to: model)
         }
     }
 
