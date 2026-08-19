@@ -94,13 +94,6 @@ same PR.
   inert. Fix is one reader that dispatches by `msg_type`; until then
   `SUBMISSION_READINESS.md` §2 #7 carries the ⚠️ and store copy must not
   claim it. Found by the 2026-08-17 code audit (P1-4).
-- **Two pre-existing `NaruRemoteLaunchUITests` failures** (reproduced at
-  `e249df1d`, before the 2026-08-17/18 UI work — not regressions):
-  `testRemoteInputDockMovesAboveKeyboardWhileComposing` measures a 186 pt gap
-  between the landscape dock editor and the keyboard (the test wants < 96), and
-  `testStartupGlanceScaleOverrideIsScopedToLowTrafficProfiles` cannot find a
-  grid card to tap. The first is a real landscape layout question, not just a
-  test threshold.
 - **Specify helper production packaging before implementation** — menu-bar app
   wrapper, notarization, launchd auto-start, capability/status disclosure, and
   revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
