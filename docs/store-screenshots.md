@@ -72,10 +72,17 @@ xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
 
 ## The shipped iPad set is four shots, not five
 
-Slots 1–4. Apple requires at least one iPad screenshot, not five. Slot 5's
-diagnostics sheet renders as a fixed-height form sheet on iPad and clips its
-last row ("First frame received") plus the Share button, so the capture exists
-for reference but is not uploaded — see `NEXT_STEPS.md`.
+Slots 1–4. Apple requires at least one iPad screenshot, not five.
+
+Slot 5 used to be excluded because the diagnostics sheet clipped its last row
+and the Share button on iPad. That is **fixed** (2026-08-19): the share action
+moved into the sheet's toolbar so it can never depend on scroll position, and
+on regular width the sheet takes the page size. The capture now shows all five
+stages. It stays out of the uploaded set only because `.page` makes the sheet
+noticeably taller than its content, which reads oddly in a store shot — a
+cosmetic call, not a defect. `testStoreDiagnosticsPassed_*` now asserts the last
+row and the share button are **hittable**, not merely present; existence was
+what let the clipped sheet through in the first place.
 
 ## Why each slot is framed the way it is
 
