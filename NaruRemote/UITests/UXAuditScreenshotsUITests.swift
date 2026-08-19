@@ -1684,6 +1684,21 @@ final class UXAuditScreenshotsUITests: XCTestCase {
     // MARK: - Helpers — saving
 
     private func saveScreen(named filename: String, in directory: String? = nil) throws {
+        // Device-tag guard (2026-08-19, second occurrence): the tags in the
+        // capture names are hard-coded per test, so a full-suite run on one
+        // device used to overwrite the *other* device's named slots with the
+        // wrong pixels (an iPhone run filled `-ipad-*` files twice). The
+        // single owner of every capture write is here, so the claim is
+        // checked here: a file that names a device this runner is not gets
+        // skipped, not written.
+        let runsOnPad = UIDevice.current.userInterfaceIdiom == .pad
+        if filename.contains("-ipad"), !runsOnPad {
+            throw XCTSkip("\(filename) claims an iPad slot; this runner is an iPhone — run it on the iPad destination")
+        }
+        if filename.contains("-iphone"), runsOnPad {
+            throw XCTSkip("\(filename) claims an iPhone slot; this runner is an iPad — run it on the iPhone destination")
+        }
+
         let outputDirectory = directory ?? self.outputDirectory
         // `XCUIScreen.main.screenshot()` returns the framebuffer at
         // the device's portrait pixel orientation; rotated (landscape)
