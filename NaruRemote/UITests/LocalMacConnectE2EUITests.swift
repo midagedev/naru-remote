@@ -15,7 +15,7 @@ import UIKit
 /// vars (set on the simulator's launchd via `simctl spawn launchctl
 /// setenv`):
 ///
-///   NARU_E2E_HOST     (default: 192.168.45.148)
+///   NARU_E2E_HOST     (default: 127.0.0.1 — this Mac's Screen Sharing)
 ///   NARU_E2E_PORT     (default: 5900)
 ///   NARU_E2E_PASSWORD (no default — happy-path skips if unset)
 ///
@@ -48,8 +48,22 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("naru-e2e-screenshots")
     }
 
+    /// Defaults to this Mac's own Screen Sharing server, which is what the
+    /// suite is named after and what `LiveMac*` tests already use.
+    ///
+    /// It used to default to a hard-coded LAN address (`192.168.45.148`) from
+    /// whatever network the suite was written on. Nothing there answers now, so
+    /// every unconfigured run failed at DNS/TCP — which is why the
+    /// wrong-password test could never reach the authentication stage whose
+    /// copy it asserts. A default that cannot produce the outcome under test is
+    /// worse than no default.
     private var host: String {
-        ProcessInfo.processInfo.environment["NARU_E2E_HOST"] ?? "192.168.45.148"
+        let configured = ProcessInfo.processInfo.environment["NARU_E2E_HOST"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let configured, !configured.isEmpty {
+            return configured
+        }
+        return "127.0.0.1"
     }
 
     private var port: Int {
@@ -278,34 +292,61 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         sleep(5)
     }
 
+    /// A rejected password must still say *why*, and say it where the user is.
+    ///
+    /// This used to look for the session diagnostics corner, which was where a
+    /// failed connect lived until spec 013 US-4 (2026-08-19) moved connecting
+    /// and failing onto the host list: a connect that never reaches a first
+    /// frame no longer opens the remote-control surface at all
+    /// (`RemoteControlSurfacePolicy.phase` returns `.hostList` for `.failed`),
+    /// so the corner it waited for cannot exist and the suite went red for a
+    /// UI that had moved, not broken. The behaviour under test is unchanged —
+    /// the card reports the failure, and its Diagnostics action carries the
+    /// actionable safe-catalog entry.
     func testWrongPassword_showsActionableAuthDiagnostic() throws {
         let profileID = UUID()
         let credentialRef = "vnc-password:\(profileID.uuidString)"
         let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: "definitely-wrong-pw")
         openFirstConnectionCardIfPresent(app: app)
 
-        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
-        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 8))
-        let deadline = Date().addingTimeInterval(15)
-        while Date() < deadline, !isFailed(diagnosticCorner) {
-            usleep(250_000)
-        }
+        // Failing keeps the host list on screen, and the card that was tapped
+        // carries the reason (`ConnectionGridCardFailure` = `session.lastError`).
+        let reconnect = app.buttons["naru.connection.grid.reconnect"].firstMatch
         XCTAssertTrue(
-            isFailed(diagnosticCorner),
-            "Expected Operation diagnostics to report the authentication failure"
+            reconnect.waitForExistence(timeout: 20),
+            "A failed connect must annotate the card that started it, with a way to retry"
         )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.session.viewport"].exists,
+            "A connect that never got a frame must not open an empty remote-control screen (spec 013 US-4)"
+        )
+        try saveScreen(named: "03-wrong-password-card.png")
 
-        // The corner remains a compact status surface. Open its sheet before
-        // asserting the full, actionable safe-detail catalog entry.
-        diagnosticCorner.tap()
+        openDiagnosticsFromFirstCard(app: app)
 
         let macHint = NSPredicate(format: "label CONTAINS[c] %@", "VNC password was rejected")
         let macHintLabel = app.staticTexts.matching(macHint).firstMatch
         XCTAssertTrue(
-            macHintLabel.waitForExistence(timeout: 15),
-            "Expected new actionable authentication diagnostic to appear; got generic state instead."
+            macHintLabel.waitForExistence(timeout: 30),
+            "Expected the actionable authentication diagnostic; got a generic state instead."
         )
         try saveScreen(named: "03-wrong-password-diagnostic.png")
+    }
+
+    private func openDiagnosticsFromFirstCard(app: XCUIApplication) {
+        let actions = app.buttons["naru.connection.grid.actions"].firstMatch
+        XCTAssertTrue(
+            actions.waitForExistence(timeout: 8),
+            "Host card must expose its actions menu"
+        )
+        actions.tap()
+
+        let diagnostics = app.buttons["naru.connection.grid.diagnostics"].firstMatch
+        XCTAssertTrue(
+            diagnostics.waitForExistence(timeout: 4),
+            "Actions menu must offer Diagnostics (spec 013 US2-1)"
+        )
+        diagnostics.tap()
     }
 
     // MARK: - Helpers
