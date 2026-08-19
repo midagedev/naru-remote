@@ -68,6 +68,19 @@ same PR.
    caught 2.98:1 on Surface Muted). Identifiers unchanged. Remaining: the
    founder's reaction steers follow-on rounds (profile editor form, empty
    states, dark sweep, diagnostics sheet).
+1e. **`specs/017` zoom-scoped streaming** — implemented 2026-08-19 after the
+   founder asked whether VNC can stream only part of the screen. It can
+   (RFC 6143 region requests) and the mechanism existed since spec 004
+   FR-017, but D106 had gated it to the opt-in RGB565 profiles — the default
+   profile requested full-framebuffer damage even zoomed in. Now every
+   profile scopes zoomed *incremental* requests to the visible viewport
+   (+64px margin, full-request heartbeat every 10th, region dropped when it
+   saves <10% — so un-zoomed sessions are byte-identical to before); power
+   saver still forces full; the initial request stays full outside the
+   RGB565 lanes. Live-measured on this Mac's Screen Sharing with the default
+   encoding: 5/5 region requests delivered, 0 out-of-region rects, stream
+   healthy after. Remaining: the founder's cellular device pass, and if
+   pan-reveal staleness is felt, a transform-change full-request hook.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

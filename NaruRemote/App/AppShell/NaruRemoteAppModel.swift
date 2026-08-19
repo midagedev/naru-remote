@@ -4726,10 +4726,29 @@ public final class NaruRemoteAppModel: ObservableObject {
         )?.centeredScaled(by: appSettings.startupGlanceScaleMode.scale)
     }
 
+    /// Spec 017 (2026-08-19, founder direction): every stream profile scopes
+    /// *incremental* requests to the visible viewport once the user zooms in.
+    /// Un-zoomed sessions are untouched — `ViewportRequestRegionPolicy`
+    /// returns nil (full request) when the visible region saves under 10% —
+    /// and D94's starvation risk stays covered by the every-10th full-request
+    /// heartbeat. Previously this was the RGB565 lanes' opt-in (D106); the
+    /// promotion is the incremental gate only.
     private var usesViewportAwareRequestRegions: Bool {
         guard appSettings.streamPowerMode != .powerSaver,
               !lowPowerModeProvider()
         else {
+            return false
+        }
+        return true
+    }
+
+    /// The *initial* request stays full-frame outside the opt-in RGB565
+    /// lanes: a region-scoped first frame leaves never-delivered framebuffer
+    /// area unpainted until damage happens to land there, and that
+    /// glance-startup trade was only measured for those lanes (D110). This is
+    /// also what `canUseStartupGlanceScaleMode` keys on.
+    private var usesViewportAwareInitialRequestRegion: Bool {
+        guard usesViewportAwareRequestRegions else {
             return false
         }
         switch appSettings.streamEncodingMode {
@@ -4738,10 +4757,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         case .standard, .tightFirstCursor, .zrleCompressionZero, .adaptiveGoodFull:
             return false
         }
-    }
-
-    private var usesViewportAwareInitialRequestRegion: Bool {
-        usesViewportAwareRequestRegions
     }
 
     private func startFrameApplicationWorker(_ queue: SessionStreamFrameApplicationQueue) {

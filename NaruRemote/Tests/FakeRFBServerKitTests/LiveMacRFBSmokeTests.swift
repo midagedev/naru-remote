@@ -298,6 +298,95 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         }
     }
 
+    /// Spec 017 promotion evidence: with the *default* encoding preference,
+    /// does the real macOS Screen Sharing server honor a region-scoped
+    /// incremental `FramebufferUpdateRequest` — clip its damage to the
+    /// rectangle, hold when nothing inside it changed (D94's starvation
+    /// shape is a request that never comes back *and* wedges the stream),
+    /// and leave the connection healthy for the next full request?
+    ///
+    /// The stimulus is this machine's own desktop, which is changing while
+    /// the test runs (terminal output, simulators).
+    func testRegionScopedIncrementalRequestsAgainstRealMac() throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let timeout: TimeInterval = 5
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: timeout
+        )
+        _ = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+
+        // A corner quarter of the screen — small enough that damage outside
+        // it is likely while the test runs, which is exactly what must NOT
+        // be delivered for a region request.
+        let region = RFBFramebufferUpdateRegion(
+            x: 0,
+            y: 0,
+            width: UInt16(max(Int(serverInit.width) / 2, 1)),
+            height: UInt16(max(Int(serverInit.height) / 2, 1))
+        )
+
+        var deliveredUpdates = 0
+        var heldRequests = 0
+        var outOfRegionRects = 0
+        for _ in 1...5 {
+            do {
+                let update = try client.requestFramebufferUpdate(
+                    incremental: true,
+                    timeout: 1.5,
+                    region: region
+                )
+                deliveredUpdates += 1
+                for rect in update.dirtyRectangles {
+                    if rect.x + rect.width > Int(region.width) + Int(region.x)
+                        || rect.y + rect.height > Int(region.height) + Int(region.y) {
+                        outOfRegionRects += 1
+                    }
+                }
+            } catch let error as RFBNetworkClientError where error == .timedOut || error == .readTimedOut {
+                // Held: no damage inside the region during the wait. This is
+                // the correct server behavior, not a failure.
+                heldRequests += 1
+            }
+        }
+
+        // The stream must stay healthy after region requests: a full
+        // incremental either delivers or is legitimately held, but the
+        // protocol must not desync.
+        var fullRecovered = true
+        do {
+            _ = try client.requestFramebufferUpdate(incremental: true, timeout: 3, region: nil)
+        } catch let error as RFBNetworkClientError where error == .timedOut || error == .readTimedOut {
+            // Held is fine; a decode/desync error is not (rethrown below).
+        } catch {
+            fullRecovered = false
+            XCTFail("Full request after region requests desynced: \(safeFailureLabel(for: error))")
+        }
+
+        print(
+            "Region-scoped incremental against live target: delivered=\(deliveredUpdates) "
+                + "held=\(heldRequests) outOfRegionRects=\(outOfRegionRects) "
+                + "fullRecovered=\(fullRecovered)"
+        )
+        XCTAssertEqual(
+            deliveredUpdates + heldRequests,
+            5,
+            "Every region request must either deliver or be held — anything else desyncs the stream"
+        )
+        XCTAssertEqual(
+            outOfRegionRects,
+            0,
+            "The server must clip damage to the requested region; out-of-region rects would make viewport-scoped requests unsafe"
+        )
+    }
+
     private func measureFirstFrameTiming(
         label: String,
         preference: RFBEncodingPreference,

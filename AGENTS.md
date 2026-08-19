@@ -78,9 +78,10 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/016-quiet-ops-visual-refinement` (host-list
-cards, session-bar buttons and the mode pill aligned to BRANDING.md's Quiet
-Ops Console; visual only, identifiers unchanged, 2026-08-19). Feature index —
+Current active feature: `specs/017-zoom-scoped-streaming` (every stream
+profile scopes zoomed incremental requests to the visible viewport;
+un-zoomed sessions unchanged; live-Mac region clipping measured,
+2026-08-19). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -95,7 +96,9 @@ Single-Row Input Dock: implemented v1.1 (one row above the keyboard; Compose:
 `⋯` + one-line field + Send-submits-Return; Type: field-less soft-key row;
 status speaks only when degraded) · 016 Quiet Ops Visual Refinement: round 1
 implemented (host cards, session bar, mode pill; follow-on rounds await the
-founder's reaction).
+founder's reaction) · 017 Zoom-Scoped Streaming: implemented (viewport
+request regions on every profile once zoomed; physical poor-network pass
+residual).
 <!-- SPECKIT END -->
 
 ## Architecture

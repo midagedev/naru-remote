@@ -2209,7 +2209,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
-    func testModelKeepsFullIncrementalStreamRequestsInStandardProfile() async throws {
+    /// Rewritten for spec 017 (2026-08-19): the standard profile now DOES
+    /// scope zoomed incremental requests (see
+    /// `testStandardProfileRequestsVisibleViewportRegionOnceZoomed`), so the
+    /// still-valid "off" side of the gate is the power-saver override — it
+    /// keeps every request full-frame even while zoomed.
+    func testPowerSaverKeepsFullIncrementalStreamRequestsWhileZoomed() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1_000,
@@ -2238,6 +2243,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             connectorFactory: { connector },
             lowPowerModeProvider: { false }
         )
+        model.setStreamPowerMode(.powerSaver)
 
         await model.connectSelectedProfile()
         try await Task.sleep(for: .milliseconds(80))
@@ -2338,6 +2344,102 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
             ]
         )
+    }
+
+    /// Spec 017: the default profile also scopes *incremental* requests to the
+    /// visible viewport once the user zooms in. Un-zoomed sessions are
+    /// unaffected — the policy returns nil (full request) when the visible
+    /// region saves less than 10% of the framebuffer.
+    func testStandardProfileRequestsVisibleViewportRegionOnceZoomed() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let firstFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let secondFramebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 20, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffers: [firstFramebuffer, secondFramebuffer]
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 2,
+                requestTimeout: 1,
+                frameInterval: 0.2,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        // No stream-profile opt-in: `.standard` is the product default.
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .standard)
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(80))
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+        try await Task.sleep(for: .milliseconds(260))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false, true])
+        XCTAssertEqual(
+            connector.frameUpdateRegions,
+            [
+                nil,
+                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
+            ]
+        )
+    }
+
+    /// Spec 017 keeps the *initial* request full-frame on the default profile:
+    /// a region-scoped first frame leaves never-delivered framebuffer area
+    /// unpainted until the server reports damage there, and that glance-startup
+    /// trade stays opt-in (the RGB565 lanes, D110).
+    func testStandardProfileKeepsFullInitialStreamRequestWhileZoomed() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let framebuffer = RFBRawFramebuffer(
+            width: 1_000,
+            height: 1_000,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 1_000,
+            height: 1_000,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        XCTAssertEqual(model.appSettings.streamEncodingMode, .standard)
+        model.updateViewportTransform(
+            ViewportTransform(
+                framebufferSize: CGSize(width: 1_000, height: 1_000),
+                viewSize: CGSize(width: 500, height: 500),
+                zoomScale: 2
+            )
+        )
+
+        await model.connectSelectedProfile()
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(connector.frameUpdateRegions, [nil])
     }
 
     func testModelRequestsVisibleViewportRegionForLowTrafficInitialStreamFrame() async throws {
