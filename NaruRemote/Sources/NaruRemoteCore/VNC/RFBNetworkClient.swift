@@ -801,6 +801,22 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    /// Sends Apple Screen Sharing's proprietary `ScaleFactor` message
+    /// (0x08) on the active session — a request for a server-side
+    /// framebuffer downscale (Screens 5's "Compression"). Probe-only:
+    /// no production path calls this until a spec promotes it with
+    /// live-measured behavior on the VNC-password auth path
+    /// (`LiveMacRFBSmokeTests` owns that measurement).
+    public func sendAppleScaleFactor(
+        _ scale: Double,
+        timeout: TimeInterval = 2
+    ) throws {
+        try writeControlMessage(
+            try RFBClientMessageEncoder.appleScaleFactor(scale),
+            timeout: timeout
+        )
+    }
+
     /// Sends TigerVNC's `ClientFence` control message on the active
     /// session. Payload validation is handled by
     /// `RFBClientMessageEncoder`; callers should keep payloads opaque

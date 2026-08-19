@@ -240,3 +240,30 @@ Apple APIs (all iOS 17+):
 ---
 
 DONE-PERFRESEARCH
+
+---
+
+# Lead addendum — lever ③ live-measured (2026-08-20, this Mac)
+
+`LiveMacRFBSmokeTests/testAppleScaleFactorDownscaleProbeAgainstRealMac`,
+three consecutive runs, standard VNC-password auth (type 2), default
+encoding preference:
+
+```
+verdict=honored (extent ratio 0.50 x 0.50) announcedViaDesktopSize=true
+restoredToBaseline=true restoreAttempts=2
+```
+
+- Apple Screen Sharing honors `ScaleFactor 0x08` (scale 0.5) **on the plain
+  VNC-password path** — no Apple auth needed. Frame pixel count drops 4×.
+- The resize arrives as a standard **DesktopSize (-223) pseudo-encoding**,
+  which `RFBFramebufferDecoder` already handles (framebuffer resize +
+  `didResizeDesktop`) — the client pipeline needs no decoder work.
+- Scale-up back to 1.0 works in the same session but lazily (~1s, second
+  full update). A product ladder needs hysteresis, not a reconnect.
+- Open for the promoting spec: pointer-coordinate mapping at scale (server
+  should inverse-map — Screens works — verify with the live hover infra),
+  and perceived sharpness when the user zooms while scaled.
+
+This upgrades lever ③ from "needs a probe" to "probe passed; ready to
+specify" — see `specs/018-*` once created.

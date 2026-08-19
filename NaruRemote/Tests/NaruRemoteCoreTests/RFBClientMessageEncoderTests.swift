@@ -146,6 +146,31 @@ final class RFBClientMessageEncoderTests: XCTestCase {
         }
     }
 
+    // MARK: - Apple ScaleFactor (0x08) probe message
+
+    func testAppleScaleFactorProducesTenByteBigEndianDoubleFrame() throws {
+        let message = try RFBClientMessageEncoder.appleScaleFactor(0.5)
+
+        // 0.5 as IEEE-754 double is 0x3FE0_0000_0000_0000, big-endian on
+        // the wire per screensharingd's HandleSetServerScalingMessage.
+        XCTAssertEqual(message, Data([
+            0x08, 0x00,
+            0x3f, 0xe0, 0, 0, 0, 0, 0, 0
+        ]))
+    }
+
+    func testAppleScaleFactorRejectsOutOfRangeScales() {
+        for scale in [0.0, -0.5, 1.5, Double.nan, Double.infinity] {
+            XCTAssertThrowsError(try RFBClientMessageEncoder.appleScaleFactor(scale)) { error in
+                // Pattern-match instead of Equatable: NaN != NaN would
+                // fail an equality assertion for the NaN case.
+                guard case RFBClientMessageEncodingError.invalidAppleScaleFactor = error else {
+                    return XCTFail("Unexpected error for scale \(scale): \(error)")
+                }
+            }
+        }
+    }
+
     // MARK: - Continuous updates / fence pacing extensions
 
     func testEnableContinuousUpdatesProducesTigerVNCWireFrame() {

@@ -46,6 +46,7 @@ public enum RFBClientMessageEncodingError: Error, Equatable {
     case fencePayloadTooLarge(maximum: Int, actual: Int)
     case extendedClipboardPayloadTooLarge(maximum: Int, actual: Int)
     case zlibCompressionFailed
+    case invalidAppleScaleFactor(Double)
 }
 
 public enum RFBClientMessageEncoder {
@@ -159,6 +160,26 @@ public enum RFBClientMessageEncoder {
         bytes.append(contentsOf: uint16Bytes(y))
         bytes.append(contentsOf: uint16Bytes(width))
         bytes.append(contentsOf: uint16Bytes(height))
+        return Data(bytes)
+    }
+
+    /// Encodes Apple Screen Sharing's proprietary `ScaleFactor` client
+    /// message (type 0x08): reserved byte + big-endian IEEE-754 double.
+    /// screensharingd's `HandleSetServerScalingMessage` reads the 8 bytes
+    /// at offset 2 as the scale and validates `scale > 0` (wire format per
+    /// the iShareScreen `apple_vnc_rfc.md` reverse-engineering, 2026 —
+    /// this is what Screens 5 ships as its "Compression" server-side
+    /// downscale). Probe-only until a spec promotes it: whether the
+    /// message is honored on the standard VNC-password auth path is
+    /// exactly what `LiveMacRFBSmokeTests` measures.
+    public static func appleScaleFactor(_ scale: Double) throws -> Data {
+        guard scale > 0.0, scale <= 1.0, scale.isFinite else {
+            throw RFBClientMessageEncodingError.invalidAppleScaleFactor(scale)
+        }
+        var bytes: [UInt8] = [0x08, 0]
+        withUnsafeBytes(of: scale.bitPattern.bigEndian) { raw in
+            bytes.append(contentsOf: raw)
+        }
         return Data(bytes)
     }
 

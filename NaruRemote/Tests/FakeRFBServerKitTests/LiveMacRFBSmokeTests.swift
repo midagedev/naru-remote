@@ -413,6 +413,106 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         // above are printed so runs keep quantifying the actual saving.
     }
 
+    /// NEXT_STEPS 1f lever ③ probe: does Apple Screen Sharing honor the
+    /// proprietary `ScaleFactor` (0x08) server-side downscale on the
+    /// standard VNC-password auth path? Screens 5 ships this as
+    /// "Compression"; the iShareScreen RFC documents the wire format but
+    /// not the auth-path constraint — this measurement settles it before
+    /// any spec promotes the lever. The probe classifies, it does not
+    /// demand: "ignored" and "rejected" are valid answers about Apple,
+    /// only a client-side desync after restore is a failure of ours.
+    func testAppleScaleFactorDownscaleProbeAgainstRealMac() throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: 5
+        )
+
+        func boundingExtent(_ rects: [RFBFrameDamageRect]) -> (width: Int, height: Int) {
+            rects.reduce((width: 0, height: 0)) { extent, rect in
+                (
+                    width: max(extent.width, rect.x + rect.width),
+                    height: max(extent.height, rect.y + rect.height)
+                )
+            }
+        }
+
+        // Baseline: the first full update's bounding extent is the
+        // unscaled framebuffer.
+        let baseline = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+        let baselineExtent = boundingExtent(baseline.dirtyRectangles)
+        XCTAssertGreaterThan(baselineExtent.width, 0, "Baseline full update delivered no rects")
+
+        try client.sendAppleScaleFactor(0.5)
+        // Give screensharingd a beat to apply (or discard) the request
+        // before sampling.
+        Thread.sleep(forTimeInterval: 0.5)
+
+        var verdict: String
+        var announcedViaDesktopSize = false
+        do {
+            let scaled = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+            announcedViaDesktopSize = scaled.didResizeDesktop
+            let scaledExtent = boundingExtent(scaled.dirtyRectangles)
+            if scaled.dirtyRectangles.isEmpty {
+                verdict = "indeterminate-empty-update"
+            } else {
+                let widthRatio = Double(scaledExtent.width) / Double(max(baselineExtent.width, 1))
+                let heightRatio = Double(scaledExtent.height) / Double(max(baselineExtent.height, 1))
+                if widthRatio <= 0.6, heightRatio <= 0.6 {
+                    verdict = String(
+                        format: "honored (extent ratio %.2f x %.2f)", widthRatio, heightRatio
+                    )
+                } else {
+                    verdict = String(
+                        format: "ignored (extent ratio %.2f x %.2f)", widthRatio, heightRatio
+                    )
+                }
+            }
+        } catch {
+            verdict = "rejected (\(safeFailureLabel(for: error)))"
+        }
+
+        // Restore and confirm the session survived the probe. The first
+        // run measured that scale-up does not reflect in the immediately
+        // following full update — poll a few so the report says whether
+        // restore is merely lazy or unavailable in-session (that decides
+        // whether a product zoom ladder can ride one connection).
+        var restoredHealthy = false
+        var restoreAttempts = 0
+        do {
+            try client.sendAppleScaleFactor(1.0)
+            for attempt in 1...6 {
+                restoreAttempts = attempt
+                Thread.sleep(forTimeInterval: 0.5)
+                let restored = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+                let restoredExtent = boundingExtent(restored.dirtyRectangles)
+                if restoredExtent.width >= baselineExtent.width {
+                    restoredHealthy = true
+                    break
+                }
+            }
+        } catch {
+            restoredHealthy = false
+        }
+
+        // Privacy note (constitution §IV): ratios and verdict words only —
+        // no framebuffer dimensions or coordinates.
+        print(
+            "Apple ScaleFactor probe on VNC-password path: verdict=\(verdict) "
+                + "announcedViaDesktopSize=\(announcedViaDesktopSize) "
+                + "restoredToBaseline=\(restoredHealthy) restoreAttempts=\(restoreAttempts) "
+                + "pixelFormatBitsPerPixel=\(serverInit.pixelFormat.bitsPerPixel)"
+        )
+    }
+
     private func measureFirstFrameTiming(
         label: String,
         preference: RFBEncodingPreference,
