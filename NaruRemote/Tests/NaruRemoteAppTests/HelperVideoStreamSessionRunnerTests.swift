@@ -432,6 +432,185 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
     }
     #endif
 
+    func testDecoderRejectionRequestsKeyframeAndKeepsLaneWhenSupportIsAdvertised() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(
+            displayableSequences: [1, 3, 4],
+            throwingSequences: [2]
+        )
+        let recorder = KeyframeRequestRecorder()
+        let descriptor = HelperVideoStreamDescriptor(
+            codecProfile: .high,
+            frameRateBucket: .upTo30,
+            supportsKeyframeRequest: true
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(
+                    descriptor: descriptor,
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe),
+                        Self.accessUnit(sequence: 2, kind: .delta),
+                        Self.accessUnit(sequence: 3, kind: .keyframe),
+                        Self.accessUnit(sequence: 4, kind: .delta)
+                    ],
+                    requestKeyframe: { reason in
+                        recorder.record(reason)
+                    }
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertEqual(recorder.reasons, [.decoderRecovery])
+        XCTAssertNil(outcome.fallbackFailureCode)
+        XCTAssertTrue(outcome.selectedVisualTransport)
+        XCTAssertEqual(outcome.displayableFrameCount, 3)
+        XCTAssertEqual(snapshot.visualTransportMode, .helperVideo)
+        XCTAssertEqual(snapshot.helperVideoStreamHealth.state, .healthy)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.availability, .available)
+        XCTAssertNil(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode)
+    }
+
+    func testDecoderRejectionFallsBackWhenKeyframeRequestIsUnsupported() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(
+            displayableSequences: [1, 3, 4],
+            throwingSequences: [2]
+        )
+        let recorder = KeyframeRequestRecorder()
+        let descriptor = HelperVideoStreamDescriptor(
+            codecProfile: .high,
+            frameRateBucket: .upTo30,
+            supportsKeyframeRequest: false
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(
+                    descriptor: descriptor,
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe),
+                        Self.accessUnit(sequence: 2, kind: .delta),
+                        Self.accessUnit(sequence: 3, kind: .keyframe),
+                        Self.accessUnit(sequence: 4, kind: .delta)
+                    ],
+                    requestKeyframe: { reason in
+                        recorder.record(reason)
+                    }
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+        let snapshot = model.snapshot
+
+        XCTAssertTrue(recorder.reasons.isEmpty)
+        XCTAssertEqual(outcome.fallbackFailureCode, .decoderRejected)
+        XCTAssertEqual(outcome.displayableFrameCount, 1)
+        XCTAssertEqual(snapshot.visualTransportMode, .vncFramebuffer)
+        XCTAssertEqual(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode, .decoderRejected)
+    }
+
+    func testRecoveryBudgetExhaustionFallsBackWithoutADisplayableFrame() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(
+            displayableSequences: [1],
+            throwingSequences: [2]
+        )
+        let recorder = KeyframeRequestRecorder()
+        let recoveredUnits = (3..<(3 + HelperVideoKeyframeRecoveryPolicy.recoveryBudgetAccessUnits))
+            .map { Self.accessUnit(sequence: $0, kind: .delta) }
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(
+                    descriptor: HelperVideoStreamDescriptor(supportsKeyframeRequest: true),
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe),
+                        Self.accessUnit(sequence: 2, kind: .delta)
+                    ] + recoveredUnits,
+                    requestKeyframe: { reason in
+                        recorder.record(reason)
+                    }
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+
+        XCTAssertEqual(recorder.reasons, [.decoderRecovery])
+        XCTAssertEqual(outcome.fallbackFailureCode, .decoderRejected)
+        XCTAssertEqual(outcome.displayableFrameCount, 1)
+        XCTAssertEqual(
+            model.snapshot.helperVideoProfileState[profile.id]?.lastFailureCode,
+            .decoderRejected
+        )
+    }
+
+    func testStreamStallStaysTerminalEvenWhenKeyframeRequestIsAvailable() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(displayableSequences: [1])
+        let recorder = KeyframeRequestRecorder()
+        let runner = HelperVideoStreamSessionRunner(
+            eventStream: { _ in
+                Self.eventStream(
+                    descriptor: HelperVideoStreamDescriptor(supportsKeyframeRequest: true),
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe)
+                    ],
+                    requestKeyframe: { reason in
+                        recorder.record(reason)
+                    },
+                    stall: HelperVideoWireEnvelope(
+                        messageType: .streamStalled,
+                        profileFingerprint: "sha256:helper-video",
+                        body: HelperVideoStreamStallBody(reason: .encoderUnavailable)
+                    )
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+
+        XCTAssertTrue(recorder.reasons.isEmpty)
+        XCTAssertEqual(outcome.fallbackFailureCode, .streamStalled)
+        XCTAssertEqual(outcome.fallbackStallReason, .encoderUnavailable)
+        XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
+    }
+
     func testDecoderRejectionFlushesAndFallsBackWithoutDroppingSession() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .active)
@@ -638,9 +817,11 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
 
     private nonisolated static func eventStream(
         descriptor: HelperVideoStreamDescriptor = HelperVideoStreamDescriptor(),
-        accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>]
+        accessUnits: [HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>],
+        requestKeyframe: (@Sendable (HelperVideoKeyframeRequestReason) -> Void)? = nil,
+        stall: HelperVideoWireEnvelope<HelperVideoStreamStallBody>? = nil
     ) -> HelperVideoStreamNetworkEvents {
-        HelperVideoStreamNetworkEvents { continuation in
+        HelperVideoStreamNetworkEvents(requestKeyframe: requestKeyframe) { continuation in
             continuation.yield(.startResponse(
                 HelperVideoWireEnvelope(
                     messageType: .startStream,
@@ -653,6 +834,9 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
             ))
             for accessUnit in accessUnits {
                 continuation.yield(.accessUnit(accessUnit))
+            }
+            if let stall {
+                continuation.yield(.stall(stall))
             }
             continuation.finish()
         }
@@ -818,4 +1002,21 @@ private actor HelperVideoRendererSuspensionGate {
 
 private enum FakeHelperVideoRendererError: Error {
     case decoderRejected
+}
+
+private final class KeyframeRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [HelperVideoKeyframeRequestReason] = []
+
+    func record(_ reason: HelperVideoKeyframeRequestReason) {
+        lock.lock()
+        recorded.append(reason)
+        lock.unlock()
+    }
+
+    var reasons: [HelperVideoKeyframeRequestReason] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
 }

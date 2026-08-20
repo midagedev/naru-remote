@@ -125,6 +125,20 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(for: request, keyframeSignal: nil)
+    }
+
+    public func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(for: request, keyframeSignal: keyframeSignal)
+    }
+
+    private func makeAccessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         #if os(macOS) && canImport(VideoToolbox)
         let frameLimit = frameCount > 0 ? frameCount : nil
         let pixelBuffers = try syntheticPixelBufferStream(
@@ -141,7 +155,10 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             keyFrameInterval: keyFrameInterval,
             encodingMode: .lowLatencyRealtime
         )
-        return try encoder.encode(pixelBuffers: pixelBuffers)
+        return try encoder.encode(
+            pixelBuffers: pixelBuffers,
+            keyframeSignal: keyframeSignal
+        )
         #else
         throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.unsupportedPlatform
         #endif
@@ -280,7 +297,8 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     }
 
     public func encode(
-        pixelBuffers: AsyncThrowingStream<CVPixelBuffer, any Error>
+        pixelBuffers: AsyncThrowingStream<CVPixelBuffer, any Error>,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal? = nil
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         guard width > 0, height > 0 else {
             throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.invalidFrameSize
@@ -353,8 +371,16 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
                             value: CMTimeValue(index),
                             timescale: timescale
                         )
+                        // Consume the latch unconditionally: a request that
+                        // coincides with an index/interval keyframe is
+                        // satisfied by that keyframe and must not leak a
+                        // redundant forced IDR into the following frame
+                        // (lead review 2026-08-20, FAIL-first in
+                        // NaruHelperVideoKeyframeRequestTests).
+                        let requestedKeyframe = keyframeSignal?.consumePending() ?? false
                         let shouldForceKeyframe = index == 0
                             || index.isMultiple(of: keyFrameInterval)
+                            || requestedKeyframe
                         let status = VTCompressionSessionEncodeFrame(
                             sessionBox.session,
                             imageBuffer: pixelBuffer,

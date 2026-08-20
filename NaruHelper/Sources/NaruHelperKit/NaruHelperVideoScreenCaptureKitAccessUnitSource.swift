@@ -313,6 +313,20 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(for: request, keyframeSignal: nil)
+    }
+
+    public func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(for: request, keyframeSignal: keyframeSignal)
+    }
+
+    private func makeAccessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         guard let streamProvider = pixelBufferProvider
             as? any NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider
         else {
@@ -389,7 +403,10 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
                         encodingMode: .lowLatencyRealtime,
                         encodedAccessUnitBufferCapacity: encodedAccessUnitBufferCapacity
                     )
-                    let accessUnits = try encoder.encode(pixelBuffers: replayedPixelBuffers)
+                    let accessUnits = try encoder.encode(
+                        pixelBuffers: replayedPixelBuffers,
+                        keyframeSignal: keyframeSignal
+                    )
                     for try await accessUnit in accessUnits {
                         try Task.checkCancellation()
                         guard NaruHelperVideoEncodedAccessUnitStreamPolicy.yield(

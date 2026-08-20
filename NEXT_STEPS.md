@@ -112,6 +112,17 @@ same PR.
    + a reverse-engineered High-Performance HEVC path (iShareScreen, 2026) —
    "no third-party path" from the 2026-07-05 analysis is stale. Each lever
    needs its own spec + FAIL-first live probe before implementation.
+1g. **`specs/019` helper video keyframe recovery — implemented 2026-08-20**
+   (2026-08-20, lever ① from 1f). The requestKeyframe wire vocabulary from
+   spec 007 was never wired: the helper advertises
+   `supportsKeyframeRequest: true` but never reads inbound frames after
+   startStream, and the app falls back to VNC on the first decoder-rejected
+   access unit. Spec 019 wires both ends: helper-side per-stream force
+   signal into the VT encode loop + authenticated inbound receive loop;
+   app-side pure recovery policy (2 attempts, 30-AU budget) before VNC
+   fallback. VT low-latency properties turned out already present on the
+   live SCK path (EnableLowLatencyRateControl + RealTime), so the lever's
+   VT half was verification, not new work. `streamStalled` stays terminal.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

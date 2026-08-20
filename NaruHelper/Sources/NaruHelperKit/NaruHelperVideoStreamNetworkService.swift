@@ -104,11 +104,19 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
         on connection: NWConnection
     ) async {
         var emittedAccessUnit = false
+        var inboundControl: Task<Void, Never>?
         do {
             try await sendFrame(openedStream.responseFrame, on: connection)
             guard openedStream.isAccepted else {
                 await complete(connection)
                 return
+            }
+
+            inboundControl = Task {
+                await receiveInboundControlFrames(on: connection, stream: openedStream)
+            }
+            defer {
+                inboundControl?.cancel()
             }
 
             let accessUnitStream = try openedStream.makeAccessUnitStream()
@@ -122,6 +130,7 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
             }
             await complete(connection)
         } catch {
+            inboundControl?.cancel()
             if let stalledFrame = try? openedStream.stalledFrameForSourceFailure(
                 error,
                 emittedAccessUnit: emittedAccessUnit
@@ -135,6 +144,61 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
                 return
             }
             connection.cancel()
+        }
+    }
+
+    private static func receiveInboundControlFrames(
+        on connection: NWConnection,
+        stream: NaruHelperVideoOpenedFrameStream
+    ) async {
+        while !Task.isCancelled {
+            guard let frame = await receiveJSONFrame(on: connection) else {
+                return
+            }
+            stream.considerInboundControlFrame(frame)
+        }
+    }
+
+    private static func receiveJSONFrame(on connection: NWConnection) async -> Data? {
+        let resume = HelperVideoInboundReceiveResume()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                resume.arm(continuation)
+                connection.receive(
+                    minimumIncompleteLength: HelperVideoWireCodec.headerByteCount,
+                    maximumLength: HelperVideoWireCodec.headerByteCount
+                ) { header, _, _, error in
+                    if error != nil {
+                        resume.finish(nil)
+                        return
+                    }
+                    guard let header else {
+                        resume.finish(nil)
+                        return
+                    }
+
+                    let length: Int
+                    do {
+                        length = try HelperVideoWireCodec.jsonPayloadLength(from: header)
+                    } catch {
+                        resume.finish(nil)
+                        return
+                    }
+
+                    connection.receive(
+                        minimumIncompleteLength: length,
+                        maximumLength: length
+                    ) { payload, _, _, error in
+                        guard error == nil, let payload else {
+                            resume.finish(nil)
+                            return
+                        }
+                        resume.finish(header + payload)
+                    }
+                }
+            }
+        } onCancel: {
+            resume.finish(nil)
         }
     }
 
@@ -166,5 +230,24 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
 public enum HelperVideoStreamNetworkServerError: Error, Equatable, Sendable {
     case invalidPort
     case transportProtectionRequired
+}
+
+private final class HelperVideoInboundReceiveResume: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Never>?
+
+    func arm(_ continuation: CheckedContinuation<Data?, Never>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(_ frame: Data?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: frame)
+    }
 }
 #endif

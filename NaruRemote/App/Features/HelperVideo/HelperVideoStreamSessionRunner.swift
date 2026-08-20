@@ -212,6 +212,9 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         var didPublishHealthy = false
         var didPublishBackpressureHealth = false
         var renderBackpressureGate = HelperVideoRenderBackpressureGate()
+        var recoveryPolicy = HelperVideoKeyframeRecoveryPolicy()
+        var supportsKeyframeRequest = false
+        let requestKeyframe = events.requestKeyframe
 
         do {
             for try await event in events {
@@ -258,11 +261,15 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                         )
                     }
                     selectedVisualTransport = true
+                    supportsKeyframeRequest = response.body.streamDescriptor.supportsKeyframeRequest
                     await renderer.flush()
                 case .accessUnit(let accessUnit):
                     receivedAccessUnitCount += 1
                     guard selectedVisualTransport else {
                         continue
+                    }
+                    if recoveryPolicy.isRecovering {
+                        recoveryPolicy.recordReceivedAccessUnitWhileRecovering()
                     }
                     do {
                         switch try await renderAccessUnit(
@@ -279,7 +286,20 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                                     profileID: profileID
                                 )
                             }
+                            if recoveryPolicy.isBudgetExhausted {
+                                return await decoderRejectedFallback(
+                                    startAccepted: startAccepted,
+                                    selectedVisualTransport: selectedVisualTransport,
+                                    receivedAccessUnitCount: receivedAccessUnitCount,
+                                    displayableFrameCount: displayableFrameCount,
+                                    droppedAccessUnitCount: droppedAccessUnitCount,
+                                    sessionID: sessionID,
+                                    profileID: profileID,
+                                    model: model
+                                )
+                            }
                         case .displayable:
+                            recoveryPolicy.noteDisplayableFrame()
                             displayableFrameCount += 1
                             if !didPublishHealthy {
                                 didPublishHealthy = true
@@ -295,30 +315,45 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                                 )
                             }
                         case .notDisplayable:
-                            break
+                            if recoveryPolicy.isBudgetExhausted {
+                                return await decoderRejectedFallback(
+                                    startAccepted: startAccepted,
+                                    selectedVisualTransport: selectedVisualTransport,
+                                    receivedAccessUnitCount: receivedAccessUnitCount,
+                                    displayableFrameCount: displayableFrameCount,
+                                    droppedAccessUnitCount: droppedAccessUnitCount,
+                                    sessionID: sessionID,
+                                    profileID: profileID,
+                                    model: model
+                                )
+                            }
                         }
                     } catch {
-                        await renderer.flush()
-                        let health = fallbackHealth(for: .decoderRejected)
-                        await model.updateHelperVideoStreamHealth(
-                            health,
-                            sessionID: sessionID,
-                            profileID: profileID
-                        )
-                        await markProfileFailure(
-                            .decoderRejected,
-                            sessionID: sessionID,
-                            profileID: profileID,
-                            model: model
-                        )
-                        return HelperVideoStreamSessionOutcome(
+                        let canRecover = supportsKeyframeRequest && requestKeyframe != nil
+                        if canRecover {
+                            switch recoveryPolicy.handleDecoderRejection(
+                                supportsKeyframeRequest: true
+                            ) {
+                            case .requestKeyframe:
+                                requestKeyframe?(.decoderRecovery)
+                                continue
+                            case .swallow:
+                                if !recoveryPolicy.isBudgetExhausted {
+                                    continue
+                                }
+                            case .fallback:
+                                break
+                            }
+                        }
+                        return await decoderRejectedFallback(
                             startAccepted: startAccepted,
                             selectedVisualTransport: selectedVisualTransport,
                             receivedAccessUnitCount: receivedAccessUnitCount,
                             displayableFrameCount: displayableFrameCount,
                             droppedAccessUnitCount: droppedAccessUnitCount,
-                            fallbackFailureCode: .decoderRejected,
-                            finalHealth: await helperVideoStreamHealth(model: model)
+                            sessionID: sessionID,
+                            profileID: profileID,
+                            model: model
                         )
                     }
                 case .stall(let stall):
@@ -480,27 +515,15 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                     break
                 }
             } catch {
-                await renderer.flush()
-                let health = fallbackHealth(for: .decoderRejected)
-                await model.updateHelperVideoStreamHealth(
-                    health,
-                    sessionID: sessionID,
-                    profileID: profileID
-                )
-                await markProfileFailure(
-                    .decoderRejected,
-                    sessionID: sessionID,
-                    profileID: profileID,
-                    model: model
-                )
-                return HelperVideoStreamSessionOutcome(
+                return await decoderRejectedFallback(
                     startAccepted: true,
                     selectedVisualTransport: true,
                     receivedAccessUnitCount: result.accessUnits.count,
                     displayableFrameCount: displayableFrameCount,
                     droppedAccessUnitCount: droppedAccessUnitCount,
-                    fallbackFailureCode: .decoderRejected,
-                    finalHealth: await helperVideoStreamHealth(model: model)
+                    sessionID: sessionID,
+                    profileID: profileID,
+                    model: model
                 )
             }
         }
@@ -601,6 +624,40 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                 ? .displayable
                 : .notDisplayable
         }
+    }
+
+    private func decoderRejectedFallback(
+        startAccepted: Bool,
+        selectedVisualTransport: Bool,
+        receivedAccessUnitCount: Int,
+        displayableFrameCount: Int,
+        droppedAccessUnitCount: Int,
+        sessionID: RemoteSession.ID,
+        profileID: ConnectionProfile.ID,
+        model: NaruRemoteAppModel
+    ) async -> HelperVideoStreamSessionOutcome {
+        await renderer.flush()
+        let health = fallbackHealth(for: .decoderRejected)
+        await model.updateHelperVideoStreamHealth(
+            health,
+            sessionID: sessionID,
+            profileID: profileID
+        )
+        await markProfileFailure(
+            .decoderRejected,
+            sessionID: sessionID,
+            profileID: profileID,
+            model: model
+        )
+        return HelperVideoStreamSessionOutcome(
+            startAccepted: startAccepted,
+            selectedVisualTransport: selectedVisualTransport,
+            receivedAccessUnitCount: receivedAccessUnitCount,
+            displayableFrameCount: displayableFrameCount,
+            droppedAccessUnitCount: droppedAccessUnitCount,
+            fallbackFailureCode: .decoderRejected,
+            finalHealth: await helperVideoStreamHealth(model: model)
+        )
     }
 
     private func ignoreStaleResult(

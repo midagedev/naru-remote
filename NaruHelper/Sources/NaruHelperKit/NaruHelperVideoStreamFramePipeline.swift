@@ -38,6 +38,11 @@ public protocol NaruHelperVideoAccessUnitSource: Sendable {
     func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
 }
 
 public extension NaruHelperVideoAccessUnitSource {
@@ -51,6 +56,13 @@ public extension NaruHelperVideoAccessUnitSource {
             }
             continuation.finish()
         }
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try accessUnitStream(for: request)
     }
 }
 
@@ -71,9 +83,11 @@ public struct NaruHelperVideoStaticAccessUnitSource: NaruHelperVideoAccessUnitSo
 public struct NaruHelperVideoOpenedFrameStream: Sendable {
     public let responseFrame: Data
     public let isAccepted: Bool
+    public let keyframeRequestSignal: NaruHelperVideoKeyframeRequestSignal
 
     private let request: HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>
     private let emptyStreamHealth: HelperVideoStreamHealth
+    private let requestHandler: NaruHelperVideoTransportRequestHandler
     private let accessUnitStreamFactory:
         @Sendable () throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
 
@@ -82,6 +96,8 @@ public struct NaruHelperVideoOpenedFrameStream: Sendable {
         isAccepted: Bool,
         request: HelperVideoWireEnvelope<HelperVideoStartStreamRequestBody>,
         emptyStreamHealth: HelperVideoStreamHealth,
+        requestHandler: NaruHelperVideoTransportRequestHandler,
+        keyframeRequestSignal: NaruHelperVideoKeyframeRequestSignal,
         accessUnitStreamFactory:
             @escaping @Sendable () throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
     ) {
@@ -89,7 +105,53 @@ public struct NaruHelperVideoOpenedFrameStream: Sendable {
         self.isAccepted = isAccepted
         self.request = request
         self.emptyStreamHealth = emptyStreamHealth
+        self.requestHandler = requestHandler
+        self.keyframeRequestSignal = keyframeRequestSignal
         self.accessUnitStreamFactory = accessUnitStreamFactory
+    }
+
+    /// Inbound client control frames on the live streaming connection.
+    /// Authenticated `requestKeyframe` envelopes latch the per-stream signal.
+    /// Malformed, unauthenticated, and any other message type are ignored.
+    public func considerInboundControlFrame(_ frame: Data) {
+        let messageType: HelperVideoMessageType
+        do {
+            let jsonLength = try HelperVideoWireCodec.jsonPayloadLength(
+                from: Data(frame.prefix(HelperVideoWireCodec.headerByteCount))
+            )
+            let jsonStart = HelperVideoWireCodec.headerByteCount
+            let jsonEnd = jsonStart + jsonLength
+            guard frame.count >= jsonEnd else {
+                return
+            }
+            messageType = try JSONDecoder()
+                .decode(
+                    HelperVideoInboundControlHeader.self,
+                    from: frame.subdata(in: jsonStart..<jsonEnd)
+                )
+                .messageType
+        } catch {
+            return
+        }
+
+        guard messageType == .requestKeyframe else {
+            return
+        }
+
+        let envelope: HelperVideoWireEnvelope<HelperVideoKeyframeRequestBody>
+        do {
+            envelope = try HelperVideoWireCodec.decodeFrame(
+                HelperVideoWireEnvelope<HelperVideoKeyframeRequestBody>.self,
+                from: frame
+            ).envelope
+        } catch {
+            return
+        }
+
+        guard requestHandler.authorize(envelope).status == .accepted else {
+            return
+        }
+        keyframeRequestSignal.request()
     }
 
     public func makeAccessUnitStream()
@@ -291,14 +353,20 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
         let request = decoded.envelope
         let response = requestHandler.handleStartStreamRequest(request)
         let responseFrame = try HelperVideoWireCodec.frame(response)
+        let keyframeRequestSignal = NaruHelperVideoKeyframeRequestSignal()
 
         return NaruHelperVideoOpenedFrameStream(
             responseFrame: responseFrame,
             isAccepted: response.body.result == .accepted,
             request: request,
             emptyStreamHealth: emptyStreamHealth,
+            requestHandler: requestHandler,
+            keyframeRequestSignal: keyframeRequestSignal,
             accessUnitStreamFactory: { [accessUnitSource] in
-                try accessUnitSource.accessUnitStream(for: request.body)
+                try accessUnitSource.accessUnitStream(
+                    for: request.body,
+                    keyframeSignal: keyframeRequestSignal
+                )
             }
         )
     }
@@ -319,4 +387,8 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
         return try HelperVideoWireCodec.frame(envelope)
     }
 
+}
+
+private struct HelperVideoInboundControlHeader: Decodable {
+    var messageType: HelperVideoMessageType
 }

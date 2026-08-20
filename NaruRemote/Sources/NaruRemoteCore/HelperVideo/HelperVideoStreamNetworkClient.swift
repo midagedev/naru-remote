@@ -153,7 +153,9 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
             timer: timer,
             timeout: timeout,
             backpressureDelay: Self.streamEventBackpressureDelay,
-            queue: queue
+            queue: queue,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret
         )
 
         timer.schedule(deadline: .now() + timeout)
@@ -184,9 +186,35 @@ public final class HelperVideoStreamNetworkClient: @unchecked Sendable {
         }
         connection.start(queue: queue)
 
-        return HelperVideoStreamNetworkEvents(mailbox: mailbox) {
+        return HelperVideoStreamNetworkEvents(
+            mailbox: mailbox,
+            requestKeyframe: { reason in
+                eventStream.sendRequestKeyframe(reason: reason)
+            }
+        ) {
             eventStream.cancel()
         }
+    }
+
+    public static func makeRequestKeyframeFrame(
+        reason: HelperVideoKeyframeRequestReason,
+        profileFingerprint: String,
+        pairingSecret: String,
+        requestID: UUID = UUID()
+    ) throws -> Data {
+        let envelope = HelperVideoWireEnvelope(
+            requestID: requestID,
+            messageType: .requestKeyframe,
+            profileFingerprint: profileFingerprint,
+            authProof: HelperVideoAuthProof.make(
+                requestID: requestID,
+                messageType: .requestKeyframe,
+                profileFingerprint: profileFingerprint,
+                pairingSecret: pairingSecret
+            ),
+            body: HelperVideoKeyframeRequestBody(reason: reason)
+        )
+        return try HelperVideoWireCodec.frame(envelope)
     }
 
     private static func receiveFrame(
@@ -535,9 +563,11 @@ public enum HelperVideoStreamNetworkEvent: Equatable, Sendable {
 public struct HelperVideoStreamNetworkEvents: AsyncSequence, Sendable {
     public typealias Element = HelperVideoStreamNetworkEvent
 
+    public let requestKeyframe: (@Sendable (HelperVideoKeyframeRequestReason) -> Void)?
     private let makeIteratorClosure: @Sendable () -> AsyncIterator
 
     public init(
+        requestKeyframe: (@Sendable (HelperVideoKeyframeRequestReason) -> Void)? = nil,
         _ build: @escaping @Sendable (
             AsyncThrowingStream<HelperVideoStreamNetworkEvent, any Error>.Continuation
         ) -> Void
@@ -546,6 +576,7 @@ public struct HelperVideoStreamNetworkEvents: AsyncSequence, Sendable {
             bufferingPolicy: .unbounded,
             build
         )
+        self.requestKeyframe = requestKeyframe
         self.makeIteratorClosure = {
             AsyncIterator(streamIterator: stream.makeAsyncIterator())
         }
@@ -559,8 +590,10 @@ public struct HelperVideoStreamNetworkEvents: AsyncSequence, Sendable {
 
     fileprivate init(
         mailbox: HelperVideoStreamNetworkEventMailbox,
+        requestKeyframe: (@Sendable (HelperVideoKeyframeRequestReason) -> Void)? = nil,
         onCancel: @escaping @Sendable () -> Void
     ) {
+        self.requestKeyframe = requestKeyframe
         self.makeIteratorClosure = {
             AsyncIterator(mailbox: mailbox, onCancel: onCancel)
         }
@@ -868,6 +901,8 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
     private let timeout: TimeInterval
     private let backpressureDelay: DispatchTimeInterval
     private let queue: DispatchQueue
+    private let profileFingerprint: String
+    private let pairingSecret: String
     private var isFinished = false
 
     init(
@@ -876,7 +911,9 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
         timer: DispatchSourceTimer,
         timeout: TimeInterval,
         backpressureDelay: DispatchTimeInterval,
-        queue: DispatchQueue
+        queue: DispatchQueue,
+        profileFingerprint: String,
+        pairingSecret: String
     ) {
         self.mailbox = mailbox
         self.connection = connection
@@ -884,6 +921,27 @@ private final class HelperVideoStreamNetworkEventStream: @unchecked Sendable {
         self.timeout = timeout
         self.backpressureDelay = backpressureDelay
         self.queue = queue
+        self.profileFingerprint = profileFingerprint
+        self.pairingSecret = pairingSecret
+    }
+
+    func sendRequestKeyframe(reason: HelperVideoKeyframeRequestReason) {
+        guard !hasFinished else {
+            return
+        }
+
+        let frame: Data
+        do {
+            frame = try HelperVideoStreamNetworkClient.makeRequestKeyframeFrame(
+                reason: reason,
+                profileFingerprint: profileFingerprint,
+                pairingSecret: pairingSecret
+            )
+        } catch {
+            return
+        }
+
+        connection.send(content: frame, completion: .contentProcessed { _ in })
     }
 
     func yield(_ event: HelperVideoStreamNetworkEvent) -> HelperVideoStreamNetworkEventYieldResult {

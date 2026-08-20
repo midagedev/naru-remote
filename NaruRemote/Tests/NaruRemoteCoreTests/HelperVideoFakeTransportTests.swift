@@ -74,6 +74,43 @@ final class HelperVideoFakeTransportTests: XCTestCase {
         XCTAssertFalse(harness.lastServerJSONPayload.contains("endpoint"))
     }
 
+    func testCodecFramesRequestKeyframeWithoutBinaryPayload() throws {
+        let pairingSecret = "test-pairing-secret"
+        let profileFingerprint = "sha256:test-pairing"
+        let requestID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let envelope = HelperVideoWireEnvelope(
+            requestID: requestID,
+            messageType: .requestKeyframe,
+            profileFingerprint: profileFingerprint,
+            authProof: HelperVideoAuthProof.make(
+                requestID: requestID,
+                messageType: .requestKeyframe,
+                profileFingerprint: profileFingerprint,
+                pairingSecret: pairingSecret
+            ),
+            body: HelperVideoKeyframeRequestBody(reason: .decoderRecovery)
+        )
+
+        let frame = try HelperVideoWireCodec.frame(envelope)
+        let decoded = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoKeyframeRequestBody>.self,
+            from: frame
+        )
+
+        XCTAssertEqual(decoded.envelope.messageType, .requestKeyframe)
+        XCTAssertEqual(decoded.envelope.body.reason, .decoderRecovery)
+        XCTAssertNil(decoded.binaryPayload)
+        XCTAssertTrue(
+            HelperVideoAuthProof.verify(
+                decoded.envelope.authProof,
+                requestID: envelope.requestID,
+                messageType: .requestKeyframe,
+                profileFingerprint: profileFingerprint,
+                pairingSecret: pairingSecret
+            )
+        )
+    }
+
     func testFakeHarnessStopsStreamThroughClientMessage() throws {
         let harness = FakeHelperVideoStreamHarness(profileFingerprint: "sha256:test-pairing")
 

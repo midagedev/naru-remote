@@ -473,6 +473,49 @@ final class NaruHelperVideoStreamNetworkServiceTests: XCTestCase {
         XCTAssertTrue(stall.body.health.shouldUseVNCVisualFallback)
     }
 
+    func testAuthenticatedKeyframeRequestMidStreamLatchesOpenedStreamSignal() async throws {
+        let source = SignalGatedAccessUnitSource()
+        let server = try makeServer(source: source)
+        server.start()
+        defer { server.cancel() }
+        let port = try await waitForPort(server)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let client = HelperVideoStreamNetworkClient(
+            host: "127.0.0.1",
+            port: port,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            transportProtection: .authenticatedPrivateProfile,
+            timeout: 3
+        )
+        let events = client.streamEvents()
+        var iterator = events.makeAsyncIterator()
+
+        guard case .startResponse(let response) = try await iterator.next() else {
+            XCTFail("Expected start response before access units.")
+            return
+        }
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertTrue(response.body.streamDescriptor.supportsKeyframeRequest)
+
+        guard case .accessUnit(let first) = try await iterator.next() else {
+            XCTFail("Expected the first access unit before the keyframe request.")
+            return
+        }
+        XCTAssertEqual(first.envelope.body.kind, .keyframe)
+
+        let requestKeyframe = try XCTUnwrap(events.requestKeyframe)
+        requestKeyframe(.decoderRecovery)
+
+        guard case .accessUnit(let recovered) = try await iterator.next() else {
+            XCTFail("Expected a forced keyframe after the authenticated request.")
+            return
+        }
+        XCTAssertEqual(recovered.envelope.body.kind, .keyframe)
+        XCTAssertEqual(recovered.envelope.body.sequence, 1)
+    }
+
     func testWrongPairingSecretReceivesRejectedStartWithoutAccessUnits() async throws {
         let server = try makeServer(accessUnits: [
             NaruHelperVideoAccessUnit(
@@ -619,6 +662,58 @@ private struct BackpressuredAccessUnitSource: NaruHelperVideoAccessUnitSource {
                 throwing: NaruHelperVideoToolboxSyntheticAccessUnitSourceError
                     .encodedAccessUnitBackpressureExceeded
             )
+        }
+    }
+}
+
+private struct SignalGatedAccessUnitSource: NaruHelperVideoAccessUnitSource {
+    var waitNanoseconds: UInt64 = 2_000_000_000
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        throw AsyncOnlyAccessUnitSourceError.finiteBatchPathUsed
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        let waitNanoseconds = waitNanoseconds
+        return AsyncThrowingStream { continuation in
+            Task {
+                continuation.yield(
+                    NaruHelperVideoAccessUnit(
+                        sequence: 0,
+                        kind: .keyframe,
+                        binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+                    )
+                )
+                let stepNanoseconds: UInt64 = 20_000_000
+                let steps = max(waitNanoseconds / stepNanoseconds, 1)
+                for _ in 0..<steps {
+                    if keyframeSignal.consumePending() {
+                        continuation.yield(
+                            NaruHelperVideoAccessUnit(
+                                sequence: 1,
+                                kind: .keyframe,
+                                binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x65])
+                            )
+                        )
+                        continuation.finish()
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: stepNanoseconds)
+                }
+                continuation.yield(
+                    NaruHelperVideoAccessUnit(
+                        sequence: 1,
+                        kind: .delta,
+                        binaryPayload: Data([0x00, 0x00, 0x00, 0x01, 0x61])
+                    )
+                )
+                continuation.finish()
+            }
         }
     }
 }
