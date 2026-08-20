@@ -143,6 +143,21 @@ same PR.
    `CMVideoFormatDescriptionCreateFromHEVCParameterSets`), bitrate rows at
    2/3 of H.264 marked provisional pending the device pass. After commit:
    TestFlight build for the founder's device passes across specs 015–021.
+1j. **`specs/022` region-request liveness — fixed 2026-08-21 (build 4
+   freeze)**. Founder on device: first frame arrived, then no further frames
+   once they interacted. Cause: the pump parked 3 pipelined incremental
+   requests carrying the region current when they were sent and refilled only
+   after a *consumed* response, so any viewport change (pan, zoom, or the
+   dock/keyboard shrinking the visible area — which is what turns spec 017
+   region scoping on) left every parked request describing an area the user
+   had left; RFB answers a request only with damage inside its own region, so
+   the session deadlocked. Live-measured 7/8 receives held. Fixed by making
+   the region part of the parked-set identity (re-park on viewport change,
+   widen to full-frame on hold, widen counter for observability). **Gate gap
+   closed**: the fakes had no region semantics, so no unit/simulator test
+   could fail on a stale region — a region-aware fake now reproduces the dead
+   stream deterministically in 0.2 s. Remaining: an app-model liveness gate
+   (T005) and HUD surfacing (T006).
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

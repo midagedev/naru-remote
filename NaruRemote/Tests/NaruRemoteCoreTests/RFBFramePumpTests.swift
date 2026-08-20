@@ -484,6 +484,101 @@ final class RFBFramePumpTests: XCTestCase {
         XCTAssertEqual(source.sentIncrementalRequestCount, 3)
     }
 
+    /// Regression (2026-08-21, founder report "first frame arrives then the
+    /// next frame never comes"): region-scoped incremental requests parked in
+    /// the pipeline describe the viewport as it was when they were sent. When
+    /// damage lands outside them the server holds every parked request, no
+    /// response is consumed, the old code never refilled, and the session
+    /// deadlocked. Live-measured on real Screen Sharing: with damage driven
+    /// outside the region, 7 of 8 receives were held. A held region request
+    /// must therefore widen to a full-frame request, which costs nothing on a
+    /// quiet screen (a full incremental request also just holds).
+    func testHeldPipelinedRegionRequestWidensToFullFrameRequest() throws {
+        let source = FakePipelinedFramebufferUpdateSource(
+            firstFrame: Self.framebuffer(red: 255),
+            receivedResults: [
+                Self.idleResult(),
+                Self.contentResult(red: 20)
+            ]
+        )
+        let pump = RFBFramePump(source: source)
+
+        _ = try pump.run(
+            configuration: RFBFramePumpConfiguration(
+                maxFrames: 3,
+                requestRegion: RFBFramebufferUpdateRegion(x: 0, y: 0, width: 1, height: 1),
+                requestPipelineDepth: 2
+            )
+        ) { _ in .continue }
+
+        XCTAssertTrue(
+            source.sentRegions.contains(where: { $0 == nil }),
+            "A held region request must widen to a full-frame request so damage "
+                + "outside a stale viewport region cannot deadlock the stream"
+        )
+        XCTAssertGreaterThan(
+            pump.pipelinedRegionWidenedRequestCount,
+            0,
+            "The widen must be observable without a debugger"
+        )
+    }
+
+    /// The gate that was missing on 2026-08-21 (founder: "the first frame
+    /// arrives and then the next frame never comes"). It asserts the invariant
+    /// the user actually feels — frames keep arriving while interacting — over
+    /// a *region-aware* fake, driven through `nextFrame` with a changing
+    /// region exactly as the app model drives it. A pan moves both the
+    /// viewport region and the damage; the pump must not stay parked on the
+    /// region the user already left.
+    func testStreamStaysLiveWhenAPanMovesBothTheRegionAndTheDamage() throws {
+        let regionA = RFBFramebufferUpdateRegion(x: 0, y: 0, width: 100, height: 100)
+        let regionB = RFBFramebufferUpdateRegion(x: 400, y: 400, width: 100, height: 100)
+        let source = FakeRegionAwarePipelinedSource(
+            firstFrame: Self.framebuffer(red: 255),
+            damageRect: RFBFrameDamageRect(x: 10, y: 10, width: 4, height: 4)
+        )
+        let pump = RFBFramePump(source: source)
+
+        func tick(region: RFBFramebufferUpdateRegion?) throws -> RFBFramePumpFrame? {
+            try pump.nextFrame(
+                requestTimeout: 1,
+                updateMode: .requestResponse,
+                requestRegion: region,
+                initialRequestRegion: nil,
+                requestPipelineDepth: 3
+            )
+        }
+
+        _ = try tick(region: nil)
+        for _ in 0..<3 {
+            _ = try tick(region: regionA)
+        }
+        let answeredBeforePan = source.answeredCount
+        XCTAssertGreaterThan(answeredBeforePan, 0, "Fake never answered in-region damage")
+
+        // The pan: the user is now looking at region B and that is where the
+        // screen changes. The requests parked for region A can never be
+        // answered again.
+        source.moveDamage(to: RFBFrameDamageRect(x: 420, y: 420, width: 4, height: 4))
+
+        var contentFramesAfterPan = 0
+        for _ in 0..<6 {
+            if let frame = try tick(region: regionB),
+               frame.isIncremental,
+               !frame.transportIdleTimedOut {
+                contentFramesAfterPan += 1
+            }
+        }
+
+        XCTAssertGreaterThan(
+            contentFramesAfterPan,
+            0,
+            "The stream went dead after a pan: the pump stayed parked on the "
+                + "region the user left, so damage in the new viewport never "
+                + "produced a frame"
+        )
+    }
+
     func testDepthOneDoesNotUsePipelinedSendPath() throws {
         let source = FakePipelinedFramebufferUpdateSource(
             firstFrame: Self.framebuffer(red: 255),
@@ -541,6 +636,7 @@ private final class FakePipelinedFramebufferUpdateSource:
         var frame: RFBRawFramebuffer
         var receivedResults: [RFBFramebufferUpdateResult]
         var sentIncrementalFlags: [Bool] = []
+        var sentRegions: [RFBFramebufferUpdateRegion?] = []
         var continuousReceiveCount = 0
     }
 
@@ -564,6 +660,10 @@ private final class FakePipelinedFramebufferUpdateSource:
         state.withLock { $0.continuousReceiveCount }
     }
 
+    var sentRegions: [RFBFramebufferUpdateRegion?] {
+        state.withLock { $0.sentRegions }
+    }
+
     func requestRawFramebufferUpdate(
         incremental: Bool,
         timeout: TimeInterval
@@ -578,7 +678,10 @@ private final class FakePipelinedFramebufferUpdateSource:
         timeout: TimeInterval,
         region: RFBFramebufferUpdateRegion?
     ) throws {
-        state.withLock { $0.sentIncrementalFlags.append(incremental) }
+        state.withLock {
+            $0.sentIncrementalFlags.append(incremental)
+            $0.sentRegions.append(region)
+        }
     }
 
     func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
@@ -857,4 +960,107 @@ private final class FakeContinuousFramebufferUpdateSource: RFBDamageTrackingFram
         payload: Data,
         timeout: TimeInterval
     ) throws {}
+}
+
+/// Region-aware fake server: models the RFB rule the old fakes ignored — a
+/// `FramebufferUpdateRequest` is answered only by damage that lands inside
+/// *its own* region, and is otherwise held. Without this rule a fake happily
+/// answers requests carrying a stale region, which is exactly why the
+/// 2026-08-21 freeze (parked requests describing an area the user had already
+/// panned away from) passed every unit and simulator gate and had to be found
+/// on a real device.
+private final class FakeRegionAwarePipelinedSource:
+    RFBFramebufferUpdating,
+    RFBFramebufferUpdateRequestSending,
+    RFBContinuousFramebufferUpdateReceiving
+{
+    private struct ParkedRequest {
+        var region: RFBFramebufferUpdateRegion?
+    }
+
+    private struct State {
+        var frame: RFBRawFramebuffer
+        /// Where the next change happens. Damage outside a parked request's
+        /// region cannot satisfy it.
+        var damageRect: RFBFrameDamageRect
+        var parked: [ParkedRequest] = []
+        var answeredCount = 0
+        var heldCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(firstFrame: RFBRawFramebuffer, damageRect: RFBFrameDamageRect) {
+        self.state = OSAllocatedUnfairLock(
+            initialState: State(frame: firstFrame, damageRect: damageRect)
+        )
+    }
+
+    func moveDamage(to rect: RFBFrameDamageRect) {
+        state.withLock { $0.damageRect = rect }
+    }
+
+    var answeredCount: Int { state.withLock { $0.answeredCount } }
+    var heldCount: Int { state.withLock { $0.heldCount } }
+
+    func requestRawFramebufferUpdate(
+        incremental: Bool,
+        timeout: TimeInterval
+    ) throws -> RFBRawFramebuffer {
+        state.withLock { $0.frame }
+    }
+
+    func sendFramebufferUpdateRequest(
+        incremental: Bool,
+        timeout: TimeInterval,
+        region: RFBFramebufferUpdateRegion?
+    ) throws {
+        state.withLock { $0.parked.append(ParkedRequest(region: region)) }
+    }
+
+    func receiveFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        try receiveContinuousFramebufferUpdate(timeout: timeout)
+    }
+
+    func receiveContinuousFramebufferUpdate(timeout: TimeInterval) throws -> RFBFramebufferUpdateResult {
+        state.withLock { state in
+            let damage = state.damageRect
+            let satisfiableIndex = state.parked.firstIndex { parked in
+                guard let region = parked.region else {
+                    // A full-frame request is satisfied by damage anywhere.
+                    return true
+                }
+                return Self.intersects(region: region, damage: damage)
+            }
+
+            guard let satisfiableIndex else {
+                state.heldCount += 1
+                return RFBFramebufferUpdateResult(
+                    framebuffer: state.frame,
+                    dirtyRectangles: [],
+                    changedPixelCount: 0,
+                    transportIdleTimedOut: true
+                )
+            }
+
+            state.parked.remove(at: satisfiableIndex)
+            state.answeredCount += 1
+            return RFBFramebufferUpdateResult(
+                framebuffer: state.frame,
+                dirtyRectangles: [damage],
+                changedPixelCount: max(damage.width * damage.height, 1),
+                transportIdleTimedOut: false
+            )
+        }
+    }
+
+    private static func intersects(
+        region: RFBFramebufferUpdateRegion,
+        damage: RFBFrameDamageRect
+    ) -> Bool {
+        region.x < damage.x + damage.width
+            && damage.x < region.x + region.width
+            && region.y < damage.y + damage.height
+            && damage.y < region.y + region.height
+    }
 }

@@ -183,6 +183,15 @@ public final class RFBFramePump: @unchecked Sendable {
     /// backlog stays bounded across a sustained session (unlike a naive
     /// send-depth-per-frame burst, which would grow without limit).
     private var pipelinedOutstandingRequests = 0
+    /// The region the parked requests were sent with. A framebuffer-update
+    /// request is only ever answered by damage inside its own region, so the
+    /// parked set is not described by a count alone.
+    private var pipelinedParkedRegion: RFBFramebufferUpdateRegion?
+    /// How many times a held region request had to be widened to a full-frame
+    /// request. Non-zero means the viewport region and the actual damage are
+    /// diverging — the signal that used to show up only as a frozen screen.
+    /// Counts only (constitution IV): no regions, no coordinates.
+    private var pipelinedRegionWidenCount = 0
 
     public init(source: any RFBFramebufferUpdating) {
         self.source = source
@@ -191,6 +200,15 @@ public final class RFBFramePump: @unchecked Sendable {
     public func cancel() {
         lock.withRFBFramePumpLock {
             cancelled = true
+        }
+    }
+
+    /// Starvation pressure on the region-scoped pipeline. Answers "is the
+    /// stream being held because we are asking for the wrong area?" without a
+    /// debugger.
+    public var pipelinedRegionWidenedRequestCount: Int {
+        lock.withRFBFramePumpLock {
+            pipelinedRegionWidenCount
         }
     }
 
@@ -303,6 +321,14 @@ public final class RFBFramePump: @unchecked Sendable {
             // request→response idle gap that dominates that server's
             // first-byte wait.
             let depth = max(requestPipelineDepth, 1)
+            // The parked set has one owner: this block. It maintains both how
+            // many requests are outstanding and *which region* they describe,
+            // because a request only ever answers damage inside its own
+            // region. Without the region half, a pan or zoom left every parked
+            // request describing an area the user had already left; the server
+            // held all of them, nothing was consumed, and the old
+            // refill-only-after-a-response rule deadlocked the session
+            // (founder report 2026-08-21; live-measured 7 of 8 receives held).
             if pipelinedOutstandingRequests <= 0 {
                 for _ in 0..<depth {
                     try sender.sendFramebufferUpdateRequest(
@@ -312,17 +338,53 @@ public final class RFBFramePump: @unchecked Sendable {
                     )
                 }
                 pipelinedOutstandingRequests = depth
-            }
-            let result = try pipelinedReceiver.receiveContinuousFramebufferUpdate(timeout: requestTimeout)
-            if !result.transportIdleTimedOut {
-                // Consumed one server response — refill to hold the pipeline
-                // at `depth`. On an idle timeout no response was consumed, so
-                // the parked requests stay put and the backlog never grows.
+                pipelinedParkedRegion = regionForRequest
+            } else if pipelinedParkedRegion != regionForRequest,
+                      pipelinedOutstandingRequests < depth * 2 {
+                // The viewport moved. Park one request for where the user is
+                // looking now instead of waiting on a response that may never
+                // come. Capped at 2x depth so a continuous pinch cannot flood
+                // the server.
                 try sender.sendFramebufferUpdateRequest(
                     incremental: true,
                     timeout: requestTimeout,
                     region: regionForRequest
                 )
+                pipelinedOutstandingRequests += 1
+                pipelinedParkedRegion = regionForRequest
+            }
+            let result = try pipelinedReceiver.receiveContinuousFramebufferUpdate(timeout: requestTimeout)
+            if result.transportIdleTimedOut {
+                // Held: the server has our requests and nothing inside them
+                // changed. That is indistinguishable from "changes are
+                // happening outside them", so widen to a full-frame request.
+                // On a genuinely quiet screen this costs nothing — a full
+                // incremental request also just holds — and it makes region
+                // starvation unable to deadlock the stream.
+                if pipelinedParkedRegion != nil,
+                   pipelinedOutstandingRequests < depth * 2 {
+                    try sender.sendFramebufferUpdateRequest(
+                        incremental: true,
+                        timeout: requestTimeout,
+                        region: nil
+                    )
+                    pipelinedOutstandingRequests += 1
+                    pipelinedParkedRegion = nil
+                    pipelinedRegionWidenCount += 1
+                }
+            } else {
+                // Consumed one server response — refill to hold the pipeline
+                // at `depth` for the current region.
+                pipelinedOutstandingRequests = max(pipelinedOutstandingRequests - 1, 0)
+                while pipelinedOutstandingRequests < depth {
+                    try sender.sendFramebufferUpdateRequest(
+                        incremental: true,
+                        timeout: requestTimeout,
+                        region: regionForRequest
+                    )
+                    pipelinedOutstandingRequests += 1
+                }
+                pipelinedParkedRegion = regionForRequest
             }
             updateResult = result
         } else if (isIncremental || regionForRequest != nil),
@@ -367,6 +429,8 @@ public final class RFBFramePump: @unchecked Sendable {
             continuousUpdatesEnabled = false
             continuousUpdatesSuppressed = false
             pipelinedOutstandingRequests = 0
+            pipelinedParkedRegion = nil
+            pipelinedRegionWidenCount = 0
         }
     }
 

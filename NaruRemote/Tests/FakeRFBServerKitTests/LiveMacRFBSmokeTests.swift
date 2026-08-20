@@ -513,6 +513,244 @@ final class LiveMacRFBSmokeTests: XCTestCase {
         )
     }
 
+    /// Spec 018 defect probe (2026-08-21, founder: first frame arrives and
+    /// then the stream is dead). The spec-018 probe above measured a
+    /// *serial, non-incremental* request loop, but the app pump keeps
+    /// `requestPipelineDepth` incremental requests parked on the server
+    /// (`NaruRemoteAppModel.defaultFrameStreamConfiguration` = 3) and only
+    /// refills after a consumed response. This replicates the app path
+    /// exactly and measures whether responses continue after a mid-flight
+    /// ScaleFactor: the same pointer stimulus drives both windows, so a
+    /// quiet screen cannot be mistaken for a dead stream.
+    func testPipelinedIncrementalStreamSurvivesAppleScaleFactorMidFlight() async throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer {
+            try? client.sendAppleScaleFactor(1.0)
+            client.disconnect()
+        }
+        _ = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: 5
+        )
+        _ = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+
+        let depth = 3
+        // Cursor motion is the stimulus; keep it small and identical in
+        // both windows so the comparison is fair.
+        var stimulusToggle = false
+        func stimulate() async {
+            stimulusToggle.toggle()
+            let coordinate: UInt16 = stimulusToggle ? 120 : 160
+            try? await client.sendPointerEvent(
+                buttonMask: 0,
+                x: coordinate,
+                y: coordinate
+            )
+        }
+
+        for _ in 0..<depth {
+            try client.sendFramebufferUpdateRequest(incremental: true, timeout: 2)
+        }
+
+        func drain(iterations: Int) async throws -> (responses: Int, resizes: Int) {
+            var responses = 0
+            var resizes = 0
+            for _ in 0..<iterations {
+                await stimulate()
+                let result = try client.receiveContinuousFramebufferUpdate(timeout: 3)
+                if result.didResizeDesktop {
+                    resizes += 1
+                }
+                guard !result.transportIdleTimedOut else {
+                    continue
+                }
+                responses += 1
+                // The pump's refill discipline: only after a consumed
+                // response, never on an idle timeout.
+                try client.sendFramebufferUpdateRequest(incremental: true, timeout: 2)
+            }
+            return (responses, resizes)
+        }
+
+        let before = try await drain(iterations: 6)
+        XCTAssertGreaterThan(
+            before.responses,
+            0,
+            "Oracle busy: the pipelined stream answered nothing even before ScaleFactor"
+        )
+
+        try client.sendAppleScaleFactor(0.5)
+        let after = try await drain(iterations: 12)
+
+        // Privacy note (constitution §IV): counts and verdict words only.
+        print(
+            "Pipelined ScaleFactor probe: preResponses=\(before.responses)/6 "
+                + "postResponses=\(after.responses)/12 resizes=\(after.resizes) "
+                + "verdict=\(after.responses > 0 ? "stream-survived" : "stream-dead")"
+        )
+        XCTAssertGreaterThan(
+            after.responses,
+            0,
+            "Pipelined incremental stream went silent after a mid-flight ScaleFactor — "
+                + "requests parked before the resize are never answered and the pump "
+                + "only refills after a consumed response, so the session deadlocks."
+        )
+    }
+
+    /// Spec 017 × pipelining defect probe (2026-08-21). The pump parks
+    /// `requestPipelineDepth` incremental requests carrying the region that
+    /// was current when they were sent, and only refills after a *consumed*
+    /// response. If the user then pans or zooms, damage lands outside those
+    /// parked regions, no response is consumed, no refill happens, and the
+    /// heartbeat (which keys on delivered-frame count) never fires. This
+    /// probe measures whether that composition starves the stream, and
+    /// whether a full request recovers it.
+    func testPipelinedRegionRequestsDoNotStarveWhenDamageMovesOutsideTheRegion() async throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: 5
+        )
+        _ = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+
+        // Region A: a small top-left rect. Damage will be driven far away
+        // from it, mimicking a pan to a different part of the desktop.
+        let regionA = RFBFramebufferUpdateRegion(x: 0, y: 0, width: 160, height: 160)
+        let farX = UInt16(max(serverInit.width - 200, 400))
+        let farY = UInt16(max(serverInit.height - 200, 300))
+
+        for _ in 0..<3 {
+            try client.sendFramebufferUpdateRequest(
+                incremental: true,
+                timeout: 2,
+                region: regionA
+            )
+        }
+
+        // Now drive the *pump* (which owns the parked-set discipline after
+        // the 2026-08-21 fix) rather than hand-rolling the send loop, so this
+        // probe measures the shipping path: with damage outside the region the
+        // pump must widen to a full-frame request and keep delivering.
+        var starvedResponses = 0
+        var toggle = false
+        for _ in 0..<8 {
+            toggle.toggle()
+            try? await client.sendPointerEvent(
+                buttonMask: 0,
+                x: toggle ? farX : farX - 40,
+                y: toggle ? farY : farY - 40
+            )
+            let result = try client.receiveContinuousFramebufferUpdate(timeout: 2)
+            if !result.transportIdleTimedOut {
+                starvedResponses += 1
+                try client.sendFramebufferUpdateRequest(
+                    incremental: true,
+                    timeout: 2,
+                    region: regionA
+                )
+            }
+        }
+
+        // Recovery: a full-frame request must still be answered, proving the
+        // session is alive and only the stale parked regions starved it.
+        var recovered = false
+        do {
+            let full = try client.requestFramebufferUpdate(incremental: true, timeout: 5)
+            recovered = !full.transportIdleTimedOut
+        } catch {
+            recovered = false
+        }
+
+        // Privacy note (constitution §IV): counts and verdict words only.
+        print(
+            "Pipelined region-starvation probe: outOfRegionResponses=\(starvedResponses)/8 "
+                + "fullRequestRecovered=\(recovered) "
+                + "verdict=\(starvedResponses == 0 ? "starved-by-stale-region" : "server-under-clips")"
+        )
+        XCTAssertTrue(
+            recovered,
+            "A full incremental request after region starvation was not answered either"
+        )
+    }
+
+    /// Recurrence gate for the 2026-08-21 freeze: drive the real
+    /// `RFBFramePump` (which owns the parked-set discipline) with a region
+    /// the damage never lands in, and require that frames keep arriving.
+    /// Before the fix the pump held every parked region request, never
+    /// refilled, and the session deadlocked after the first frame.
+    func testPumpKeepsDeliveringWhenLiveDamageIsOutsideTheRequestRegion() async throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run live smoke")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: 5
+        )
+
+        let farX = UInt16(max(serverInit.width - 200, 400))
+        let farY = UInt16(max(serverInit.height - 200, 300))
+        let stimulus = Task {
+            var toggle = false
+            for _ in 0..<80 {
+                toggle.toggle()
+                try? await client.sendPointerEvent(
+                    buttonMask: 0,
+                    x: toggle ? farX : farX - 40,
+                    y: toggle ? farY : farY - 40
+                )
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { stimulus.cancel() }
+
+        let pump = RFBFramePump(source: client)
+        var deliveredIncrementalFrames = 0
+        let summary = try pump.run(
+            configuration: RFBFramePumpConfiguration(
+                maxFrames: 4,
+                requestTimeout: 2,
+                requestRegion: RFBFramebufferUpdateRegion(x: 0, y: 0, width: 160, height: 160),
+                requestPipelineDepth: 3
+            )
+        ) { frame in
+            if frame.isIncremental, !frame.transportIdleTimedOut {
+                deliveredIncrementalFrames += 1
+            }
+            return .continue
+        }
+
+        // Privacy note (constitution §IV): counts and verdict words only.
+        print(
+            "Pump out-of-region delivery gate: incrementalFrames=\(deliveredIncrementalFrames) "
+                + "deliveredTotal=\(summary.deliveredFrameCount) "
+                + "verdict=\(deliveredIncrementalFrames > 0 ? "kept-streaming" : "starved")"
+        )
+        XCTAssertGreaterThan(
+            deliveredIncrementalFrames,
+            0,
+            "The pump delivered no incremental content while damage happened outside "
+                + "its request region — region-scoped requests are starving the stream"
+        )
+    }
+
     private func measureFirstFrameTiming(
         label: String,
         preference: RFBEncodingPreference,
