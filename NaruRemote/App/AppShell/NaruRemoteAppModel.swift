@@ -399,6 +399,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
+    private let networkPathConditionsProvider: @Sendable () -> NetworkPathConditions
     /// Test seam for observing app-level pacing decisions without
     /// sleeping in real time. `nil` keeps production cancellation on
     /// the direct `Task.sleep` path.
@@ -626,6 +627,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         lowPowerModeProvider: @escaping @Sendable () -> Bool = {
             ProcessInfo.processInfo.isLowPowerModeEnabled
         },
+        networkPathConditionsProvider: @escaping @Sendable () -> NetworkPathConditions = {
+            NetworkPathConditionsMonitor.shared.current
+        },
         streamPacingSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         frameApplicationSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         outboundInputEventTimeout: Duration = .milliseconds(2_500),
@@ -736,6 +740,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
+        self.networkPathConditionsProvider = networkPathConditionsProvider
         self.streamPacingSleepOverride = streamPacingSleep
         self.frameApplicationSleepOverride = frameApplicationSleep
         self.pointerInputDispatcher = OutboundInputEventDispatcher(
@@ -2110,7 +2115,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         HelperVideoStartRequestPolicy(
             streamPowerMode: appSettings.streamPowerMode,
             isSystemLowPowerModeEnabled: lowPowerModeProvider(),
-            thermalState: thermalStateProvider()
+            thermalState: thermalStateProvider(),
+            isNetworkConstrained: networkPathConditionsProvider().isConstrained
         ).requestBody
     }
 
@@ -5249,7 +5255,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func configuredSustainedEncodingPreference() -> RFBEncodingPreference? {
-        if appSettings.streamPowerMode == .powerSaver || lowPowerModeProvider() {
+        if appSettings.streamPowerMode == .powerSaver
+            || lowPowerModeProvider()
+            || networkPathConditionsProvider().isConstrained
+        {
             return .powerSaverSustained
         }
 
@@ -5279,7 +5288,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func initialStreamPixelFormatPreference() -> RFBPixelFormat? {
         guard appSettings.streamPowerMode != .powerSaver,
-              !lowPowerModeProvider()
+              !lowPowerModeProvider(),
+              !networkPathConditionsProvider().isConstrained
         else {
             return nil
         }

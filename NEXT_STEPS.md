@@ -123,6 +123,16 @@ same PR.
    fallback. VT low-latency properties turned out already present on the
    live SCK path (EnableLowLatencyRateControl + RealTime), so the lever's
    VT half was verification, not new work. `streamStalled` stays terminal.
+1h. **`specs/020` network-constrained stream caps — implemented 2026-08-20**
+   (2026-08-20, lever ② from 1f, rescoped after code-read). "Adaptive
+   bitrate + cellular caps" resolves to: respect **Low Data Mode**
+   (`NWPath.isConstrained`) on both lanes — helper video caps to 15 fps
+   (readability is already the only production quality), VNC joins the
+   existing powerSaver/LowPower saver pairing. `isExpensive` deliberately
+   changes nothing (constitution §VI: cellular is the baseline scenario,
+   not an exception — pinned by test). Mid-stream helper bitrate changes
+   need new wire vocabulary (schema v2) and path flips tear TCP anyway, so
+   caps apply at stream (re)start like Low Power Mode today.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

@@ -5,15 +5,20 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
     var streamPowerMode: StreamPowerMode
     var isSystemLowPowerModeEnabled: Bool
     var thermalState: SessionStreamThermalState
+    /// Low Data Mode (`NWPath.isConstrained`). Cellular/hotspot
+    /// (`isExpensive`) is intentionally not an input — constitution §VI.
+    var isNetworkConstrained: Bool
 
     init(
         streamPowerMode: StreamPowerMode,
         isSystemLowPowerModeEnabled: Bool,
-        thermalState: SessionStreamThermalState
+        thermalState: SessionStreamThermalState,
+        isNetworkConstrained: Bool
     ) {
         self.streamPowerMode = streamPowerMode
         self.isSystemLowPowerModeEnabled = isSystemLowPowerModeEnabled
         self.thermalState = thermalState
+        self.isNetworkConstrained = isNetworkConstrained
     }
 
     var requestBody: HelperVideoStartStreamRequestBody {
@@ -28,7 +33,8 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
     private var frameRateBucket: HelperVideoFrameRateBucket {
         guard streamPowerMode != .powerSaver,
               !isSystemLowPowerModeEnabled,
-              thermalState.allowsThirtyFPSHelperVideo
+              thermalState.allowsThirtyFPSHelperVideo,
+              !isNetworkConstrained
         else {
             return .upTo15
         }
