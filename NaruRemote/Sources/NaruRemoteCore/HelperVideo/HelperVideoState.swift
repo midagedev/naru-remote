@@ -36,6 +36,7 @@ public enum HelperVideoLastCheckedBucket: String, Codable, Equatable, CaseIterab
 
 public enum HelperVideoCodec: String, Codable, Equatable, CaseIterable, Sendable {
     case h264
+    case hevc
     case unknown
 }
 

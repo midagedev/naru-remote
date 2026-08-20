@@ -43,6 +43,17 @@ public protocol NaruHelperVideoAccessUnitSource: Sendable {
         for request: HelperVideoStartStreamRequestBody,
         keyframeSignal: NaruHelperVideoKeyframeRequestSignal
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> [NaruHelperVideoAccessUnit]
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error>
 }
 
 public extension NaruHelperVideoAccessUnitSource {
@@ -63,6 +74,21 @@ public extension NaruHelperVideoAccessUnitSource {
         keyframeSignal: NaruHelperVideoKeyframeRequestSignal
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         try accessUnitStream(for: request)
+    }
+
+    func accessUnits(
+        for request: HelperVideoStartStreamRequestBody,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> [NaruHelperVideoAccessUnit] {
+        try accessUnits(for: request)
+    }
+
+    func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try accessUnitStream(for: request, keyframeSignal: keyframeSignal)
     }
 }
 
@@ -276,7 +302,10 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
             return frames
         }
 
-        let accessUnits = try accessUnitSource.accessUnits(for: request.body)
+        let accessUnits = try accessUnitSource.accessUnits(
+            for: request.body,
+            negotiatedCodec: response.body.streamDescriptor.codec
+        )
         guard !accessUnits.isEmpty else {
             frames.append(try stalledFrame(for: request))
             return frames
@@ -365,7 +394,8 @@ public struct NaruHelperVideoStreamFramePipeline: Sendable {
             accessUnitStreamFactory: { [accessUnitSource] in
                 try accessUnitSource.accessUnitStream(
                     for: request.body,
-                    keyframeSignal: keyframeRequestSignal
+                    keyframeSignal: keyframeRequestSignal,
+                    negotiatedCodec: response.body.streamDescriptor.codec
                 )
             }
         )

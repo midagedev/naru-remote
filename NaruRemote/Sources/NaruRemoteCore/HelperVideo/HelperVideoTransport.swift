@@ -129,17 +129,39 @@ public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
     public var latencyMode: HelperVideoLatencyMode
     public var qualityBucket: HelperVideoQualityBucket
     public var maxFrameRateBucket: HelperVideoFrameRateBucket
+    /// Offer-only. The `codec` field stays `.h264` so legacy helpers never
+    /// see an unknown enum value. Omitted from JSON when nil.
+    public var acceptsHEVC: Bool?
 
     public init(
         codec: HelperVideoCodec = .h264,
         latencyMode: HelperVideoLatencyMode = .lowLatency,
         qualityBucket: HelperVideoQualityBucket = .readability,
-        maxFrameRateBucket: HelperVideoFrameRateBucket = .upTo30
+        maxFrameRateBucket: HelperVideoFrameRateBucket = .upTo30,
+        acceptsHEVC: Bool? = nil
     ) {
         self.codec = codec
         self.latencyMode = latencyMode
         self.qualityBucket = qualityBucket
         self.maxFrameRateBucket = maxFrameRateBucket
+        self.acceptsHEVC = acceptsHEVC
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case codec
+        case latencyMode
+        case qualityBucket
+        case maxFrameRateBucket
+        case acceptsHEVC
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(codec, forKey: .codec)
+        try container.encode(latencyMode, forKey: .latencyMode)
+        try container.encode(qualityBucket, forKey: .qualityBucket)
+        try container.encode(maxFrameRateBucket, forKey: .maxFrameRateBucket)
+        try container.encodeIfPresent(acceptsHEVC, forKey: .acceptsHEVC)
     }
 }
 

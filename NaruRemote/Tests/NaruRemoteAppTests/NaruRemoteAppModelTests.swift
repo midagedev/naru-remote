@@ -27,10 +27,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
             streamPowerMode: .balanced,
             isSystemLowPowerModeEnabled: false,
             thermalState: .nominal,
-            isNetworkConstrained: false
+            isNetworkConstrained: false,
+            deviceSupportsHEVCDecode: false
         )
 
         XCTAssertEqual(policy.requestBody.codec, .h264)
+        XCTAssertNil(policy.requestBody.acceptsHEVC)
         XCTAssertEqual(policy.requestBody.latencyMode, .lowLatency)
         XCTAssertEqual(policy.requestBody.qualityBucket, .readability)
         XCTAssertEqual(policy.requestBody.maxFrameRateBucket, .upTo30)
@@ -42,31 +44,36 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 streamPowerMode: .powerSaver,
                 isSystemLowPowerModeEnabled: false,
                 thermalState: .nominal,
-                isNetworkConstrained: false
+                isNetworkConstrained: false,
+                deviceSupportsHEVCDecode: false
             ),
             HelperVideoStartRequestPolicy(
                 streamPowerMode: .balanced,
                 isSystemLowPowerModeEnabled: true,
                 thermalState: .nominal,
-                isNetworkConstrained: false
+                isNetworkConstrained: false,
+                deviceSupportsHEVCDecode: false
             ),
             HelperVideoStartRequestPolicy(
                 streamPowerMode: .balanced,
                 isSystemLowPowerModeEnabled: false,
                 thermalState: .fair,
-                isNetworkConstrained: false
+                isNetworkConstrained: false,
+                deviceSupportsHEVCDecode: false
             ),
             HelperVideoStartRequestPolicy(
                 streamPowerMode: .balanced,
                 isSystemLowPowerModeEnabled: false,
                 thermalState: .serious,
-                isNetworkConstrained: false
+                isNetworkConstrained: false,
+                deviceSupportsHEVCDecode: false
             ),
             HelperVideoStartRequestPolicy(
                 streamPowerMode: .balanced,
                 isSystemLowPowerModeEnabled: false,
                 thermalState: .critical,
-                isNetworkConstrained: false
+                isNetworkConstrained: false,
+                deviceSupportsHEVCDecode: false
             )
         ]
 
@@ -81,11 +88,34 @@ final class NaruRemoteAppModelTests: XCTestCase {
             streamPowerMode: .balanced,
             isSystemLowPowerModeEnabled: false,
             thermalState: .nominal,
-            isNetworkConstrained: true
+            isNetworkConstrained: true,
+            deviceSupportsHEVCDecode: false
         )
 
         XCTAssertEqual(policy.requestBody.qualityBucket, .readability)
         XCTAssertEqual(policy.requestBody.maxFrameRateBucket, .upTo15)
+        XCTAssertNil(policy.requestBody.acceptsHEVC)
+    }
+
+    func testHelperVideoStartRequestPolicyOffersHEVCWhenDeviceDecodeIsSupported() {
+        let supported = HelperVideoStartRequestPolicy(
+            streamPowerMode: .balanced,
+            isSystemLowPowerModeEnabled: false,
+            thermalState: .nominal,
+            isNetworkConstrained: false,
+            deviceSupportsHEVCDecode: true
+        )
+        let unsupported = HelperVideoStartRequestPolicy(
+            streamPowerMode: .balanced,
+            isSystemLowPowerModeEnabled: false,
+            thermalState: .nominal,
+            isNetworkConstrained: false,
+            deviceSupportsHEVCDecode: false
+        )
+
+        XCTAssertEqual(supported.requestBody.codec, .h264)
+        XCTAssertEqual(supported.requestBody.acceptsHEVC, true)
+        XCTAssertNil(unsupported.requestBody.acceptsHEVC)
     }
 
     func testSessionStreamFrameApplicationQueueCoalescesContentBacklogToInitialAndLatestFrame() async throws {
@@ -4035,6 +4065,126 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(calls.first?.requestBody.qualityBucket, .readability)
         XCTAssertEqual(calls.first?.requestBody.maxFrameRateBucket, .upTo15)
+    }
+
+    func testHelperVideoBootstrapOffersHEVCWhenDecodeProviderReportsSupport() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 1,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer },
+            lowPowerModeProvider: { false },
+            hevcDecodeSupportProvider: { true }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.requestBody.codec, .h264)
+        XCTAssertEqual(calls.first?.requestBody.acceptsHEVC, true)
+    }
+
+    func testHelperVideoBootstrapOmitsHEVCOfferWhenDecodeProviderReportsUnsupported() async throws {
+        let helperVideoSecretRef = "helper-video-token:desk"
+        let profile = try ConnectionProfile(
+            displayName: "Desk",
+            host: "desk.tailnet.ts.net",
+            helperVideo: HelperVideoConnectionConfiguration(
+                isEnabled: true,
+                pairingSecretRef: helperVideoSecretRef,
+                pairingFingerprint: "sha256:helper-video"
+            )
+        )
+        let connector = FakeStreamingConnector(
+            width: 2,
+            height: 1,
+            name: "Desk",
+            framebuffer: RFBRawFramebuffer(
+                width: 2,
+                height: 1,
+                fill: RFBColor(red: 10, green: 20, blue: 30)
+            )
+        )
+        let helperRecorder = HelperVideoStartRecorder(
+            result: Self.helperVideoStartResult(
+                descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
+                accessUnits: [
+                    Self.helperVideoAccessUnit(sequence: 1, kind: .keyframe)
+                ]
+            )
+        )
+        let helperRenderer = AppModelFakeHelperVideoRenderer(displayableSequences: [1])
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            credentialStore: InMemoryConnectionCredentialStore(
+                passwords: [helperVideoSecretRef: "helper-video-secret"]
+            ),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 1, frameInterval: 0),
+            connectorFactory: { connector },
+            helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
+                try await helperRecorder.start(
+                    profile: profile,
+                    pairingSecret: pairingSecret,
+                    pairingFingerprint: pairingFingerprint,
+                    requestBody: requestBody,
+                    maxServerFrames: maxServerFrames
+                )
+            },
+            helperVideoRendererFactory: { helperRenderer },
+            lowPowerModeProvider: { false },
+            hevcDecodeSupportProvider: { false }
+        )
+
+        await model.connectSelectedProfile()
+        try await waitForHelperVideoHealth(model, state: .healthy)
+
+        let calls = await helperRecorder.recordedCallSnapshot()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.requestBody.codec, .h264)
+        XCTAssertNil(calls.first?.requestBody.acceptsHEVC)
     }
 
     func testHelperVideoBootstrapRequestsFifteenFPSWhenNetworkConstrained() async throws {

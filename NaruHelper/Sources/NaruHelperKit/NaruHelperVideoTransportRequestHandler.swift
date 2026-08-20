@@ -1,6 +1,10 @@
 import Foundation
 import NaruRemoteCore
 
+#if os(macOS) && canImport(VideoToolbox)
+import VideoToolbox
+#endif
+
 public enum NaruHelperVideoTransportAuthorizationStatus: String, Codable, Equatable, Sendable {
     case accepted
     case rejected
@@ -32,19 +36,30 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
     private let revocationStore: any NaruHelperPairingRevocationStore
     private let capabilityProvider: CapabilityProvider
     private let startStreamProvider: StartStreamProvider
+    private let hevcEncodeSupportProbe: @Sendable () -> Bool
 
     public init(
         expectedPairingSecret: String,
         expectedProfileFingerprint: String,
         revocationStore: any NaruHelperPairingRevocationStore = InMemoryNaruHelperPairingRevocationStore(),
         capabilityProvider: @escaping CapabilityProvider,
-        startStreamProvider: @escaping StartStreamProvider = Self.defaultStartStreamResponse
+        startStreamProvider: @escaping StartStreamProvider = Self.defaultStartStreamResponse,
+        hevcEncodeSupportProbe: @escaping @Sendable () -> Bool = defaultHEVCEncodeSupportProbe
     ) {
         self.expectedPairingSecret = expectedPairingSecret
         self.expectedProfileFingerprint = expectedProfileFingerprint
         self.revocationStore = revocationStore
         self.capabilityProvider = capabilityProvider
         self.startStreamProvider = startStreamProvider
+        self.hevcEncodeSupportProbe = hevcEncodeSupportProbe
+    }
+
+    public static func defaultHEVCEncodeSupportProbe() -> Bool {
+        #if os(macOS) && canImport(VideoToolbox)
+        hevcHardwareEncoderIsAvailable()
+        #else
+        false
+        #endif
     }
 
     public func handleCapabilityFrame(_ frame: Data) throws -> Data {
@@ -124,10 +139,22 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
             )
         }
 
+        var body = startStreamProvider(envelope.body)
+        if body.result == .accepted {
+            let negotiated = Self.negotiatedCodec(
+                request: envelope.body,
+                hevcEncodeSupported: envelope.body.acceptsHEVC == true
+                    && hevcEncodeSupportProbe()
+            )
+            body.streamDescriptor.codec = negotiated
+            if negotiated == .hevc {
+                body.streamDescriptor.codecProfile = .main
+            }
+        }
         return responseEnvelope(
             for: envelope,
             messageType: .startStream,
-            body: startStreamProvider(envelope.body)
+            body: body
         )
     }
 
@@ -234,4 +261,35 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
             )
         )
     }
+
+    static func negotiatedCodec(
+        request: HelperVideoStartStreamRequestBody,
+        hevcEncodeSupported: Bool
+    ) -> HelperVideoCodec {
+        if request.acceptsHEVC == true, hevcEncodeSupported {
+            return .hevc
+        }
+        return .h264
+    }
 }
+
+#if os(macOS) && canImport(VideoToolbox)
+extension NaruHelperVideoTransportRequestHandler {
+    private static func hevcHardwareEncoderIsAvailable() -> Bool {
+        let encoderSpecification: CFDictionary = [
+            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
+            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue as Any
+        ] as CFDictionary
+        var supportedProperties: CFDictionary?
+        let status = VTCopySupportedPropertyDictionaryForEncoder(
+            width: 64,
+            height: 64,
+            codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: encoderSpecification,
+            encoderIDOut: nil,
+            supportedPropertiesOut: &supportedProperties
+        )
+        return status == noErr && supportedProperties != nil
+    }
+}
+#endif

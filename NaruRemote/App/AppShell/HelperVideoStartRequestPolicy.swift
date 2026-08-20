@@ -8,17 +8,20 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
     /// Low Data Mode (`NWPath.isConstrained`). Cellular/hotspot
     /// (`isExpensive`) is intentionally not an input — constitution §VI.
     var isNetworkConstrained: Bool
+    var deviceSupportsHEVCDecode: Bool
 
     init(
         streamPowerMode: StreamPowerMode,
         isSystemLowPowerModeEnabled: Bool,
         thermalState: SessionStreamThermalState,
-        isNetworkConstrained: Bool
+        isNetworkConstrained: Bool,
+        deviceSupportsHEVCDecode: Bool
     ) {
         self.streamPowerMode = streamPowerMode
         self.isSystemLowPowerModeEnabled = isSystemLowPowerModeEnabled
         self.thermalState = thermalState
         self.isNetworkConstrained = isNetworkConstrained
+        self.deviceSupportsHEVCDecode = deviceSupportsHEVCDecode
     }
 
     var requestBody: HelperVideoStartStreamRequestBody {
@@ -26,7 +29,8 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
             codec: .h264,
             latencyMode: .lowLatency,
             qualityBucket: .readability,
-            maxFrameRateBucket: frameRateBucket
+            maxFrameRateBucket: frameRateBucket,
+            acceptsHEVC: deviceSupportsHEVCDecode ? true : nil
         )
     }
 

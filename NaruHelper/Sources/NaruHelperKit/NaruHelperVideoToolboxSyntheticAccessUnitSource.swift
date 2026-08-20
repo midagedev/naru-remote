@@ -99,6 +99,13 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
     public func accessUnits(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> [NaruHelperVideoAccessUnit] {
+        try accessUnits(for: request, negotiatedCodec: .h264)
+    }
+
+    public func accessUnits(
+        for request: HelperVideoStartStreamRequestBody,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> [NaruHelperVideoAccessUnit] {
         #if os(macOS) && canImport(VideoToolbox)
         let finiteFrameCount = max(frameCount, 1)
         let pixelBuffers = try (0..<finiteFrameCount).map { frameIndex in
@@ -114,7 +121,8 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             frameRateBucket: request.maxFrameRateBucket,
             qualityBucket: request.qualityBucket,
             keyFrameInterval: finiteFrameCount,
-            encodingMode: encodingMode
+            encodingMode: encodingMode,
+            codec: negotiatedCodec
         )
         return try encoder.encode(pixelBuffers: pixelBuffers)
         #else
@@ -125,19 +133,36 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        try makeAccessUnitStream(for: request, keyframeSignal: nil)
+        try makeAccessUnitStream(for: request, keyframeSignal: nil, negotiatedCodec: .h264)
     }
 
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody,
         keyframeSignal: NaruHelperVideoKeyframeRequestSignal
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        try makeAccessUnitStream(for: request, keyframeSignal: keyframeSignal)
+        try makeAccessUnitStream(
+            for: request,
+            keyframeSignal: keyframeSignal,
+            negotiatedCodec: .h264
+        )
+    }
+
+    public func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(
+            for: request,
+            keyframeSignal: keyframeSignal,
+            negotiatedCodec: negotiatedCodec
+        )
     }
 
     private func makeAccessUnitStream(
         for request: HelperVideoStartStreamRequestBody,
-        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?,
+        negotiatedCodec: HelperVideoCodec
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         #if os(macOS) && canImport(VideoToolbox)
         let frameLimit = frameCount > 0 ? frameCount : nil
@@ -153,7 +178,8 @@ public struct NaruHelperVideoToolboxSyntheticAccessUnitSource: NaruHelperVideoAc
             frameRateBucket: request.maxFrameRateBucket,
             qualityBucket: request.qualityBucket,
             keyFrameInterval: keyFrameInterval,
-            encodingMode: .lowLatencyRealtime
+            encodingMode: .lowLatencyRealtime,
+            codec: negotiatedCodec
         )
         return try encoder.encode(
             pixelBuffers: pixelBuffers,
@@ -170,6 +196,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
     private let width: Int32
     private let height: Int32
     private let frameRateBucket: HelperVideoFrameRateBucket
+    private let codec: HelperVideoCodec
     public let rateControlPolicy: NaruHelperVideoRateControlPolicy
     private let keyFrameInterval: Int
     private let encodingMode: NaruHelperVideoToolboxEncodingMode
@@ -181,7 +208,8 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         frameRateBucket: HelperVideoFrameRateBucket,
         qualityBucket: HelperVideoQualityBucket = .readability,
         keyFrameInterval: Int,
-        encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime
+        encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime,
+        codec: HelperVideoCodec = .h264
     ) {
         self.init(
             width: width,
@@ -191,7 +219,8 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
             keyFrameInterval: keyFrameInterval,
             encodingMode: encodingMode,
             encodedAccessUnitBufferCapacity: NaruHelperVideoEncodedAccessUnitStreamPolicy
-                .defaultCapacity
+                .defaultCapacity,
+            codec: codec
         )
     }
 
@@ -202,14 +231,17 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         qualityBucket: HelperVideoQualityBucket = .readability,
         keyFrameInterval: Int,
         encodingMode: NaruHelperVideoToolboxEncodingMode = .lowLatencyRealtime,
-        encodedAccessUnitBufferCapacity: Int
+        encodedAccessUnitBufferCapacity: Int,
+        codec: HelperVideoCodec = .h264
     ) {
         self.width = width
         self.height = height
         self.frameRateBucket = frameRateBucket
+        self.codec = codec
         self.rateControlPolicy = NaruHelperVideoRateControlPolicy(
             qualityBucket: qualityBucket,
-            frameRateBucket: frameRateBucket
+            frameRateBucket: frameRateBucket,
+            codec: codec
         )
         self.keyFrameInterval = max(keyFrameInterval, 1)
         self.encodingMode = encodingMode
@@ -238,7 +270,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
             allocator: kCFAllocatorDefault,
             width: width,
             height: height,
-            codecType: kCMVideoCodecType_H264,
+            codecType: codec.videoToolboxCodecType,
             encoderSpecification: encoderSpecification,
             imageBufferAttributes: imageBufferAttributes,
             compressedDataAllocator: nil,
@@ -321,7 +353,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
                 allocator: kCFAllocatorDefault,
                 width: width,
                 height: height,
-                codecType: kCMVideoCodecType_H264,
+                codecType: codec.videoToolboxCodecType,
                 encoderSpecification: encoderSpecification,
                 imageBufferAttributes: imageBufferAttributes,
                 compressedDataAllocator: nil,
@@ -463,7 +495,7 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
         let properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, encodingMode.realTimePropertyValue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
-            (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
+            (kVTCompressionPropertyKey_ProfileLevel, codec.videoToolboxProfileLevel),
             (kVTCompressionPropertyKey_MaxKeyFrameInterval, keyFrameInterval as CFNumber),
             (kVTCompressionPropertyKey_ExpectedFrameRate, frameRateBucket.nominalTimescale as CFNumber)
         ] + rateControlPolicy.videoToolboxCompressionProperties()
@@ -474,6 +506,26 @@ public struct NaruHelperVideoToolboxPixelBufferAccessUnitEncoder: Sendable {
                 throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError
                     .compressionSessionConfigurationFailed(status)
             }
+        }
+    }
+}
+
+private extension HelperVideoCodec {
+    var videoToolboxCodecType: CMVideoCodecType {
+        switch self {
+        case .hevc:
+            return kCMVideoCodecType_HEVC
+        case .h264, .unknown:
+            return kCMVideoCodecType_H264
+        }
+    }
+
+    var videoToolboxProfileLevel: CFString {
+        switch self {
+        case .hevc:
+            return kVTProfileLevel_HEVC_Main_AutoLevel
+        case .h264, .unknown:
+            return kVTProfileLevel_H264_High_AutoLevel
         }
     }
 }
@@ -875,6 +927,15 @@ private enum NaruHelperVideoToolboxSampleBufferPayloads {
             throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.sampleBufferMissingData
         }
 
+        if CMFormatDescriptionGetMediaSubType(formatDescription) == kCMVideoCodecType_HEVC {
+            return try hevcParameterSetAnnexBPayload(from: formatDescription)
+        }
+        return try h264ParameterSetAnnexBPayload(from: formatDescription)
+    }
+
+    private static func h264ParameterSetAnnexBPayload(
+        from formatDescription: CMFormatDescription
+    ) throws -> Data {
         var parameterSetCount = 0
         var nalUnitHeaderLength: Int32 = 0
         let countStatus = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
@@ -895,6 +956,46 @@ private enum NaruHelperVideoToolboxSampleBufferPayloads {
             var pointer: UnsafePointer<UInt8>?
             var size = 0
             let status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                formatDescription,
+                parameterSetIndex: index,
+                parameterSetPointerOut: &pointer,
+                parameterSetSizeOut: &size,
+                parameterSetCountOut: nil,
+                nalUnitHeaderLengthOut: nil
+            )
+            guard status == noErr, let pointer, size > 0 else {
+                throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                    .h264ParameterSetExtractionFailed(status)
+            }
+            appendAnnexBStartCode(to: &payload)
+            payload.append(pointer, count: size)
+        }
+        return payload
+    }
+
+    private static func hevcParameterSetAnnexBPayload(
+        from formatDescription: CMFormatDescription
+    ) throws -> Data {
+        var parameterSetCount = 0
+        var nalUnitHeaderLength: Int32 = 0
+        let countStatus = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+            formatDescription,
+            parameterSetIndex: 0,
+            parameterSetPointerOut: nil,
+            parameterSetSizeOut: nil,
+            parameterSetCountOut: &parameterSetCount,
+            nalUnitHeaderLengthOut: &nalUnitHeaderLength
+        )
+        guard countStatus == noErr, parameterSetCount > 0 else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError
+                .h264ParameterSetExtractionFailed(countStatus)
+        }
+
+        var payload = Data()
+        for index in 0..<parameterSetCount {
+            var pointer: UnsafePointer<UInt8>?
+            var size = 0
+            let status = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
                 formatDescription,
                 parameterSetIndex: index,
                 parameterSetPointerOut: &pointer,

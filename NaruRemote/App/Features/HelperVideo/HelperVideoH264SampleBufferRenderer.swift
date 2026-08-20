@@ -54,13 +54,16 @@ struct HelperVideoH264NALUnit: Equatable, Sendable {
     var type: UInt8
     var payload: Data
 
-    var isParameterSet: Bool {
-        type == 7 || type == 8
-    }
+    // Parameter-set classification lives on the factory's codec-aware
+    // `isParameterSet(_:)` — an H.264-only property here would silently
+    // misclassify HEVC NAL types (lead review 2026-08-20).
 }
 
 enum HelperVideoH264AnnexBParser {
-    static func parse(_ payload: Data) throws -> [HelperVideoH264NALUnit] {
+    static func parse(
+        _ payload: Data,
+        codec: HelperVideoCodec = .h264
+    ) throws -> [HelperVideoH264NALUnit] {
         try payload.withUnsafeBytes { rawBuffer in
             let bytes = rawBuffer.bindMemory(to: UInt8.self)
             guard let baseAddress = bytes.baseAddress else {
@@ -89,13 +92,27 @@ enum HelperVideoH264AnnexBParser {
                     bytes: baseAddress.advanced(by: payloadStart),
                     count: payloadCount
                 )
-                units.append(HelperVideoH264NALUnit(type: firstByte & 0x1F, payload: nalPayload))
+                units.append(
+                    HelperVideoH264NALUnit(
+                        type: nalType(firstByte: firstByte, codec: codec),
+                        payload: nalPayload
+                    )
+                )
             }
 
             guard !units.isEmpty else {
                 throw HelperVideoH264SampleBufferFactoryError.invalidAnnexBPayload
             }
             return units
+        }
+    }
+
+    private static func nalType(firstByte: UInt8, codec: HelperVideoCodec) -> UInt8 {
+        switch codec {
+        case .hevc:
+            return (firstByte >> 1) & 0x3F
+        case .h264, .unknown:
+            return firstByte & 0x1F
         }
     }
 
@@ -132,6 +149,7 @@ enum HelperVideoH264AnnexBParser {
 
 public final class HelperVideoH264SampleBufferFactory {
     public private(set) var cachedFormatDimensions: HelperVideoH264FrameDimensions?
+    public private(set) var codec: HelperVideoCodec = .h264
 
     private var cachedFormatDescription: CMVideoFormatDescription?
     private var nextPresentationValue: CMTimeValue = 0
@@ -139,6 +157,10 @@ public final class HelperVideoH264SampleBufferFactory {
 
     public init(timescale: CMTimeScale = 30) {
         self.timescale = max(timescale, 1)
+    }
+
+    public func prepare(codec: HelperVideoCodec) {
+        self.codec = codec == .hevc ? .hevc : .h264
     }
 
     @discardableResult
@@ -165,7 +187,7 @@ public final class HelperVideoH264SampleBufferFactory {
             return nil
         }
 
-        let nalUnits = try HelperVideoH264AnnexBParser.parse(binaryPayload)
+        let nalUnits = try HelperVideoH264AnnexBParser.parse(binaryPayload, codec: codec)
         try updateCachedFormatDescriptionIfPresent(in: nalUnits)
 
         if envelope.body.kind == .parameterSet {
@@ -176,7 +198,7 @@ public final class HelperVideoH264SampleBufferFactory {
             throw HelperVideoH264SampleBufferFactoryError.missingParameterSets
         }
 
-        let mediaUnits = nalUnits.filter { !$0.isParameterSet }
+        let mediaUnits = nalUnits.filter { !isParameterSet($0) }
         guard !mediaUnits.isEmpty else {
             return nil
         }
@@ -198,7 +220,21 @@ public final class HelperVideoH264SampleBufferFactory {
         nextPresentationValue = 0
     }
 
+    private func isParameterSet(_ unit: HelperVideoH264NALUnit) -> Bool {
+        switch codec {
+        case .hevc:
+            return unit.type == 32 || unit.type == 33 || unit.type == 34
+        case .h264, .unknown:
+            return unit.type == 7 || unit.type == 8
+        }
+    }
+
     private func updateCachedFormatDescriptionIfPresent(in nalUnits: [HelperVideoH264NALUnit]) throws {
+        if codec == .hevc {
+            try updateCachedHEVCFormatDescriptionIfPresent(in: nalUnits)
+            return
+        }
+
         guard let sps = nalUnits.last(where: { $0.type == 7 })?.payload,
               let pps = nalUnits.last(where: { $0.type == 8 })?.payload else {
             return
@@ -234,6 +270,53 @@ public final class HelperVideoH264SampleBufferFactory {
                     width: dimensions.width,
                     height: dimensions.height
                 )
+            }
+        }
+    }
+
+    private func updateCachedHEVCFormatDescriptionIfPresent(
+        in nalUnits: [HelperVideoH264NALUnit]
+    ) throws {
+        guard let vps = nalUnits.last(where: { $0.type == 32 })?.payload,
+              let sps = nalUnits.last(where: { $0.type == 33 })?.payload,
+              let pps = nalUnits.last(where: { $0.type == 34 })?.payload else {
+            return
+        }
+
+        try vps.withUnsafeBytes { vpsBytes in
+            try sps.withUnsafeBytes { spsBytes in
+                try pps.withUnsafeBytes { ppsBytes in
+                    guard let vpsBase = vpsBytes.bindMemory(to: UInt8.self).baseAddress,
+                          let spsBase = spsBytes.bindMemory(to: UInt8.self).baseAddress,
+                          let ppsBase = ppsBytes.bindMemory(to: UInt8.self).baseAddress else {
+                        throw HelperVideoH264SampleBufferFactoryError.missingParameterSets
+                    }
+
+                    var parameterSetPointers: [UnsafePointer<UInt8>] = [vpsBase, spsBase, ppsBase]
+                    var parameterSetSizes: [Int] = [vps.count, sps.count, pps.count]
+                    var formatDescription: CMVideoFormatDescription?
+                    let status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                        allocator: kCFAllocatorDefault,
+                        parameterSetCount: parameterSetPointers.count,
+                        parameterSetPointers: &parameterSetPointers,
+                        parameterSetSizes: &parameterSetSizes,
+                        nalUnitHeaderLength: 4,
+                        extensions: nil,
+                        formatDescriptionOut: &formatDescription
+                    )
+
+                    guard status == noErr, let formatDescription else {
+                        throw HelperVideoH264SampleBufferFactoryError
+                            .formatDescriptionCreationFailed(status)
+                    }
+
+                    cachedFormatDescription = formatDescription
+                    let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
+                    cachedFormatDimensions = HelperVideoH264FrameDimensions(
+                        width: dimensions.width,
+                        height: dimensions.height
+                    )
+                }
             }
         }
     }
@@ -333,6 +416,10 @@ private actor HelperVideoH264SampleBufferPreparationPipeline {
             .map { HelperVideoPreparedSampleBuffer(sampleBuffer: $0) }
     }
 
+    func prepare(codec: HelperVideoCodec) {
+        factory.prepare(codec: codec)
+    }
+
     func reset() {
         factory.reset()
     }
@@ -388,6 +475,10 @@ extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRendering {
         _ decoded: HelperVideoDecodedFrame<HelperVideoWireEnvelope<HelperVideoAccessUnitBody>>
     ) async throws -> Bool {
         try await enqueue(decoded) != nil
+    }
+
+    public func prepare(codec: HelperVideoCodec) async {
+        await preparationPipeline.prepare(codec: codec)
     }
 }
 

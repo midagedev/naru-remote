@@ -282,6 +282,13 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
     public func accessUnits(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> [NaruHelperVideoAccessUnit] {
+        try accessUnits(for: request, negotiatedCodec: .h264)
+    }
+
+    public func accessUnits(
+        for request: HelperVideoStartStreamRequestBody,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> [NaruHelperVideoAccessUnit] {
         let finiteFrameCount = max(frameCount, 1)
         let pixelBuffers = try pixelBufferProvider.pixelBuffers(
             frameLimit: finiteFrameCount,
@@ -305,7 +312,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
             frameRateBucket: request.maxFrameRateBucket,
             qualityBucket: request.qualityBucket,
             keyFrameInterval: finiteFrameCount,
-            encodingMode: .lowLatencyRealtime
+            encodingMode: .lowLatencyRealtime,
+            codec: negotiatedCodec
         )
         return try encoder.encode(pixelBuffers: pixelBuffers)
     }
@@ -313,25 +321,42 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        try makeAccessUnitStream(for: request, keyframeSignal: nil)
+        try makeAccessUnitStream(for: request, keyframeSignal: nil, negotiatedCodec: .h264)
     }
 
     public func accessUnitStream(
         for request: HelperVideoStartStreamRequestBody,
         keyframeSignal: NaruHelperVideoKeyframeRequestSignal
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        try makeAccessUnitStream(for: request, keyframeSignal: keyframeSignal)
+        try makeAccessUnitStream(
+            for: request,
+            keyframeSignal: keyframeSignal,
+            negotiatedCodec: .h264
+        )
+    }
+
+    public func accessUnitStream(
+        for request: HelperVideoStartStreamRequestBody,
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal,
+        negotiatedCodec: HelperVideoCodec
+    ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
+        try makeAccessUnitStream(
+            for: request,
+            keyframeSignal: keyframeSignal,
+            negotiatedCodec: negotiatedCodec
+        )
     }
 
     private func makeAccessUnitStream(
         for request: HelperVideoStartStreamRequestBody,
-        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?
+        keyframeSignal: NaruHelperVideoKeyframeRequestSignal?,
+        negotiatedCodec: HelperVideoCodec
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
         guard let streamProvider = pixelBufferProvider
             as? any NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider
         else {
             return try NaruHelperVideoAccessUnitSourceDefaultStreamAdapter
-                .stream(source: self, request: request)
+                .stream(source: self, request: request, negotiatedCodec: negotiatedCodec)
         }
 
         let pixelBufferStream = try streamProvider.pixelBufferStream(
@@ -401,7 +426,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
                         qualityBucket: request.qualityBucket,
                         keyFrameInterval: keyFrameInterval,
                         encodingMode: .lowLatencyRealtime,
-                        encodedAccessUnitBufferCapacity: encodedAccessUnitBufferCapacity
+                        encodedAccessUnitBufferCapacity: encodedAccessUnitBufferCapacity,
+                        codec: negotiatedCodec
                     )
                     let accessUnits = try encoder.encode(
                         pixelBuffers: replayedPixelBuffers,
@@ -1318,9 +1344,10 @@ extension HelperVideoFrameRateBucket {
 enum NaruHelperVideoAccessUnitSourceDefaultStreamAdapter {
     static func stream(
         source: NaruHelperVideoScreenCaptureKitAccessUnitSource,
-        request: HelperVideoStartStreamRequestBody
+        request: HelperVideoStartStreamRequestBody,
+        negotiatedCodec: HelperVideoCodec = .h264
     ) throws -> AsyncThrowingStream<NaruHelperVideoAccessUnit, any Error> {
-        stream(accessUnits: try source.accessUnits(for: request))
+        stream(accessUnits: try source.accessUnits(for: request, negotiatedCodec: negotiatedCodec))
     }
 
     static func stream(

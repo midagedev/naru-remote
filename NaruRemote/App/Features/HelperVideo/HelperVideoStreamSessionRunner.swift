@@ -9,6 +9,12 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     ) async throws -> Bool
 
     func flush() async
+
+    func prepare(codec: HelperVideoCodec) async
+}
+
+extension HelperVideoAccessUnitRendering {
+    public func prepare(codec: HelperVideoCodec) async {}
 }
 
 @MainActor
@@ -49,6 +55,11 @@ private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
     @MainActor
     func flush() async {
         await renderer.flush()
+    }
+
+    @MainActor
+    func prepare(codec: HelperVideoCodec) async {
+        await renderer.prepare(codec: codec)
     }
 }
 
@@ -244,6 +255,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                     }
 
                     startAccepted = true
+                    await renderer.prepare(codec: response.body.streamDescriptor.codec)
                     let selected = await model.selectHelperVideoVisualTransport(
                         descriptor: response.body.streamDescriptor,
                         health: HelperVideoStreamHealth(state: .starting)
@@ -477,6 +489,7 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
         }
 
         let startingHealth = HelperVideoStreamHealth(state: .starting)
+        await renderer.prepare(codec: result.startResponse.body.streamDescriptor.codec)
         let selected = await model.selectHelperVideoVisualTransport(
             descriptor: result.startResponse.body.streamDescriptor,
             health: startingHealth

@@ -133,6 +133,16 @@ same PR.
    not an exception — pinned by test). Mid-stream helper bitrate changes
    need new wire vocabulary (schema v2) and path flips tear TCP anyway, so
    caps apply at stream (re)start like Low Power Mode today.
+1i. **`specs/021` helper video HEVC — implemented 2026-08-20** (2026-08-20,
+   lever ④ from 1f, the last researched lever; founder: "마지막까지 하고
+   테스트하려고"). Offer/answer negotiation with zero extra round trips
+   (optional `acceptsHEVC` on the start request; the `codec` field keeps
+   carrying h264 so legacy decoders never see an unknown enum value;
+   descriptor answers hevc iff offer × helper encode probe), HEVC encode
+   (Main profile, low-latency) + HEVC render (VPS/SPS/PPS,
+   `CMVideoFormatDescriptionCreateFromHEVCParameterSets`), bitrate rows at
+   2/3 of H.264 marked provisional pending the device pass. After commit:
+   TestFlight build for the founder's device passes across specs 015–021.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

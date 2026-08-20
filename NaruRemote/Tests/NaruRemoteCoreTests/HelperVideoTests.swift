@@ -130,6 +130,73 @@ final class HelperVideoTests: XCTestCase {
         XCTAssertEqual(decoded, stalled)
     }
 
+    func testHelperVideoCodecIncludesHEVC() {
+        XCTAssertEqual(HelperVideoCodec.hevc.rawValue, "hevc")
+        XCTAssertTrue(HelperVideoCodec.allCases.contains(.hevc))
+    }
+
+    func testStartStreamRequestDecodesMissingAcceptsHEVCAsNil() throws {
+        let json = Data(
+            """
+            {"codec":"h264","latencyMode":"lowLatency","qualityBucket":"readability","maxFrameRateBucket":"upTo30"}
+            """.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(HelperVideoStartStreamRequestBody.self, from: json)
+
+        XCTAssertEqual(decoded.codec, .h264)
+        XCTAssertNil(decoded.acceptsHEVC)
+    }
+
+    func testStartStreamRequestOmitsAcceptsHEVCWhenNilAndKeepsCodecH264WhenOffering() throws {
+        let omitted = try JSONEncoder().encode(HelperVideoStartStreamRequestBody())
+        let omittedJSON = try XCTUnwrap(String(data: omitted, encoding: .utf8))
+        XCTAssertFalse(omittedJSON.contains("acceptsHEVC"))
+
+        let offering = HelperVideoStartStreamRequestBody(acceptsHEVC: true)
+        let offeringJSON = try XCTUnwrap(String(data: try JSONEncoder().encode(offering), encoding: .utf8))
+        XCTAssertEqual(offering.codec, .h264)
+        XCTAssertTrue(offeringJSON.contains("\"codec\":\"h264\""))
+        XCTAssertTrue(offeringJSON.contains("\"acceptsHEVC\":true"))
+    }
+
+    func testOldHelperIgnoresUnknownAcceptsHEVCKey() throws {
+        struct LegacyStartStreamRequestBody: Codable, Equatable {
+            var codec: HelperVideoCodec
+            var latencyMode: HelperVideoLatencyMode
+            var qualityBucket: HelperVideoQualityBucket
+            var maxFrameRateBucket: HelperVideoFrameRateBucket
+        }
+
+        let encoded = try JSONEncoder().encode(HelperVideoStartStreamRequestBody(acceptsHEVC: true))
+        let legacy = try JSONDecoder().decode(LegacyStartStreamRequestBody.self, from: encoded)
+
+        XCTAssertEqual(legacy.codec, .h264)
+        XCTAssertEqual(legacy.latencyMode, .lowLatency)
+    }
+
+    func testOldCapabilityAndDescriptorJSONStillDecode() throws {
+        let capabilityJSON = Data(
+            """
+            {"availability":"available","screenRecordingPermission":"granted","codecSupport":"h264","latencyModes":["lowLatency"]}
+            """.utf8
+        )
+        let capability = try JSONDecoder().decode(
+            HelperVideoCapabilityResponseBody.self,
+            from: capabilityJSON
+        )
+        XCTAssertEqual(capability.codecSupport, .h264)
+
+        let descriptorJSON = Data(
+            """
+            {"protocolVersion":1,"codec":"h264","codecProfile":"high","latencyMode":"lowLatency","qualityBucket":"readability","frameRateBucket":"upTo30","colorMode":"standardDynamicRange","supportsKeyframeRequest":true,"supportsFallbackSignal":true}
+            """.utf8
+        )
+        let descriptor = try JSONDecoder().decode(HelperVideoStreamDescriptor.self, from: descriptorJSON)
+        XCTAssertEqual(descriptor.codec, .h264)
+        XCTAssertEqual(descriptor.codecProfile, .high)
+    }
+
     func testCatalogValuesAvoidSensitiveDiagnosticTerms() {
         let values = HelperVideoAvailability.allCases.map(\.rawValue)
             + HelperVideoFailureCode.allCases.map(\.rawValue)

@@ -7,6 +7,7 @@ import NaruRemoteCore
 import AVFoundation
 import CoreMedia
 #if os(macOS) && canImport(VideoToolbox)
+import CoreVideo
 import VideoToolbox
 #endif
 
@@ -279,6 +280,182 @@ final class HelperVideoH264SampleBufferRendererTests: XCTestCase {
         )
         XCTAssertTrue(sampleBuffers.allSatisfy(CMSampleBufferDataIsReady))
         XCTAssertTrue(sampleBuffers.allSatisfy { CMSampleBufferGetImageBuffer($0) == nil })
+    }
+
+    func testHEVCAnnexBParserReadsVPSAndSPSAndPPSTypes() throws {
+        let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
+            width: 64,
+            height: 64,
+            frameRateBucket: .upTo15,
+            keyFrameInterval: 2,
+            codec: .hevc
+        )
+        let accessUnits = try encoder.encode(pixelBuffers: [
+            try Self.makePixelBuffer(width: 64, height: 64, frameIndex: 0)
+        ])
+        let parameterSet = try XCTUnwrap(accessUnits.first { $0.kind == .parameterSet })
+        let units = try HelperVideoH264AnnexBParser.parse(
+            parameterSet.binaryPayload,
+            codec: .hevc
+        )
+        let types = Set(units.map(\.type))
+        XCTAssertTrue(types.contains(32))
+        XCTAssertTrue(types.contains(33))
+        XCTAssertTrue(types.contains(34))
+    }
+
+    func testHEVCParameterSetAccessUnitCachesFormatAndKeyframeIsDisplayable() throws {
+        let encoder = NaruHelperVideoToolboxPixelBufferAccessUnitEncoder(
+            width: 64,
+            height: 64,
+            frameRateBucket: .upTo15,
+            keyFrameInterval: 2,
+            codec: .hevc
+        )
+        let accessUnits = try encoder.encode(pixelBuffers: [
+            try Self.makePixelBuffer(width: 64, height: 64, frameIndex: 0),
+            try Self.makePixelBuffer(width: 64, height: 64, frameIndex: 1)
+        ])
+        let parameterSet = try XCTUnwrap(accessUnits.first { $0.kind == .parameterSet })
+        let keyframe = try XCTUnwrap(accessUnits.first { $0.kind == .keyframe })
+
+        let factory = HelperVideoH264SampleBufferFactory(timescale: 15)
+        factory.prepare(codec: .hevc)
+
+        let parameterSample = try factory.makeSampleBuffer(
+            from: Self.envelope(kind: .parameterSet, sequence: parameterSet.sequence),
+            binaryPayload: parameterSet.binaryPayload
+        )
+        XCTAssertNil(parameterSample)
+        XCTAssertEqual(
+            factory.cachedFormatDimensions,
+            HelperVideoH264FrameDimensions(width: 64, height: 64)
+        )
+
+        let keyframeSample = try XCTUnwrap(
+            factory.makeSampleBuffer(
+                from: Self.envelope(kind: .keyframe, sequence: keyframe.sequence),
+                binaryPayload: keyframe.binaryPayload
+            )
+        )
+        XCTAssertTrue(CMSampleBufferDataIsReady(keyframeSample))
+        XCTAssertNil(CMSampleBufferGetImageBuffer(keyframeSample))
+        let formatDescription = try XCTUnwrap(CMSampleBufferGetFormatDescription(keyframeSample))
+        XCTAssertEqual(CMFormatDescriptionGetMediaSubType(formatDescription), kCMVideoCodecType_HEVC)
+    }
+
+    func testHEVCOfferThroughInProcessPipelineRendersDisplayableFrames() throws {
+        let profileFingerprint = "sha256:test-profile"
+        let pairingSecret = "test-pairing-secret"
+        let request = NaruHelperVideoTransportRequestHandler.signedEnvelope(
+            messageType: .startStream,
+            profileFingerprint: profileFingerprint,
+            pairingSecret: pairingSecret,
+            body: HelperVideoStartStreamRequestBody(
+                maxFrameRateBucket: .upTo15,
+                acceptsHEVC: true
+            )
+        )
+        let pipeline = NaruHelperVideoStreamFramePipeline(
+            requestHandler: NaruHelperVideoTransportRequestHandler(
+                expectedPairingSecret: pairingSecret,
+                expectedProfileFingerprint: profileFingerprint,
+                capabilityProvider: {
+                    HelperVideoCapabilityResponseBody(
+                        availability: .available,
+                        screenRecordingPermission: .granted,
+                        codecSupport: .h264,
+                        latencyModes: [.lowLatency]
+                    )
+                },
+                hevcEncodeSupportProbe: { true }
+            ),
+            accessUnitSource: NaruHelperVideoToolboxSyntheticAccessUnitSource(
+                frameCount: 2,
+                width: 64,
+                height: 64
+            )
+        )
+
+        let frames = try pipeline.frames(
+            forStartStreamFrame: try HelperVideoWireCodec.frame(request)
+        )
+        let startResponse = try HelperVideoWireCodec.decodeFrame(
+            HelperVideoWireEnvelope<HelperVideoStartStreamResponseBody>.self,
+            from: frames[0]
+        ).envelope
+        XCTAssertEqual(startResponse.body.result, .accepted)
+        XCTAssertEqual(startResponse.body.streamDescriptor.codec, .hevc)
+
+        let factory = HelperVideoH264SampleBufferFactory(timescale: 15)
+        factory.prepare(codec: startResponse.body.streamDescriptor.codec)
+        let decodedAccessUnits = try frames.dropFirst().map { frame in
+            try HelperVideoWireCodec.decodeFrame(
+                HelperVideoWireEnvelope<HelperVideoAccessUnitBody>.self,
+                from: frame,
+                expectsBinaryPayload: true
+            )
+        }
+        let sampleBuffers = try decodedAccessUnits.compactMap { decoded in
+            try factory.makeSampleBuffer(from: decoded)
+        }
+
+        XCTAssertEqual(decodedAccessUnits.first?.envelope.body.kind, .parameterSet)
+        XCTAssertGreaterThanOrEqual(sampleBuffers.count, 1)
+        XCTAssertEqual(
+            factory.cachedFormatDimensions,
+            HelperVideoH264FrameDimensions(width: 64, height: 64)
+        )
+        XCTAssertTrue(sampleBuffers.allSatisfy(CMSampleBufferDataIsReady))
+        let formatDescription = try XCTUnwrap(
+            CMSampleBufferGetFormatDescription(sampleBuffers[0])
+        )
+        XCTAssertEqual(CMFormatDescriptionGetMediaSubType(formatDescription), kCMVideoCodecType_HEVC)
+    }
+
+    private static func makePixelBuffer(
+        width: Int,
+        height: Int,
+        frameIndex: Int
+    ) throws -> CVPixelBuffer {
+        var pixelBuffer: CVPixelBuffer?
+        let createStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferIOSurfacePropertiesKey: [:]
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        guard createStatus == kCVReturnSuccess, let pixelBuffer else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.pixelBufferCreationFailed
+        }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            throw NaruHelperVideoToolboxSyntheticAccessUnitSourceError.pixelBufferCreationFailed
+        }
+
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = baseAddress.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = y * bytesPerRow + x * 4
+                bytes[offset] = UInt8((x + frameIndex * 11) & 0xFF)
+                bytes[offset + 1] = UInt8((y * 2 + frameIndex * 17) & 0xFF)
+                bytes[offset + 2] = UInt8((x + y + frameIndex * 23) & 0xFF)
+                bytes[offset + 3] = 0xFF
+            }
+        }
+        return pixelBuffer
     }
     #endif
 

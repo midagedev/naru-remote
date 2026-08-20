@@ -2,6 +2,10 @@ import Combine
 import Foundation
 import NaruRemoteCore
 
+#if canImport(VideoToolbox)
+import VideoToolbox
+#endif
+
 /// Wall-clock milliseconds elapsed since `start`, clamped to ≥ 0. Shared by
 /// the outbound-input dispatcher and the app model's frame/stream timing so
 /// the rounding/clamping is defined once. Module-internal so
@@ -399,6 +403,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private let incomingClipboardReceiveTimeout: TimeInterval
     private let thermalStateProvider: @Sendable () -> SessionStreamThermalState
     private let lowPowerModeProvider: @Sendable () -> Bool
+    private let hevcDecodeSupportProvider: @Sendable () -> Bool
     private let networkPathConditionsProvider: @Sendable () -> NetworkPathConditions
     /// Test seam for observing app-level pacing decisions without
     /// sleeping in real time. `nil` keeps production cancellation on
@@ -627,6 +632,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         lowPowerModeProvider: @escaping @Sendable () -> Bool = {
             ProcessInfo.processInfo.isLowPowerModeEnabled
         },
+        hevcDecodeSupportProvider: @escaping @Sendable () -> Bool = {
+            #if canImport(VideoToolbox)
+            VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)
+            #else
+            false
+            #endif
+        },
         networkPathConditionsProvider: @escaping @Sendable () -> NetworkPathConditions = {
             NetworkPathConditionsMonitor.shared.current
         },
@@ -740,6 +752,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.incomingClipboardReceiveTimeout = incomingClipboardReceiveTimeout
         self.thermalStateProvider = thermalStateProvider
         self.lowPowerModeProvider = lowPowerModeProvider
+        self.hevcDecodeSupportProvider = hevcDecodeSupportProvider
         self.networkPathConditionsProvider = networkPathConditionsProvider
         self.streamPacingSleepOverride = streamPacingSleep
         self.frameApplicationSleepOverride = frameApplicationSleep
@@ -2116,7 +2129,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             streamPowerMode: appSettings.streamPowerMode,
             isSystemLowPowerModeEnabled: lowPowerModeProvider(),
             thermalState: thermalStateProvider(),
-            isNetworkConstrained: networkPathConditionsProvider().isConstrained
+            isNetworkConstrained: networkPathConditionsProvider().isConstrained,
+            deviceSupportsHEVCDecode: hevcDecodeSupportProvider()
         ).requestBody
     }
 

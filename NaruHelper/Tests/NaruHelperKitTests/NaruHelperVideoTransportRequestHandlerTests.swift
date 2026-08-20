@@ -189,6 +189,47 @@ final class NaruHelperVideoTransportRequestHandlerTests: XCTestCase {
         XCTAssertEqual(response.body.safeFailureCode, .transportFailed)
     }
 
+    func testStartStreamAnswersHEVCWhenOfferAndProbeAreTrue() {
+        let handler = makeHandler(hevcEncodeSupportProbe: { true })
+        let request = signedEnvelope(
+            messageType: .startStream,
+            body: HelperVideoStartStreamRequestBody(acceptsHEVC: true)
+        )
+
+        let response = handler.handleStartStreamRequest(request)
+
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(response.body.streamDescriptor.codec, .hevc)
+        XCTAssertEqual(request.body.codec, .h264)
+    }
+
+    func testStartStreamStaysH264WhenOldAppOmitsAcceptsHEVCEvenIfProbePasses() {
+        let handler = makeHandler(hevcEncodeSupportProbe: { true })
+        let request = signedEnvelope(
+            messageType: .startStream,
+            body: HelperVideoStartStreamRequestBody()
+        )
+
+        let response = handler.handleStartStreamRequest(request)
+
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(response.body.streamDescriptor.codec, .h264)
+        XCTAssertNil(request.body.acceptsHEVC)
+    }
+
+    func testStartStreamStaysH264WhenProbeRejectsHEVCEncode() {
+        let handler = makeHandler(hevcEncodeSupportProbe: { false })
+        let request = signedEnvelope(
+            messageType: .startStream,
+            body: HelperVideoStartStreamRequestBody(acceptsHEVC: true)
+        )
+
+        let response = handler.handleStartStreamRequest(request)
+
+        XCTAssertEqual(response.body.result, .accepted)
+        XCTAssertEqual(response.body.streamDescriptor.codec, .h264)
+    }
+
     func testUnsupportedCodecStartStreamUsesSafeFailureCode() {
         let handler = makeHandler()
         let request = signedEnvelope(
@@ -226,13 +267,15 @@ final class NaruHelperVideoTransportRequestHandlerTests: XCTestCase {
                 codecSupport: .h264,
                 latencyModes: [.lowLatency, .balanced]
             )
-        }
+        },
+        hevcEncodeSupportProbe: @escaping @Sendable () -> Bool = { false }
     ) -> NaruHelperVideoTransportRequestHandler {
         NaruHelperVideoTransportRequestHandler(
             expectedPairingSecret: pairingSecret,
             expectedProfileFingerprint: profileFingerprint,
             revocationStore: revocationStore,
-            capabilityProvider: capabilityProvider
+            capabilityProvider: capabilityProvider,
+            hevcEncodeSupportProbe: hevcEncodeSupportProbe
         )
     }
 

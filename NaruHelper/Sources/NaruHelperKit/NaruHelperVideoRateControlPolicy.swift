@@ -4,19 +4,23 @@ import NaruRemoteCore
 public struct NaruHelperVideoRateControlPolicy: Equatable, Sendable {
     public var qualityBucket: HelperVideoQualityBucket
     public var frameRateBucket: HelperVideoFrameRateBucket
+    public var codec: HelperVideoCodec
     public var averageBitRate: Int
     public var dataRateLimitBytesPerSecond: Int
     public var dataRateLimitWindowSeconds: Int
 
     public init(
         qualityBucket: HelperVideoQualityBucket,
-        frameRateBucket: HelperVideoFrameRateBucket
+        frameRateBucket: HelperVideoFrameRateBucket,
+        codec: HelperVideoCodec = .h264
     ) {
         self.qualityBucket = qualityBucket
         self.frameRateBucket = frameRateBucket
+        self.codec = codec
         self.averageBitRate = Self.averageBitRate(
             qualityBucket: qualityBucket,
-            frameRateBucket: frameRateBucket
+            frameRateBucket: frameRateBucket,
+            codec: codec
         )
         self.dataRateLimitBytesPerSecond = Self.dataRateLimitBytesPerSecond(
             averageBitRate: averageBitRate
@@ -32,6 +36,25 @@ public struct NaruHelperVideoRateControlPolicy: Equatable, Sendable {
     }
 
     private static func averageBitRate(
+        qualityBucket: HelperVideoQualityBucket,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        codec: HelperVideoCodec
+    ) -> Int {
+        switch codec {
+        case .hevc:
+            return hevcAverageBitRate(
+                qualityBucket: qualityBucket,
+                frameRateBucket: frameRateBucket
+            )
+        case .h264, .unknown:
+            return h264AverageBitRate(
+                qualityBucket: qualityBucket,
+                frameRateBucket: frameRateBucket
+            )
+        }
+    }
+
+    private static func h264AverageBitRate(
         qualityBucket: HelperVideoQualityBucket,
         frameRateBucket: HelperVideoFrameRateBucket
     ) -> Int {
@@ -49,7 +72,33 @@ public struct NaruHelperVideoRateControlPolicy: Equatable, Sendable {
         case (.fidelity, .upTo30):
             return 6_000_000
         case (_, .unknown):
-            return averageBitRate(
+            return h264AverageBitRate(
+                qualityBucket: qualityBucket,
+                frameRateBucket: .upTo30
+            )
+        }
+    }
+
+    // [잠정 — 디바이스 패스 대기]
+    private static func hevcAverageBitRate(
+        qualityBucket: HelperVideoQualityBucket,
+        frameRateBucket: HelperVideoFrameRateBucket
+    ) -> Int {
+        switch (qualityBucket, normalizedFrameRateBucket(frameRateBucket)) {
+        case (.readability, .upTo15):
+            return 800_000
+        case (.readability, .upTo30):
+            return 1_200_000
+        case (.balanced, .upTo15):
+            return 1_600_000
+        case (.balanced, .upTo30):
+            return 2_400_000
+        case (.fidelity, .upTo15):
+            return 2_700_000
+        case (.fidelity, .upTo30):
+            return 4_000_000
+        case (_, .unknown):
+            return hevcAverageBitRate(
                 qualityBucket: qualityBucket,
                 frameRateBucket: .upTo30
             )

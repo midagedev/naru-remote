@@ -44,6 +44,42 @@ final class HelperVideoStreamSessionRunnerTests: XCTestCase {
         XCTAssertNil(snapshot.helperVideoProfileState[profile.id]?.lastFailureCode)
         XCTAssertEqual(renderer.flushCount, 1)
         XCTAssertEqual(renderer.enqueuedSequences, [0, 1])
+        XCTAssertEqual(renderer.preparedCodecs, [.h264])
+    }
+
+    func testAcceptedStartPreparesRendererWithNegotiatedHEVCCodecBeforeFlush() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(profileID: profile.id, state: .active)
+        let model = Self.model(profile: profile, session: session)
+        let renderer = FakeHelperVideoAccessUnitRenderer(displayableSequences: [1])
+        let descriptor = HelperVideoStreamDescriptor(
+            codec: .hevc,
+            codecProfile: .main,
+            frameRateBucket: .upTo15
+        )
+        let runner = HelperVideoStreamSessionRunner(
+            startStream: { _, _ in
+                Self.startResult(
+                    descriptor: descriptor,
+                    accessUnits: [
+                        Self.accessUnit(sequence: 0, kind: .parameterSet),
+                        Self.accessUnit(sequence: 1, kind: .keyframe)
+                    ]
+                )
+            },
+            renderer: renderer
+        )
+
+        let outcome = await runner.start(
+            sessionID: session.id,
+            profileID: profile.id,
+            model: model
+        )
+
+        XCTAssertTrue(outcome.startAccepted)
+        XCTAssertEqual(renderer.preparedCodecs, [.hevc])
+        XCTAssertEqual(renderer.flushCount, 1)
+        XCTAssertEqual(model.snapshot.helperVideoStreamDescriptor?.codec, .hevc)
     }
 
     func testEventStreamKeepsRenderingAccessUnitsAfterHealthySelection() async throws {
@@ -907,6 +943,7 @@ private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRend
     private(set) var enqueuedSequences: [Int] = []
     private(set) var backpressureQuerySequences: [Int] = []
     private(set) var flushCount = 0
+    private(set) var preparedCodecs: [HelperVideoCodec] = []
 
     init(
         displayableSequences: Set<Int> = [],
@@ -939,6 +976,10 @@ private final class FakeHelperVideoAccessUnitRenderer: HelperVideoAccessUnitRend
 
     func flush() async {
         flushCount += 1
+    }
+
+    func prepare(codec: HelperVideoCodec) async {
+        preparedCodecs.append(codec)
     }
 }
 
