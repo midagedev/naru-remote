@@ -118,6 +118,14 @@ struct SessionPerformanceHUDView: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .monospacedDigit()
         }
+        // Machine-readable liveness signal for the live UI probes. The
+        // 2026-08-21 freeze (spec 022) was only visible on a device because
+        // the HUD published its frame count as pixels: a UI test could
+        // screenshot it but not assert on it. Counts only (constitution §IV),
+        // and this whole view is already `NARU_PERF_HUD`-gated.
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("naru.session.perf.contentFrameCount")
+        .accessibilityValue(String(stats.contentFrameCount))
     }
 
     private var divider: some View {

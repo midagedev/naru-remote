@@ -9,9 +9,21 @@
       change, widen on hold, widen counter. File:
       `NaruRemote/Sources/NaruRemoteCore/VNC/RFBFramePump.swift`.
 - [x] **T004** Live pump-driven liveness gate.
-- [ ] **T005** App-model liveness gate over a region-aware fake connector
-      (the layer above the pump: viewport change → dock open → frames keep
-      being published). Closes the simulator-level gap the founder named.
+- [x] **T005** **Simulator E2E liveness gate** (lead, 2026-08-21, after the
+      founder asked "증상이 있는지 네가 검증 못하니"): the lead now verifies the
+      symptom itself instead of handing it to a device pass.
+      `NaruRemote/UITests/StreamLivenessUnderInteractionUITests.swift` drives
+      the real app in the iPhone simulator against this Mac's Screen Sharing,
+      zooms (which turns region scoping on), pans, and opens the input dock,
+      asserting the perf HUD's content-frame counter keeps advancing. The
+      counter needed a machine-readable seam — the HUD published it as pixels
+      only, which is *why* a UI test could screenshot the freeze but never
+      fail on it — so `naru.session.perf.contentFrameCount` now carries it as
+      an accessibility value (counts only, already `NARU_PERF_HUD`-gated).
+      Measured: green with the fix (`stalledAt=none`), and with the fix
+      neutralized it fails at exactly the founder's two moments —
+      "Frames stopped after panning" and "Frames stopped after the dock
+      opened".
 - [ ] **T006** Surface `pipelinedRegionWidenedRequestCount` in the DEBUG
       performance HUD next to `SessionStreamStats`.
 - [ ] **T007** Founder re-test on build 5.

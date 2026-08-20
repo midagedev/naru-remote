@@ -86,13 +86,14 @@ recovered when a full-frame request was issued by hand.
 | Live — `LiveMacRFBSmokeTests/testPumpKeepsDeliveringWhenLiveDamageIsOutsideTheRequestRegion` | the shipping pump keeps streaming against real Screen Sharing while damage lands outside its region |
 | Live — `LiveMacRFBSmokeTests/testPipelinedRegionRequestsDoNotStarveWhenDamageMovesOutsideTheRegion` | server ground truth: out-of-region damage is held (measured 1/8 answered), and a full request recovers |
 | Live — `LiveMacRFBSmokeTests/testPipelinedIncrementalStreamSurvivesAppleScaleFactorMidFlight` | refutes the first hypothesis: a mid-flight spec-018 ScaleFactor does **not** break the pipelined stream (12/12 answered, resize announced) |
+| Simulator E2E — `StreamLivenessUnderInteractionUITests` (**FAIL-first**) | the whole product path: real app in the iPhone simulator against live Screen Sharing, zoom → pan → dock open, asserting the HUD frame counter advances. Neutralizing the fix fails it at "after panning" and "after the dock opened"; with the fix `stalledAt=none` |
 
 ## Residual Risk
 
-- The simulator E2E and `FakeRFBServer` transcript fixtures still lack
-  region semantics; the new Core fake covers the pump, but an app-model-level
-  liveness gate over a region-aware fake connector would close the layer
-  above. Follow-up task in `tasks.md`.
+- `FakeRFBServer`'s transcript fixtures still lack region semantics; the new
+  Core fake covers the pump and the simulator E2E gate covers the product
+  path against a real server, so the remaining gap is a hermetic app-model
+  variant (nice-to-have, not a blocker).
 - `ViewportRequestRegionPolicy.fullFallbackTimeoutStreak` remains unfed by
   production (the pump now owns escalation, deliberately one owner); the
   parameter stays for benchmark callers.
