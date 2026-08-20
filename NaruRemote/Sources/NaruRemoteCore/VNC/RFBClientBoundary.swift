@@ -192,4 +192,18 @@ public protocol RFBTransportControlClient: AnyObject, Sendable {
     func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws
 }
 
+/// Optional capability for Apple Screen Sharing's proprietary ScaleFactor
+/// client message (type 0x08). Sending that message to a non-Apple server
+/// desyncs the RFB stream — there is no client-message length negotiation
+/// — so implementations MUST only emit it when
+/// `serverAdvertisedAppleSecurity` is true (handshake advertised type
+/// 30, 33, 35, or 36). Not part of `RFBStreamingClient`; the app model
+/// downcasts optionally, the same way it does for transport-control and
+/// damage-tracking extras. Implementations MUST NOT log the scale value
+/// or framebuffer dimensions (constitution IV).
+public protocol RFBServerScalingClient: AnyObject, Sendable {
+    var serverAdvertisedAppleSecurity: Bool { get }
+    func sendAppleScaleFactor(_ scale: Double, timeout: TimeInterval) throws
+}
+
 public protocol RFBStreamingClient: RFBAuthenticatedFirstFrameConnecting, RFBNoAuthSessionConnecting, RFBAuthenticatedSessionConnecting, RFBFramebufferUpdating, RemoteClipboardTextClient, RFBPointerEventClient, RFBKeyEventClient {}

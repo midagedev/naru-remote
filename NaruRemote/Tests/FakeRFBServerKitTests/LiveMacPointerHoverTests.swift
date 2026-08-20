@@ -150,6 +150,143 @@ final class LiveMacPointerHoverTests: XCTestCase {
         )
     }
 
+    /// Spec 018 T008 — measured 2026-08-20: while the Apple ScaleFactor 0.5
+    /// downscale is applied, screensharingd's pointer input space stays the
+    /// **unscaled** framebuffer. A PointerEvent in scaled coordinates
+    /// landed at exactly half the physical center (error ≈ half the
+    /// screen-center point), and full-framebuffer coordinates keep landing
+    /// correctly. This test gates both halves of that truth, because the
+    /// client-side mapping (`AppleServerDownscalePolicy.pointerCoordinate-
+    /// Multiplier` × the model's pointer choke point) is built on it: if a
+    /// macOS update ever starts inverse-mapping scaled coordinates, the
+    /// second assertion here fails first and the multiplier must be
+    /// retired before pointers double-map.
+    func testScaledSessionPointerInputSpaceStaysUnscaled() async throws {
+        guard let host, let password else {
+            throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run the live hover probe")
+        }
+
+        let client = RFBNetworkClient()
+        defer { client.disconnect() }
+        let timeout: TimeInterval = 5
+        let serverInit = try client.connectSession(
+            host: host,
+            port: port,
+            credential: .vncPassword(password),
+            timeout: timeout
+        )
+        _ = try client.requestFramebufferUpdate(incremental: false, timeout: timeout)
+
+        let originalLocation = Self.currentPointerLocation()
+        defer {
+            try? client.sendAppleScaleFactor(1.0)
+            if let originalLocation {
+                CGWarpMouseCursorPosition(originalLocation)
+                CGAssociateMouseAndMouseCursorPosition(1)
+            }
+        }
+
+        // Expected physical points are computed, not sampled: sampling the
+        // resting cursor (a "settle" read) mistakes the user's real mouse
+        // motion for our warp on this live workstation (measured flake
+        // 2026-08-20: a full-suite run captured the user's cursor position
+        // as the reference). `waitForPointer(toReach:)` polls until the
+        // cursor is AT the expected point, which rides out transient user
+        // motion the same way the sibling hover test does.
+        let pointsPerPixel = Self.displayPointsPerPixel(
+            framebufferWidth: CGFloat(serverInit.width)
+        )
+        let expectedCenter = CGPoint(
+            x: CGFloat(serverInit.width / 2) * pointsPerPixel,
+            y: CGFloat(serverInit.height / 2) * pointsPerPixel
+        )
+        let expectedHalfCenter = CGPoint(
+            x: CGFloat(serverInit.width / 4) * pointsPerPixel,
+            y: CGFloat(serverInit.height / 4) * pointsPerPixel
+        )
+
+        // Reference: physical center via full-scale coordinates.
+        try await client.sendPointerEvent(
+            buttonMask: 0,
+            x: UInt16(serverInit.width / 2),
+            y: UInt16(serverInit.height / 2)
+        )
+        guard Self.waitForPointer(toReach: expectedCenter, tolerance: 6, timeout: 3) != nil else {
+            throw XCTSkip("Reference full-scale center move did not land (pointer oracle busy)")
+        }
+
+        // Apply the downscale and wait for the DesktopSize resize to land.
+        try client.sendAppleScaleFactor(0.5)
+        var scaledWidth = serverInit.width
+        var scaledHeight = serverInit.height
+        for _ in 1...6 {
+            try await Task.sleep(for: .milliseconds(500))
+            let update = try client.requestFramebufferUpdate(incremental: false, timeout: 8)
+            if update.framebuffer.width < serverInit.width {
+                scaledWidth = update.framebuffer.width
+                scaledHeight = update.framebuffer.height
+                break
+            }
+        }
+        guard scaledWidth < serverInit.width else {
+            throw XCTSkip("Server did not apply the downscale this run — mapping unmeasurable")
+        }
+
+        // Park the pointer away from center so a stale read cannot pass.
+        try await client.sendPointerEvent(buttonMask: 0, x: 8, y: 8)
+        _ = Self.waitForPointer(toReach: CGPoint(x: 8 * pointsPerPixel, y: 8 * pointsPerPixel), tolerance: 6, timeout: 2)
+
+        // Half 1: scaled coordinates do NOT inverse-map — they land at the
+        // HALF-center physical point. Measured truth, not a defect of ours.
+        try await client.sendPointerEvent(
+            buttonMask: 0,
+            x: UInt16(scaledWidth / 2),
+            y: UInt16(scaledHeight / 2)
+        )
+        let scaledLandedAtHalfCenter = Self.waitForPointer(
+            toReach: expectedHalfCenter,
+            tolerance: 6,
+            timeout: 3
+        ) != nil
+
+        // Park again, then Half 2: full-framebuffer coordinates keep
+        // landing at the physical center while the downscale is applied —
+        // the contract the client-side multiplier relies on.
+        try await client.sendPointerEvent(buttonMask: 0, x: 8, y: 8)
+        _ = Self.waitForPointer(toReach: CGPoint(x: 8 * pointsPerPixel, y: 8 * pointsPerPixel), tolerance: 6, timeout: 2)
+        try await client.sendPointerEvent(
+            buttonMask: 0,
+            x: UInt16(serverInit.width / 2),
+            y: UInt16(serverInit.height / 2)
+        )
+        let fullCoordsLandedAtCenter = Self.waitForPointer(
+            toReach: expectedCenter,
+            tolerance: 6,
+            timeout: 3
+        ) != nil
+
+        // Privacy: verdict words only — no coordinates.
+        print(
+            "Scaled pointer input-space probe: scaledCoordsLandAtHalfCenter=\(scaledLandedAtHalfCenter) "
+                + "fullCoordsLandAtCenter=\(fullCoordsLandedAtCenter)"
+        )
+        XCTAssertTrue(
+            scaledLandedAtHalfCenter,
+            """
+            Scaled pointer coordinates no longer land at the half-center point — either the \
+            server started inverse-mapping (retire the client-side multiplier, spec 018) or the \
+            pointer oracle was busy; rerun on a quiet machine before concluding.
+            """
+        )
+        XCTAssertTrue(
+            fullCoordsLandedAtCenter,
+            """
+            Full-framebuffer pointer coordinates stopped landing at the physical center while \
+            scaled — the contract the spec 018 pointer multiplier stands on is broken.
+            """
+        )
+    }
+
     // MARK: - Helpers
 
     private static func currentPointerLocation() -> CGPoint? {

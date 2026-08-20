@@ -2442,6 +2442,114 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRegions, [nil])
     }
 
+    /// Spec 018: Apple-gated session sends ScaleFactor 0.5 exactly once after
+    /// 10 consecutive un-zoomed lossless incremental ticks.
+    func testAppleGatedSessionDownscalesAfterSustainedUnzoomedFit() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let (connector, model) = makeAppleDownscaleHarness(
+            profile: profile,
+            advertisedAppleSecurity: true
+        )
+        model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(connector.sentScaleFactors, [0.5])
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(connector.sentScaleFactors, [0.5])
+    }
+
+    /// Spec 018: after 0.5 is applied, a zoomed transform restores 1.0 on the
+    /// next incremental tick.
+    func testZoomInRestoresFullScaleImmediately() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let (connector, model) = makeAppleDownscaleHarness(
+            profile: profile,
+            advertisedAppleSecurity: true
+        )
+        model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(connector.sentScaleFactors, [0.5])
+
+        model.updateViewportTransform(Self.appleDownscaleZoomedTransform)
+        for _ in 0..<250 where connector.sentScaleFactors.last != 1.0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(connector.sentScaleFactors.last, 1.0)
+        XCTAssertEqual(connector.sentScaleFactors, [0.5, 1.0])
+    }
+
+    /// Spec 018 FR-001: a non-Apple fake never receives ScaleFactor, even
+    /// after the same un-zoomed lossless script that would downscale Apple.
+    func testNonAppleServerNeverReceivesScaleFactor() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let (connector, model) = makeAppleDownscaleHarness(
+            profile: profile,
+            advertisedAppleSecurity: false
+        )
+        model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<250 where connector.frameUpdateRequests.count < 12 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertGreaterThanOrEqual(connector.frameUpdateRequests.count, 11)
+        XCTAssertGreaterThan(
+            connector.advertisedAppleSecurityReadCount,
+            0,
+            "The model must consult the Apple security gate rather than simply never sending."
+        )
+        XCTAssertTrue(connector.sentScaleFactors.isEmpty)
+    }
+
+    /// Spec 018 pointer mapping: screensharingd's pointer input space stays
+    /// the UNSCALED framebuffer while ScaleFactor 0.5 is applied
+    /// (live-measured 2026-08-20). Once the fake applies the resize, a tap
+    /// computed in the scaled framebuffer must leave the model doubled back
+    /// into unscaled coordinates.
+    func testPointerCoordinatesMapToUnscaledSpaceWhileDownscaled() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let (connector, model) = makeAppleDownscaleHarness(
+            profile: profile,
+            advertisedAppleSecurity: true
+        )
+        connector.appliesScaleFactorResize = true
+        model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
+
+        await model.connectSelectedProfile()
+        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(connector.sentScaleFactors, [0.5])
+
+        // Wait for the resized framebuffer (fake's DesktopSize analogue) to
+        // reach the model, so the tap below is computed in scaled space.
+        for _ in 0..<250 where model.snapshot.latestFramebuffer?.width != 60 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(model.snapshot.latestFramebuffer?.width, 60)
+
+        model.sendTapAt(viewPoint: CGPoint(x: 10, y: 10), viewSize: CGSize(width: 20, height: 20))
+        for _ in 0..<250 where connector.recordedPointerEvents.count < 2 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        // View center → scaled framebuffer (30, 30) → unscaled wire (60, 60).
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.x), [60, 60])
+        XCTAssertEqual(connector.recordedPointerEvents.map(\.y), [60, 60])
+        model.disconnect()
+    }
+
     func testModelRequestsVisibleViewportRegionForLowTrafficInitialStreamFrame() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let framebuffer = RFBRawFramebuffer(
@@ -7996,6 +8104,50 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(recorder.requests.count, expectedCount, file: file, line: line)
     }
+
+    /// 120×120 fit into 20×20 → displayScale 1/6, so assumed ppp 3 is
+    /// exactly the lossless boundary (displayScale·ppp ≤ 0.5).
+    private static let appleDownscaleLosslessUnzoomedTransform = ViewportTransform(
+        framebufferSize: CGSize(width: 120, height: 120),
+        viewSize: CGSize(width: 20, height: 20)
+    )
+
+    private static let appleDownscaleZoomedTransform = ViewportTransform(
+        framebufferSize: CGSize(width: 120, height: 120),
+        viewSize: CGSize(width: 20, height: 20),
+        zoomScale: 2
+    )
+
+    private func makeAppleDownscaleHarness(
+        profile: ConnectionProfile,
+        advertisedAppleSecurity: Bool
+    ) -> (FakeStreamingConnector, NaruRemoteAppModel) {
+        let framebuffer = RFBRawFramebuffer(
+            width: 120,
+            height: 120,
+            fill: RFBColor(red: 10, green: 0, blue: 0)
+        )
+        let connector = FakeStreamingConnector(
+            width: 120,
+            height: 120,
+            name: "Desk",
+            framebuffer: framebuffer
+        )
+        connector.serverAdvertisedAppleSecurity = advertisedAppleSecurity
+        connector.repeatsLastFramebufferUpdate = true
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(profiles: [profile], selectedProfileID: profile.id),
+            frameStreamConfiguration: RFBFramePumpConfiguration(
+                maxFrames: 40,
+                requestTimeout: 1,
+                frameInterval: 0.08,
+                idleFrameInterval: 0
+            ),
+            connectorFactory: { connector },
+            lowPowerModeProvider: { false }
+        )
+        return (connector, model)
+    }
 }
 
 private final class PacingSleepRecorder: @unchecked Sendable {
@@ -8606,7 +8758,8 @@ private final class FakeStreamingConnector:
     RFBRegionFramebufferUpdating,
     RFBFramebufferUpdateReceiving,
     RFBTransportControlClient,
-    RFBContinuousUpdateCapabilityReporting
+    RFBContinuousUpdateCapabilityReporting,
+    RFBServerScalingClient
 {
     fileprivate struct Recording {
         var frameUpdates: [RFBFramebufferUpdateResult]
@@ -8622,6 +8775,11 @@ private final class FakeStreamingConnector:
         var receivedFrameCount = 0
         var continuousUpdateFlags: [Bool] = []
         var initialCanEnableContinuousUpdates: Bool
+        var sentScaleFactors: [Double] = []
+        var serverAdvertisedAppleSecurity = false
+        var advertisedAppleSecurityReadCount = 0
+        var repeatsLastFramebufferUpdate = false
+        var appliesScaleFactorResize = false
     }
 
     private let recording: OSAllocatedUnfairLock<Recording>
@@ -8657,6 +8815,34 @@ private final class FakeStreamingConnector:
             $0.initialCanEnableContinuousUpdates ||
                 $0.renegotiatedPreferences.last?.continuousUpdates == true
         }
+    }
+
+    var sentScaleFactors: [Double] {
+        recording.withLock { $0.sentScaleFactors }
+    }
+
+    var advertisedAppleSecurityReadCount: Int {
+        recording.withLock { $0.advertisedAppleSecurityReadCount }
+    }
+
+    var serverAdvertisedAppleSecurity: Bool {
+        get {
+            recording.withLock {
+                $0.advertisedAppleSecurityReadCount += 1
+                return $0.serverAdvertisedAppleSecurity
+            }
+        }
+        set { recording.withLock { $0.serverAdvertisedAppleSecurity = newValue } }
+    }
+
+    var repeatsLastFramebufferUpdate: Bool {
+        get { recording.withLock { $0.repeatsLastFramebufferUpdate } }
+        set { recording.withLock { $0.repeatsLastFramebufferUpdate = newValue } }
+    }
+
+    var appliesScaleFactorResize: Bool {
+        get { recording.withLock { $0.appliesScaleFactorResize } }
+        set { recording.withLock { $0.appliesScaleFactorResize = newValue } }
     }
 
     init(
@@ -8846,6 +9032,9 @@ private final class FakeStreamingConnector:
         let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.recordedFrameUpdateRequests.append(incremental)
             state.recordedFrameUpdateRegions.append(region)
+            if state.repeatsLastFramebufferUpdate {
+                return state.frameUpdates.first
+            }
             return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
         }
 
@@ -8862,6 +9051,9 @@ private final class FakeStreamingConnector:
         }
         let update = recording.withLock { state -> RFBFramebufferUpdateResult? in
             state.receivedFrameCount += 1
+            if state.repeatsLastFramebufferUpdate {
+                return state.frameUpdates.first
+            }
             return state.frameUpdates.isEmpty ? nil : state.frameUpdates.removeFirst()
         }
 
@@ -8924,6 +9116,41 @@ private final class FakeStreamingConnector:
 
     func sendFence(flags: RFBFenceFlags, payload: Data, timeout: TimeInterval) throws {
         // Fence behavior is covered at the RFB transport boundary.
+    }
+
+    func sendAppleScaleFactor(_ scale: Double, timeout: TimeInterval) throws {
+        recording.withLock { state in
+            state.sentScaleFactors.append(scale)
+            // Simulate screensharingd honoring the request: subsequent
+            // updates serve a resized framebuffer announced via the
+            // DesktopSize path (didResizeDesktop), like the live server.
+            guard state.appliesScaleFactorResize, scale > 0, scale < 1 else {
+                return
+            }
+            let scaledWidth = max(Int((Double(width) * scale).rounded()), 1)
+            let scaledHeight = max(Int((Double(height) * scale).rounded()), 1)
+            let scaledFramebuffer = RFBRawFramebuffer(
+                width: scaledWidth,
+                height: scaledHeight,
+                fill: RFBColor(red: 10, green: 0, blue: 0)
+            )
+            let resized = RFBFramebufferUpdateResult(
+                framebuffer: scaledFramebuffer,
+                dirtyRectangles: [
+                    RFBFrameDamageRect(
+                        x: 0,
+                        y: 0,
+                        width: scaledWidth,
+                        height: scaledHeight
+                    )
+                ],
+                changedPixelCount: scaledWidth * scaledHeight,
+                capturedAt: Date(),
+                didResizeDesktop: true
+            )
+            state.frameUpdates = [resized]
+            state.repeatsLastFramebufferUpdate = true
+        }
     }
 }
 

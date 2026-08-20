@@ -503,6 +503,15 @@ public final class NaruRemoteAppModel: ObservableObject {
         fullHeartbeatInterval: 10,
         fullFallbackTimeoutStreak: 0
     )
+    private var appleServerDownscalePolicy = AppleServerDownscalePolicy()
+    private var appliedServerDownscaleRung: Double = AppleServerDownscalePolicy.fullRung
+    private var viewportDisplayPixelsPerPoint: CGFloat?
+    /// Last framebuffer width known to be UNSCALED — the pointer input
+    /// space screensharingd keeps while ScaleFactor is applied
+    /// (live-measured 2026-08-20). Maintained by
+    /// `pointerBatchMappedForServerDownscale` via the pure shape detector
+    /// in `AppleServerDownscalePolicy.pointerCoordinateMapping`.
+    private var serverDownscaleUnscaledFramebufferWidth: Int?
     private var deferredViewportInteractionFrame: DeferredViewportInteractionFrame?
     private var lastViewportInteractionFramePublishedAt: Date?
     private var viewportInteractionStartedAt: Date?
@@ -1430,6 +1439,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             reconnectAttempts = 0
             resetConnectionQuality()
             latestViewportTransform = nil
+            resetAppleServerDownscaleState()
             clearSessionFrame()
             resetSessionStreamStats()
             resetVisualTransportState()
@@ -3749,6 +3759,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         let configuration = frameStreamConfiguration
         let frameApplicationQueue = SessionStreamFrameApplicationQueue()
         activeFrameStreamID = streamID
+        // New RFB session is always full scale. Reset here in addition to
+        // the transform-nil sites so reconnect cannot inherit a 0.5 rung
+        // and skip the next downscale (no-repeat-rung).
+        resetAppleServerDownscaleState()
         activeFramePump = pump
         activeFrameApplicationQueue = frameApplicationQueue
         startFrameApplicationWorker(frameApplicationQueue)
@@ -3834,6 +3848,25 @@ public final class NaruRemoteAppModel: ObservableObject {
                             incrementalRequestIndex: pump.deliveredFrameCount
                         )
                         : nil
+                    if isIncrementalRequest,
+                       let scaler = streamingClient as? any RFBServerScalingClient
+                    {
+                        let advertisedAppleSecurity = scaler.serverAdvertisedAppleSecurity
+                        if let rung = await self.requestedAppleServerDownscaleRung(
+                            serverAdvertisedAppleSecurity: advertisedAppleSecurity,
+                            fallbackFramebufferWidth: serverInit.width,
+                            fallbackFramebufferHeight: serverInit.height
+                        ) {
+                            do {
+                                try scaler.sendAppleScaleFactor(rung, timeout: 2)
+                                await self.noteAppliedServerDownscaleRung(rung)
+                            } catch {
+                                // Non-fatal: leave appliedServerDownscaleRung
+                                // unchanged. The next incremental tick
+                                // re-evaluates.
+                            }
+                        }
+                    }
                     let initialRequestRegion = isIncrementalRequest
                         ? nil
                         : await self.currentViewportInitialRequestRegion(serverInit: serverInit)
@@ -4654,6 +4687,89 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         latestViewportSize = size
+    }
+
+    public func updateViewportDisplayPixelScale(_ scale: CGFloat) {
+        guard scale > 0 else {
+            return
+        }
+        viewportDisplayPixelsPerPoint = scale
+    }
+
+    /// Clears the Apple ScaleFactor ladder. Called both when
+    /// `latestViewportTransform` is niled (profile change / disconnect)
+    /// and when a new stream starts (streamID bump): a fresh RFB session
+    /// is always full scale, so hysteresis and the applied rung must not
+    /// leak across sessions.
+    private func resetAppleServerDownscaleState() {
+        appleServerDownscalePolicy.reset()
+        appliedServerDownscaleRung = AppleServerDownscalePolicy.fullRung
+        serverDownscaleUnscaledFramebufferWidth = nil
+    }
+
+    /// Single-owner outbound pointer-coordinate mapping (spec 018):
+    /// pointer commands are computed in the framebuffer the view renders
+    /// (the scaled one once the DesktopSize resize lands), but the
+    /// server's pointer input space stays the unscaled framebuffer.
+    /// Every pointer send flows through `enqueuePointerCommands`, so this
+    /// is the one place coordinates leave the scaled space.
+    private func pointerBatchMappedForServerDownscale(
+        _ batch: RFBPointerCommandBatch
+    ) -> RFBPointerCommandBatch {
+        let mapping = AppleServerDownscalePolicy.pointerCoordinateMapping(
+            knownUnscaledWidth: serverDownscaleUnscaledFramebufferWidth,
+            currentWidth: latestFramebuffer?.width
+        )
+        serverDownscaleUnscaledFramebufferWidth = mapping.unscaledWidthToStore
+        guard mapping.multiplier != 1, !batch.isEmpty else {
+            return batch
+        }
+        switch batch {
+        case .none:
+            return batch
+        case let .one(command):
+            return .one(AppleServerDownscalePolicy.mappedPointerCommand(command, multiplier: mapping.multiplier))
+        case let .two(first, second):
+            return .two(
+                AppleServerDownscalePolicy.mappedPointerCommand(first, multiplier: mapping.multiplier),
+                AppleServerDownscalePolicy.mappedPointerCommand(second, multiplier: mapping.multiplier)
+            )
+        case let .many(commands):
+            return .many(commands.map {
+                AppleServerDownscalePolicy.mappedPointerCommand($0, multiplier: mapping.multiplier)
+            })
+        }
+    }
+
+    private func requestedAppleServerDownscaleRung(
+        serverAdvertisedAppleSecurity: Bool,
+        fallbackFramebufferWidth: Int,
+        fallbackFramebufferHeight: Int
+    ) -> Double? {
+        let liveWidth = latestFramebuffer?.width ?? fallbackFramebufferWidth
+        let liveHeight = latestFramebuffer?.height ?? fallbackFramebufferHeight
+        return appleServerDownscalePolicy.requestedRung(
+            transform: latestViewportTransform,
+            liveFramebufferWidth: liveWidth,
+            liveFramebufferHeight: liveHeight,
+            displayPixelsPerPoint: viewportDisplayPixelsPerPoint,
+            serverAdvertisedAppleSecurity: serverAdvertisedAppleSecurity,
+            currentAppliedRung: appliedServerDownscaleRung
+        )
+    }
+
+    private func noteAppliedServerDownscaleRung(_ rung: Double) {
+        appliedServerDownscaleRung = rung
+        // Capture the unscaled pointer-space baseline at the moment the
+        // downscale is requested — the framebuffer is still unscaled here
+        // (the DesktopSize resize lands later), and pointer traffic alone
+        // cannot establish it (a first tap after the resize would adopt
+        // the scaled width as truth and land at half position).
+        if rung != AppleServerDownscalePolicy.fullRung,
+           let unscaledWidth = latestFramebuffer?.width
+        {
+            serverDownscaleUnscaledFramebufferWidth = unscaledWidth
+        }
     }
 
     private func currentViewportRequestRegion(
@@ -5569,6 +5685,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         activeStreamCredential = nil
         reconnectAttempts = 0
         latestViewportTransform = nil
+        resetAppleServerDownscaleState()
         clearSessionFrame()
         resetSessionStreamStats()
         resetVisualTransportState()
@@ -8566,6 +8683,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard !commandBatch.isEmpty else {
             return
         }
+
+        let commandBatch = pointerBatchMappedForServerDownscale(commandBatch)
 
         if allowsBestEffortPointerMove,
            let command = commandBatch.singleButtonlessPointerMove,

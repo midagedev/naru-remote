@@ -78,9 +78,11 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/016-quiet-ops-visual-refinement` round 2
-(status-token sweep, profile-editor hostname input traits, diagnostics
-polish). Feature index —
+Current active feature: `specs/018-adaptive-server-downscale` (Apple
+ScaleFactor 0x08 ladder — live-probed 2026-08-20: honored on the plain
+VNC-password path, 4× pixel cut, resize rides the standard DesktopSize
+path; hard Apple-security gate because unknown client messages desync
+RFC servers). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -99,7 +101,8 @@ hostname input traits, diagnostics polish) · 017 Zoom-Scoped Streaming:
 implemented (viewport request regions on every profile once zoomed;
 2026-08-20 correction: Apple's server does NOT reliably clip to the region
 under load — savings there are workload-dependent; correctness unaffected;
-physical poor-network pass residual).
+physical poor-network pass residual) · 018 Adaptive Server Downscale: in
+progress (probe passed; implementation delegated).
 <!-- SPECKIT END -->
 
 ## Architecture

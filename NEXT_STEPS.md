@@ -103,7 +103,10 @@ same PR.
    `NWPath.isExpensive`/Low Power Mode (S–M); ③ Apple `ScaleFactor 0x08`
    message (what Screens 5 sells as "Compression": server-side 0.5×
    downscale — the one cheap lever that works *against Apple's server*;
-   needs a live probe on the VNC-password auth path first); ④ HEVC on the
+   **probe PASSED 2026-08-20** on the plain VNC-password path: honored at
+   exactly 0.50×, the resize rides the standard DesktopSize path our
+   decoder already handles, in-session restore works — promoted to
+   `specs/018-adaptive-server-downscale`); ④ HEVC on the
    helper lane. Premise corrections recorded: Apple Screen Sharing has
    private still-image codecs (0x3e8–0x3f3) + a server-push message (0x09)
    + a reverse-engineered High-Performance HEVC path (iShareScreen, 2026) —

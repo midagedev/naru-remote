@@ -1154,6 +1154,9 @@ private struct SessionViewportFrameBridge: View {
             onViewportSizeChange: { size in
                 model.updateViewportSize(size)
             },
+            onViewportDisplayPixelScaleChange: { scale in
+                model.updateViewportDisplayPixelScale(scale)
+            },
             onViewportInteractionChange: { isActive, frameStrategy in
                 model.setViewportInteractionActive(isActive, frameStrategy: frameStrategy)
             },

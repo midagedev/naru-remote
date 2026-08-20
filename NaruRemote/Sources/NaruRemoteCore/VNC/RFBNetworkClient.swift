@@ -23,6 +23,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
     private var clientState: RFBClientState = .disconnected
     private var clientLastFrame: RFBFrameMetadata?
     private var clientServerInit: RFBServerInit?
+    /// True when the handshake's advertised security-type list contained
+    /// an Apple Screen Sharing type (30, 33, 35, or 36). ScaleFactor
+    /// (0x08) is only safe to send when this is true.
+    private var clientServerAdvertisedAppleSecurity = false
     private var clientFramebuffer: RFBRawFramebuffer?
     private var clientEncodingPreference: RFBEncodingPreference
     private var clientPixelFormatPreference: RFBPixelFormat?
@@ -81,6 +85,12 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             activeConnection != nil
                 && clientEncodingPreference.continuousUpdates
                 && clientContinuousUpdatesConfirmed
+        }
+    }
+
+    public var serverAdvertisedAppleSecurity: Bool {
+        lock.withRFBClientLock {
+            clientServerAdvertisedAppleSecurity
         }
     }
 
@@ -165,6 +175,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             let connection = activeConnection
             activeConnection = nil
             clientServerInit = nil
+            clientServerAdvertisedAppleSecurity = false
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
             clientPixelFormatPreference = initialPixelFormatPreference
@@ -803,10 +814,9 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
 
     /// Sends Apple Screen Sharing's proprietary `ScaleFactor` message
     /// (0x08) on the active session — a request for a server-side
-    /// framebuffer downscale (Screens 5's "Compression"). Probe-only:
-    /// no production path calls this until a spec promotes it with
-    /// live-measured behavior on the VNC-password auth path
-    /// (`LiveMacRFBSmokeTests` owns that measurement).
+    /// framebuffer downscale (Screens 5's "Compression"). Callers must
+    /// already have observed `serverAdvertisedAppleSecurity`; the
+    /// production ladder lives in `AppleServerDownscalePolicy`.
     public func sendAppleScaleFactor(
         _ scale: Double,
         timeout: TimeInterval = 2
@@ -918,6 +928,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             let connection = activeConnection
             activeConnection = nil
             clientServerInit = nil
+            clientServerAdvertisedAppleSecurity = false
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
             clientContinuousUpdatesConfirmed = false
@@ -948,6 +959,7 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             let connection = activeConnection
             activeConnection = nil
             clientServerInit = nil
+            clientServerAdvertisedAppleSecurity = false
             clientFramebuffer = nil
             clientEncodingPreference = initialEncodingPreference
             clientContinuousUpdatesConfirmed = false
@@ -1022,6 +1034,10 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             timeout: timeout
         )
         let securityTypes = try RFBProtocolDecoder.parseSecurityTypes(securityTypesData)
+        let advertisedAppleSecurity = Self.serverAdvertisesAppleSecurity(in: securityTypes)
+        lock.withRFBClientLock {
+            clientServerAdvertisedAppleSecurity = advertisedAppleSecurity
+        }
         let selectedSecurityType = try Self.selectSecurityType(
             from: securityTypes,
             credential: credential
@@ -1107,6 +1123,15 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
             clientEncodingPreference
         }
         return RFBClientMessageEncoder.setEncodings(preference.encodingList())
+    }
+
+    /// Apple Screen Sharing advertises one of 30 / 33 / 35 / 36. These
+    /// are not negotiated by this client; the list is the safety gate
+    /// for ScaleFactor (spec 018 FR-001).
+    private static func serverAdvertisesAppleSecurity(in types: RFBSecurityTypes) -> Bool {
+        types.types.contains { type in
+            type == 30 || type == 33 || type == 35 || type == 36
+        }
     }
 
     private static func selectSecurityType(
@@ -1211,7 +1236,8 @@ extension RFBNetworkClient:
     RFBFramebufferUpdateRequestSending,
     RFBContinuousFramebufferUpdateReceiving,
     RFBTransportControlClient,
-    RFBContinuousUpdateCapabilityReporting
+    RFBContinuousUpdateCapabilityReporting,
+    RFBServerScalingClient
 {}
 
 public enum RFBNetworkClientError: Error, Equatable, LocalizedError {

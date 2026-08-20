@@ -17,6 +17,7 @@ public typealias SessionFramebufferPointerMoveHandler = @MainActor @Sendable (CG
 public typealias SessionFramebufferPointerUpHandler = @MainActor @Sendable (CGPoint, CGSize) -> Void
 public typealias SessionRendererUploadTimingHandler = @MainActor @Sendable (_ milliseconds: Int) -> Void
 public typealias SessionViewportSizeChangeHandler = @MainActor @Sendable (_ size: CGSize) -> Void
+public typealias SessionViewportDisplayPixelScaleHandler = @MainActor @Sendable (_ scale: CGFloat) -> Void
 public typealias SessionViewportRedrawDiagnosticsHandler = @MainActor @Sendable (
     ViewportRedrawDiagnostics
 ) -> Void
@@ -73,6 +74,10 @@ public struct SessionViewportView: View {
     /// this with `ServerInit` after handshake to make an opt-in first-frame
     /// visible-focus request before framebuffer pixels exist.
     private let onViewportSizeChange: SessionViewportSizeChangeHandler?
+    /// Forwards SwiftUI `displayScale` (device pixels per point) so the
+    /// Apple ScaleFactor ladder can test visual losslessness. Unknown
+    /// is treated as 3 by the policy.
+    private let onViewportDisplayPixelScaleChange: SessionViewportDisplayPixelScaleHandler?
     /// Reports local viewport manipulation lifecycle to the app model
     /// so it can coalesce incoming streaming frames while the Metal
     /// view redraws the current texture locally.
@@ -191,6 +196,7 @@ public struct SessionViewportView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityVoiceOverEnabled) private var accessibilityVoiceOverEnabled
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.displayScale) private var displayPixelScale
 
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
@@ -233,6 +239,7 @@ public struct SessionViewportView: View {
         ) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
+        onViewportDisplayPixelScaleChange: SessionViewportDisplayPixelScaleHandler? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -285,6 +292,7 @@ public struct SessionViewportView: View {
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportTransformChange = onViewportTransformChange
         self.onViewportSizeChange = onViewportSizeChange
+        self.onViewportDisplayPixelScaleChange = onViewportDisplayPixelScaleChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -338,6 +346,7 @@ public struct SessionViewportView: View {
         ) -> SessionViewportTrackpadGestureResult?)? = nil,
         onViewportTransformChange: ((ViewportTransform) -> Void)? = nil,
         onViewportSizeChange: SessionViewportSizeChangeHandler? = nil,
+        onViewportDisplayPixelScaleChange: SessionViewportDisplayPixelScaleHandler? = nil,
         onViewportInteractionChange: ((
             Bool,
             ViewportInteractionFrameStrategy
@@ -388,6 +397,7 @@ public struct SessionViewportView: View {
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportTransformChange = onViewportTransformChange
         self.onViewportSizeChange = onViewportSizeChange
+        self.onViewportDisplayPixelScaleChange = onViewportDisplayPixelScaleChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
         self.onRendererUploadTiming = onRendererUploadTiming
@@ -415,6 +425,12 @@ public struct SessionViewportView: View {
             } else {
                 standardBody
             }
+        }
+        .onAppear {
+            onViewportDisplayPixelScaleChange?(displayPixelScale)
+        }
+        .onChange(of: displayPixelScale) { _, newScale in
+            onViewportDisplayPixelScaleChange?(newScale)
         }
     }
 
