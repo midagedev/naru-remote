@@ -18,6 +18,23 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         maxBackoff: .milliseconds(100)
     )
 
+    /// Wait for the reconnect to actually land instead of sleeping a fixed
+    /// wall-clock budget and hoping. A flat `Task.sleep(400ms)` here failed once
+    /// on a loaded machine (2026-08-21 TestFlight gate run: session requests
+    /// read 1, not 2) while passing every time on an idle one — the assertion
+    /// was sound, the wait was not. Returns as soon as the condition holds;
+    /// the deadline only bounds a genuine failure.
+    private func waitFor(
+        _ condition: @escaping () -> Bool,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     // MARK: - Auto-reconnect succeeds
 
     func testModelAutoReconnectsAfterStreamDrop() async throws {
@@ -37,7 +54,7 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitFor { connector.sessionRequests.count >= 2 }
 
         // Two streaming connects total: the original + one
         // reconnect.  The reconnect uses the same host/port and the
@@ -76,7 +93,7 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitFor { connector.sessionRequests.count >= 2 }
 
         XCTAssertEqual(connector.sessionRequests.count, 2)
         // Same host + same credential on every attempt.  The
@@ -108,7 +125,7 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(700))
+        try await waitFor { connector.sessionRequests.count >= 3 }
 
         // Three connects total (initial + two reconnects).  Both
         // drops were within the policy budget because each fresh
