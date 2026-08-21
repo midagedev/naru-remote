@@ -190,6 +190,70 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertNotNil(observation.markerLocation)
     }
 
+    /// One sample per delivery. Re-reading a marker the server has not re-sent
+    /// must not produce a second, older sample — that is what made reported
+    /// staleness track the run length instead of the picture (peak 0.98 s in a
+    /// 5 s run, 31.8 s in a 40 s run, measured 2026-08-21).
+    func testRepeatedObservationsOfOneMarkerYieldASingleFreshnessSample() throws {
+        let sidecarURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("naru-freshness-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: sidecarURL)
+        }
+
+        BenchmarkVisualFreshnessSidecar.append(sequence: 11, to: sidecarURL.path)
+        BenchmarkVisualFreshnessSidecar.append(sequence: 12, to: sidecarURL.path)
+        var framebuffer = RFBRawFramebuffer(
+            width: 360,
+            height: 160,
+            fill: RFBColor(red: 0, green: 0, blue: 0)
+        )
+        drawMarker(sequence: 11, x: 20, y: 20, cellSize: 20, framebuffer: &framebuffer)
+
+        let probe = BenchmarkVisualFreshnessProbe(sidecarPath: sidecarURL.path)
+        let first = try XCTUnwrap(probe.observe(framebuffer: framebuffer))
+        XCTAssertNotNil(first.freshnessMilliseconds)
+
+        for _ in 0..<5 {
+            let repeated = try XCTUnwrap(probe.observe(framebuffer: framebuffer))
+            XCTAssertEqual(repeated.sequence, 11)
+            XCTAssertNil(
+                repeated.freshnessMilliseconds,
+                "An update that carried no new marker is not a freshness sample"
+            )
+        }
+
+        // A genuinely new delivery is timed again.
+        drawMarker(sequence: 12, x: 20, y: 20, cellSize: 20, framebuffer: &framebuffer)
+        let next = try XCTUnwrap(probe.observe(framebuffer: framebuffer))
+        XCTAssertEqual(next.sequence, 12)
+        XCTAssertNotNil(next.freshnessMilliseconds)
+    }
+
+    func testMarkerStatusSeparatesAStalledMarkerFromAStalePicture() {
+        XCTAssertEqual(
+            BenchmarkVisualFreshnessMarkerStatus(observationCount: 0, deliveredSequenceCount: 0),
+            .notObserved
+        )
+        XCTAssertEqual(
+            BenchmarkVisualFreshnessMarkerStatus(observationCount: 40, deliveredSequenceCount: 1),
+            .stalled
+        )
+        XCTAssertEqual(
+            BenchmarkVisualFreshnessMarkerStatus(observationCount: 40, deliveredSequenceCount: 12),
+            .tracking
+        )
+        // Too few observations to condemn a marker that simply had little to do.
+        XCTAssertEqual(
+            BenchmarkVisualFreshnessMarkerStatus(observationCount: 2, deliveredSequenceCount: 1),
+            .tracking
+        )
+        XCTAssertEqual(
+            BenchmarkVisualFreshnessMarkerStatus.usageDescription,
+            "not-observed|stalled|tracking"
+        )
+    }
+
     func testFreshnessObservationOmitsMarkerLocationFromJSON() throws {
         let observation = BenchmarkVisualFreshnessObservation(
             sequence: 42,

@@ -247,7 +247,32 @@ same PR.
    averages 31 ms. That gap is where the founder's "느리다" actually lives, and
    it is untouched. The metric is bimodal across otherwise identical runs
    (three of sixteen read ~210–265 ms average), so it needs its own instrument
-   audit before it is trusted as a target.
+   audit before it is trusted as a target. **That audit is now done — see 1o.**
+1o. **`specs/027` freshness per delivery — implemented 2026-08-21**. The
+   staleness metric did not survive changing the run length: peak reported
+   staleness was 0.98 s in a 5 s run, 6.8 s in 15 s and **31.8 s in 40 s**, all
+   else held. Cause: the benchmark framebuffer is persistent, so a marker the
+   server has not re-sent decodes again on every later update, and the probe
+   timed every decode — one undelivered marker became a run of samples whose age
+   only grew (FAIL-first shows it directly: 9 → 258 → 262 → 267 ms for re-reads
+   of one marker). Freshness is now sampled once per marker **delivery**, and a
+   fixed marker-status label separates `not-observed` / `stalled` (the host
+   stopped painting — an occluded stimulus window would previously have read as
+   transport staleness forever) / `tracking`. Delivery and re-read counts are
+   published, and a round-trip test pins them against the hand-written
+   encoder/decoder pair that dropped them on the first attempt.
+   **What it found**: re-reads outnumber deliveries about four to one (227 vs 50
+   in a 40 s run, status `tracking`), so **~80% of received updates carry no new
+   marker** even with the full framebuffer requested. The server answers with a
+   subset of what changed — a picture refreshed in turns rather than a low frame
+   rate. That is the first measured thing that plausibly matches "느리다".
+   **Still open**: corrected maxima of 4.2–9.2 s are now genuine deliveries,
+   which should be impossible if every delivery carries the marker that was on
+   screen at capture. Next experiment named in the spec: publish the
+   distribution of skipped marker sequences between consecutive deliveries as
+   counts (stays inside §IV) to tell "sampled sparsely" from "delivered late".
+   Until then freshness averages and p95 are **not** a target; the delivery and
+   re-read counts are the trustworthy part.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

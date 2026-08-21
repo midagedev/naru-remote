@@ -17,6 +17,52 @@ final class BenchmarkStreamShapeSummaryTests: XCTestCase {
         XCTAssertNil(summary.deliveredFramesPerSecond)
     }
 
+    /// Marker-delivery accounting must survive the report round-trip. This
+    /// exists because the summary hand-writes both `encode(to:)` and
+    /// `init(from:)`, so a new field can be read back with a default while never
+    /// being written — which is exactly what happened when these three fields
+    /// were added: the archived report showed them absent while the in-memory
+    /// summary had them right.
+    func testMarkerDeliveryAccountingSurvivesTheReportRoundTrip() throws {
+        let summary = BenchmarkStreamShapeSummary(
+            requestedSamples: 6,
+            samples: (0..<6).map { index in
+                BenchmarkStreamShapeSample(
+                    kind: .contentUpdate,
+                    durationMilliseconds: 30,
+                    dirtyRectangleCount: 1,
+                    dirtyAreaPermille: 4,
+                    changedPixelsPermille: 3,
+                    rendererUploadStrategy: .partial,
+                    rendererUploadRegionCount: 1,
+                    // One delivery, re-read five times: a stalled marker.
+                    visualFreshnessSequence: 41,
+                    visualFreshnessMilliseconds: index == 0 ? 88 : nil
+                )
+            },
+            elapsedMilliseconds: 200,
+            firstTimeoutMilliseconds: nil,
+            failureLabel: nil
+        )
+
+        XCTAssertEqual(summary.visualFreshnessSampleCount, 1)
+        XCTAssertEqual(summary.visualFreshnessDeliveredSequenceCount, 1)
+        XCTAssertEqual(summary.visualFreshnessRepeatedObservationCount, 5)
+        XCTAssertEqual(summary.visualFreshnessMarkerStatus, .stalled)
+
+        let encoded = try JSONEncoder().encode(summary)
+        let decoded = try JSONDecoder().decode(BenchmarkStreamShapeSummary.self, from: encoded)
+
+        XCTAssertEqual(decoded.visualFreshnessDeliveredSequenceCount, 1)
+        XCTAssertEqual(decoded.visualFreshnessRepeatedObservationCount, 5)
+        XCTAssertEqual(decoded.visualFreshnessMarkerStatus, .stalled)
+
+        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        XCTAssertTrue(json.contains("visualFreshnessMarkerStatus"))
+        XCTAssertTrue(json.contains("visualFreshnessDeliveredSequenceCount"))
+        XCTAssertTrue(json.contains("visualFreshnessRepeatedObservationCount"))
+    }
+
     func testContentAndEmptySamplesProduceMixedSummary() throws {
         let summary = BenchmarkStreamShapeSummary(
             requestedSamples: 3,

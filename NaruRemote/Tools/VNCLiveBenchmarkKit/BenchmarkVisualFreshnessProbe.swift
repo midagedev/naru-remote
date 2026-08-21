@@ -282,6 +282,7 @@ public struct BenchmarkVisualFreshnessMarkerObservation: Equatable, Sendable {
 public final class BenchmarkVisualFreshnessProbe {
     private let sidecarPath: String
     private var eventsBySequence: [Int: UInt64] = [:]
+    private var lastReportedSequence: Int?
 
     public init(sidecarPath: String) {
         self.sidecarPath = sidecarPath
@@ -296,6 +297,23 @@ public final class BenchmarkVisualFreshnessProbe {
         return BenchmarkVisualFreshnessProbe(sidecarPath: path)
     }
 
+    /// One freshness sample per marker **delivery**, not per received update.
+    ///
+    /// The framebuffer is persistent, so a marker the server has not re-sent
+    /// stays on it and can be decoded again and again. Timing every one of those
+    /// re-reads turns a single undelivered marker into a run of samples whose
+    /// age only grows, and the average and p95 built from them describe the
+    /// probe's own sampling rate rather than the picture. Measured 2026-08-21 by
+    /// varying only the run length, that is exactly what was happening: peak
+    /// reported staleness tracked the run — 0.98 s in a 5 s run, 6.8 s in 15 s,
+    /// 31.8 s in 40 s. A 31.8 s stale region in a 40 s run of continuously
+    /// animating content is not a plausible reading.
+    ///
+    /// So an observation whose sequence has already been timed returns no
+    /// freshness value. It still returns the sequence, which is what lets the
+    /// summary separate "the picture is stale" from "the marker stopped being
+    /// repainted on the host" — an occluded or unfocused stimulus window
+    /// produces one sequence forever, and that must not read as staleness.
     public func observe(framebuffer: RFBRawFramebuffer) -> BenchmarkVisualFreshnessObservation? {
         guard let markerObservation = BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer) else {
             return nil
@@ -304,6 +322,13 @@ public final class BenchmarkVisualFreshnessProbe {
             centerX: markerObservation.centerX,
             centerY: markerObservation.centerY
         )
+        guard markerObservation.sequence != lastReportedSequence else {
+            return BenchmarkVisualFreshnessObservation(
+                sequence: markerObservation.sequence,
+                freshnessMilliseconds: nil,
+                markerLocation: markerLocation
+            )
+        }
         refreshEvents()
         guard let generatedAt = eventsBySequence[markerObservation.sequence] else {
             return BenchmarkVisualFreshnessObservation(
@@ -312,6 +337,7 @@ public final class BenchmarkVisualFreshnessProbe {
                 markerLocation: markerLocation
             )
         }
+        lastReportedSequence = markerObservation.sequence
         let now = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds()
         let elapsedNanoseconds = now >= generatedAt ? now - generatedAt : 0
         return BenchmarkVisualFreshnessObservation(
@@ -333,6 +359,44 @@ public final class BenchmarkVisualFreshnessProbe {
             }
             eventsBySequence[event.sequence] = event.generatedAtUptimeNanoseconds
         }
+    }
+}
+
+/// Whether the freshness marker was actually being repainted on the host while
+/// a run measured it.
+///
+/// This exists so a stalled marker can never be read as a stale picture. If the
+/// stimulus window is occluded, unfocused, or off-screen, the last visible
+/// marker stays on the captured screen forever: the client keeps decoding one
+/// sequence, and a probe that timed every decode would report a staleness that
+/// grows with the run length. `stalled` says the run measured the host's
+/// painting, not the transport, and its freshness numbers mean nothing.
+public enum BenchmarkVisualFreshnessMarkerStatus: String, Codable, Equatable, Sendable, CaseIterable {
+    /// No marker was decoded at all.
+    case notObserved = "not-observed"
+    /// A marker was decoded but never advanced across repeated observations.
+    case stalled
+    /// The marker advanced, so freshness describes the delivered picture.
+    case tracking
+
+    /// How many observations of a single sequence it takes before calling a
+    /// marker stalled rather than merely slow. Four, so that a run which simply
+    /// received very few updates is not condemned by one or two repeats.
+    public static let stalledObservationThreshold = 4
+
+    public init(observationCount: Int, deliveredSequenceCount: Int) {
+        if observationCount <= 0 || deliveredSequenceCount <= 0 {
+            self = .notObserved
+        } else if deliveredSequenceCount == 1,
+                  observationCount >= Self.stalledObservationThreshold {
+            self = .stalled
+        } else {
+            self = .tracking
+        }
+    }
+
+    public static var usageDescription: String {
+        allCases.map(\.rawValue).joined(separator: "|")
     }
 }
 

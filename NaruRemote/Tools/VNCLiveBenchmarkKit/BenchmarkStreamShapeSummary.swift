@@ -1117,6 +1117,16 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
     public let zrleTileApplyLatency: BenchmarkLatencySummary?
     public let visualFreshnessLatency: BenchmarkLatencySummary?
     public let visualFreshnessSampleCount: Int
+    /// How many distinct marker sequences the client actually received. With
+    /// one sample per delivery this equals `visualFreshnessSampleCount` plus any
+    /// deliveries whose generation time was missing, and it is what tells a
+    /// stalled marker apart from a stale picture.
+    public let visualFreshnessDeliveredSequenceCount: Int
+    /// Observations that re-read a marker already timed — i.e. updates that did
+    /// not carry a new marker. Reported as a count so it can never be mistaken
+    /// for a latency.
+    public let visualFreshnessRepeatedObservationCount: Int
+    public let visualFreshnessMarkerStatus: BenchmarkVisualFreshnessMarkerStatus
     public let timestampLatency: BenchmarkLatencySummary?
     public let timestampLatencySampleCount: Int
     public let tailLatency: BenchmarkStreamShapeTailSummary
@@ -1169,6 +1179,9 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         case zrleTileApplyLatency
         case visualFreshnessLatency
         case visualFreshnessSampleCount
+        case visualFreshnessDeliveredSequenceCount
+        case visualFreshnessRepeatedObservationCount
+        case visualFreshnessMarkerStatus
         case timestampLatency
         case timestampLatencySampleCount
         case tailLatency
@@ -1276,6 +1289,17 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         let visualFreshnessSamples = samples.compactMap(\.visualFreshnessMilliseconds)
         self.visualFreshnessLatency = BenchmarkLatencySummary(visualFreshnessSamples)
         self.visualFreshnessSampleCount = visualFreshnessSamples.count
+        let observedSequences = samples.compactMap(\.visualFreshnessSequence)
+        let deliveredSequenceCount = Set(observedSequences).count
+        self.visualFreshnessDeliveredSequenceCount = deliveredSequenceCount
+        self.visualFreshnessRepeatedObservationCount = max(
+            observedSequences.count - deliveredSequenceCount,
+            0
+        )
+        self.visualFreshnessMarkerStatus = BenchmarkVisualFreshnessMarkerStatus(
+            observationCount: observedSequences.count,
+            deliveredSequenceCount: deliveredSequenceCount
+        )
         self.timestampLatency = self.visualFreshnessLatency
         self.timestampLatencySampleCount = self.visualFreshnessSampleCount
         self.tailLatency = BenchmarkStreamShapeTailSummary(samples: samples)
@@ -1432,6 +1456,28 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         self.visualFreshnessSampleCount = max(
             try container.decodeIfPresent(Int.self, forKey: .visualFreshnessSampleCount) ?? 0,
             0
+        )
+        self.visualFreshnessDeliveredSequenceCount = max(
+            try container.decodeIfPresent(
+                Int.self,
+                forKey: .visualFreshnessDeliveredSequenceCount
+            ) ?? visualFreshnessSampleCount,
+            0
+        )
+        self.visualFreshnessRepeatedObservationCount = max(
+            try container.decodeIfPresent(
+                Int.self,
+                forKey: .visualFreshnessRepeatedObservationCount
+            ) ?? 0,
+            0
+        )
+        self.visualFreshnessMarkerStatus = try container.decodeIfPresent(
+            BenchmarkVisualFreshnessMarkerStatus.self,
+            forKey: .visualFreshnessMarkerStatus
+        ) ?? BenchmarkVisualFreshnessMarkerStatus(
+            observationCount: visualFreshnessDeliveredSequenceCount
+                + visualFreshnessRepeatedObservationCount,
+            deliveredSequenceCount: visualFreshnessDeliveredSequenceCount
         )
         self.timestampLatency = try container.decodeIfPresent(
             BenchmarkLatencySummary.self,
@@ -1791,6 +1837,15 @@ public struct BenchmarkStreamShapeSummary: Codable, Equatable, Sendable {
         try container.encodeIfPresent(zrleTileApplyLatency, forKey: .zrleTileApplyLatency)
         try container.encodeIfPresent(visualFreshnessLatency, forKey: .visualFreshnessLatency)
         try container.encode(visualFreshnessSampleCount, forKey: .visualFreshnessSampleCount)
+        try container.encode(
+            visualFreshnessDeliveredSequenceCount,
+            forKey: .visualFreshnessDeliveredSequenceCount
+        )
+        try container.encode(
+            visualFreshnessRepeatedObservationCount,
+            forKey: .visualFreshnessRepeatedObservationCount
+        )
+        try container.encode(visualFreshnessMarkerStatus, forKey: .visualFreshnessMarkerStatus)
         try container.encodeIfPresent(timestampLatency, forKey: .timestampLatency)
         try container.encode(timestampLatencySampleCount, forKey: .timestampLatencySampleCount)
         try container.encode(tailLatency, forKey: .tailLatency)
