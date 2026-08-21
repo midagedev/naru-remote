@@ -4,7 +4,20 @@
 **Created**: 2026-08-21
 **Status**: Implemented 2026-08-21 (region merge + single-owner region list;
 full uploads 200‰ → 0‰ under a controlled live stimulus, `full-upload-failed`
-cleared). Device confirmation pending.
+cleared). Device confirmation pending. **Partly superseded by spec 026**: the
+merge kept a rectangle-count ceiling of 512 that live measurement later found
+sits below what this server actually sends (peak 738), so `full-upload-failed`
+returned at 174‰ under a heavier stimulus. Spec 026 removes the count cliff.
+
+> **Correction 2026-08-21 (spec 025).** The "Why" section below claims the
+> server caps at ~9.4 content frames per second. That is wrong. The measurement
+> behind it used a 12 Hz stimulus as the only moving content, so it was bounded
+> by the stimulus, and it was taken with a **debug** build of the benchmark,
+> whose unoptimised ZRLE decode dominates every timing it reports. Re-measured
+> in release at 30 Hz: 13.7 content fps, 16.1 delivered. There is no ~10 fps
+> server ceiling. Everything else in this spec — the rectangle-count root cause,
+> the merge, and the 200‰ → 0‰ result — was measured with a release build and
+> stands.
 **Product**: Naru Remote
 **Input**: Founder report 2026-08-21 — "트랙패드 잘 되는데 이게 왜 이렇게 반응이
 느리지" — and the measurement that followed.
@@ -99,3 +112,10 @@ ScreenCaptureKit capture reported `frameRateBucket: upTo30`,
 - `maximumPartialUploadRegionCount` (64) is now a *merge target* as well as a
   cap, so it silently sets how coarse the merged regions get. A future change to
   it changes upload granularity, not just a fallback threshold.
+- **This risk materialised.** FR-005's `maximumCoalescingInputCount` (512) was
+  chosen on the assumption that "a frame arriving with that many rectangles has
+  changed enough that one full upload is the cheaper answer". Measured under a
+  heavier stimulus the same week, this server sends ~713 rectangles (peak 738)
+  for a frame that changed 34–45% of the screen — inside the partial rules — so
+  the new ceiling re-created the very defect this spec closed, at 174‰ of
+  content frames. Spec 026 replaces the count cliff with a cheaper merge.

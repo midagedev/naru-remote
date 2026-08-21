@@ -178,11 +178,16 @@ same PR.
 1l. **`specs/024` partial upload coalescing — implemented 2026-08-21**. Founder
    report "트랙패드 잘 되는데 이게 왜 이렇게 반응이 느리지". Measured: the input
    path is clean (outbound pointer queue/op `0 / 0 ms`); the picture is the
-   ceiling. With every client pacing floor removed on loopback the server still
-   produces only **9.4 content fps**, so ~10 fps is Screen Sharing's own
-   request/response cadence — trackpad did not slow anything, it made the
-   ceiling visible next to a locally drawn cursor moving at display rate.
-   Inside that ceiling the benchmark's own primary issue was
+   ceiling. ~~With every client pacing floor removed on loopback the server
+   still produces only 9.4 content fps, so ~10 fps is Screen Sharing's own
+   request/response cadence.~~ **Retracted 2026-08-21 (spec 025)** — that came
+   from a debug-built benchmark with a 12 Hz stimulus as the only moving
+   content, so it was bounded by the stimulus and inflated by unoptimised
+   decode. Release build at 30 Hz: **13.7 content fps, 16.1 delivered**. There
+   is no ~10 fps server ceiling. Trackpad still did not slow anything — it put a
+   display-rate local cursor next to a picture that lags for other reasons (see
+   the staleness note in 1n).
+   Inside that, the benchmark's own primary issue was
    `full-upload-failed`: the upload plan re-uploaded the entire framebuffer
    whenever damage arrived as more than 64 rectangles, even though damage
    averaged 0.5% of the screen (rect count peaked at 112 — a scrolling
@@ -192,7 +197,7 @@ same PR.
    uploads **200‰ → 0‰**, issue cleared. fps/decode unchanged on this Mac —
    the phone-side bandwidth/power win is inferred, not measured, so a device
    pass is the confirmation.
-   **Helper video is the answer to the ~10 fps ceiling itself**: Screen
+   **Helper video is still the answer to the transport itself**: Screen
    Recording is already granted on the founder's Mac (`helper-dev-app-setup`
    reports `granted`), and real ScreenCaptureKit capture measured
    `frameRateBucket: upTo30`, `sustainedUpdateBand: smooth`,
@@ -200,6 +205,49 @@ same PR.
    30-minute sustained run, which needs the physical iPhone gate (the Mac-side
    probe clamps to 120 frames), plus spec 010 T014 pairing so the phone
    actually selects that transport.
+1m. **`specs/025` release-configuration measurement instrument — implemented
+   2026-08-21**. `scripts/run-naru-live-benchmark.sh` contained the word
+   `release` zero times: every mode built and ran **debug**, and debug Swift
+   leaves ZRLE inflate/tile-apply unoptimised so client processing dominated
+   every latency it reported. Same target, same stimulus, same flags, changing
+   only the configuration: debug read 0.78 content fps and diagnosed
+   `local-processing-dominated`; release read 7.68 and diagnosed
+   `first-byte-wait-dominated` — a different conclusion about where the
+   bottleneck is. Two judgements had already been contaminated: the 9.4 fps
+   "server ceiling" above, and the `requestPipelineDepth: 3` justification
+   comment, whose cited numbers are debug-range. Fixed structurally — one owner
+   for the build configuration defaulting to release, every invocation and bin
+   path qualified by it (including `--show-bin-path`, which reports the debug
+   path unqualified and silently won a candidate search), `buildConfiguration`
+   stated on every report with a warning line in debug text output, and a
+   `measurement-configuration-self-test` mode that fails on an unqualified
+   invocation, a hardcoded debug path, or a non-release default (FAIL-first
+   confirmed on all three). Depth re-measured properly: eight 15 s release runs
+   per arm, depth 1 median 7.7 fps vs depth 3 median 8.6, ranges fully
+   overlapping, depth 1 winning 41% of pairwise comparisons — **no measurable
+   difference**, so the constant stays at 3 and the comment now says so.
+1n. **`specs/026` damage-count cliff removal — implemented 2026-08-21**. Spec
+   024's merge kept a rectangle-count ceiling at 512 above which a frame skips
+   merging and takes a full upload. Release-built measurement found this server
+   sends ~713 rectangles (peak 738) for frames that changed only 34–39% of the
+   screen, so the new ceiling re-created the defect spec 024 closed, at
+   **174‰** of content frames (median of eight runs). Attributed by
+   intervention: lifting only the ceiling under an identical stimulus took it to
+   0‰. Closed by shape rather than by constant — no rectangle count sends a
+   frame to a full upload any more; above `quadraticMergeInputCeiling` (1024, vs
+   a measured peak of 738) a linear pass unions raster-order runs so the merge
+   cost stays bounded for any count. A 256 ceiling was tried first and measured
+   *worse* (57‰) because the blunt pass inflates area past the 60% rule, which
+   is now pinned as its own test. Live result: **174‰ → 0‰**, `full-upload-failed`
+   no longer primary in any run. Merge cost 0.33 ms per frame at the live peak
+   (cost caching took it down from 1.2 ms), 0.65 ms at the ceiling. fps
+   unchanged on this Mac — phone-side win still inferred, device pass confirms.
+   **Open, not closed**: picture staleness. The visual-freshness marker reads a
+   median of ~0.9–1.3 s of age with a p95 of 7–13 s while update latency
+   averages 31 ms. That gap is where the founder's "느리다" actually lives, and
+   it is untouched. The metric is bimodal across otherwise identical runs
+   (three of sixteen read ~210–265 ms average), so it needs its own instrument
+   audit before it is trusted as a target.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

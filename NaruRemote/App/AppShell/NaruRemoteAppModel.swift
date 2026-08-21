@@ -581,11 +581,21 @@ public final class NaruRemoteAppModel: ObservableObject {
         updateMode: .continuousUpdates,
         // When ContinuousUpdates is unavailable (e.g. Apple Screen
         // Sharing), keep 3 incremental requests parked on the server so it
-        // never idles during the request→response round-trip. Live
-        // 127.0.0.1 Screen Sharing benchmarks: depth 1 → 67 ms avg /
-        // 218 ms p95 update, 3.2 content fps; depth 3 → 27 ms avg /
-        // 175 ms p95, 5.2 content fps. Ignored once ContinuousUpdates
-        // negotiates (that transport already decouples request/response).
+        // never idles during the request→response round-trip. Ignored once
+        // ContinuousUpdates negotiates (that transport already decouples
+        // request/response).
+        //
+        // The numbers this used to cite (depth 1 → 3.2 content fps, depth 3 →
+        // 5.2) came from a debug-built benchmark, and debug ZRLE decode
+        // dominates everything downstream of it — see spec 025. Re-measured
+        // 2026-08-21 with a release build, eight 15 s runs per arm against live
+        // Screen Sharing under an identical stimulus: depth 1 median 7.7
+        // content fps (range 5.1–11.6), depth 3 median 8.6 (range 5.3–10.9),
+        // update latency 31 ms average in both. The ranges overlap completely
+        // and depth 1 wins 41% of pairwise comparisons, so **depth makes no
+        // measurable difference here**. 3 is kept because it is what has
+        // shipped and it is not worse; a single-run difference in either
+        // direction is noise and is not grounds to change it.
         requestPipelineDepth: 3
     )
     private var reachabilityProbeTask: Task<Void, Never>?

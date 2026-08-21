@@ -3385,6 +3385,10 @@ private extension RFBEncodingPreference {
 private struct BenchmarkReport: Codable, Equatable {
     let schemaVersion: Int
     let target: String
+    /// Stated on every report so an archived measurement cannot be read
+    /// without knowing whether its timings are trustworthy — see
+    /// `BenchmarkBuildConfiguration`.
+    let buildConfiguration: BenchmarkBuildConfiguration
     let networkCondition: BenchmarkNetworkConditionProfile
     let attemptsPerProfile: Int
     let fullRefreshSamplesPerAttempt: Int
@@ -3491,8 +3495,9 @@ private struct BenchmarkReport: Codable, Equatable {
         streamShapeProfileProbes: [BenchmarkStreamShapeProfileReport],
         continuousUpdatesProbe: ContinuousUpdatesProbeReport
     ) {
-        self.schemaVersion = 69
+        self.schemaVersion = 70
         self.target = "configured-redacted"
+        self.buildConfiguration = .current
         self.networkCondition = networkConditionProfile
         self.attemptsPerProfile = attemptsPerProfile
         self.fullRefreshSamplesPerAttempt = fullRefreshSamplesPerAttempt
@@ -3864,6 +3869,14 @@ private enum ContinuousUpdateSampleKind: Equatable {
 private func renderText(_ report: BenchmarkReport) {
     print("\(toolName)")
     print("target: \(report.target)")
+    print("build configuration: \(report.buildConfiguration.rawValue)")
+    if !report.buildConfiguration.producesTrustworthyTimings {
+        print(
+            "  WARNING: debug build — latency, frames per second and bottleneck "
+                + "attribution in this report are artefacts, not measurements. "
+                + "Re-run with `swift run -c release`."
+        )
+    }
     print("network condition: \(report.networkCondition.rawValue)")
     print("safety: \(report.safety.joined(separator: "; "))")
     print("attempts per profile: \(report.attemptsPerProfile)")

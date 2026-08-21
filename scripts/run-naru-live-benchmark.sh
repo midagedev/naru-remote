@@ -50,6 +50,7 @@ Modes:
   remote-desktop-readiness-summary-self-test Fast regression for readiness gate summary labels.
   viewport-interaction-trace Compare VNC off/app viewport-interaction live traces.
   viewport-interaction-trace-self-test Fast regression for viewport interaction trace args.
+  measurement-configuration-self-test Assert every live measurement builds/runs release.
   screen-recording-watch Request helper Screen Recording, open Settings, and poll safe capability.
   screen-recording-watch-self-test Fast regression for screen-recording-watch labels.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
@@ -173,6 +174,42 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
+
+# Single owner of the Swift build configuration every mode in this script uses
+# to build and run the live tools. It is `release` because a debug-built
+# measurement is not a measurement: debug Swift leaves ZRLE inflate and tile
+# apply unoptimised, so client processing dominates every latency this script
+# reports. Measured 2026-08-21 against the same live target with the same
+# stimulus and the same flags, the debug binary reported content frames per
+# second under one and diagnosed `local-processing-dominated`, while the
+# release binary of the same commit reported roughly an order of magnitude
+# more and diagnosed `first-byte-wait-dominated` — a different conclusion
+# about where the bottleneck lives, not a different reading of one number.
+#
+# Every mode here used to build and run debug, which is how a production
+# constant (`requestPipelineDepth`) ended up justified by debug-range numbers
+# and how a lead session concluded the server "caps at ~10 frames per second".
+# Override only for label/argument regressions, where timings are not read:
+#   NARU_LIVE_BENCHMARK_CONFIGURATION=debug scripts/run-naru-live-benchmark.sh ...
+benchmark_configuration="${NARU_LIVE_BENCHMARK_CONFIGURATION:-release}"
+case "$benchmark_configuration" in
+  debug | release) ;;
+  *)
+    printf 'NARU_LIVE_BENCHMARK_CONFIGURATION must be debug or release\n' >&2
+    exit 2
+    ;;
+esac
+
+benchmark_bin_dir() {
+  printf '%s' "$repo_root/.build/$benchmark_configuration"
+}
+
+benchmark_build() {
+  local product
+  for product in "$@"; do
+    (cd "$repo_root" && swift build -c "$benchmark_configuration" --quiet --product "$product")
+  done
+}
 
 launchctl_env() {
   local name="$1"
@@ -349,7 +386,7 @@ import_physical_e2e_env() {
 
 run_benchmark() {
   cd "$repo_root"
-  swift run --quiet VNCLiveBenchmark "$@"
+  swift run -c "$benchmark_configuration" --quiet VNCLiveBenchmark "$@"
 }
 
 run_benchmark_with_extra() {
@@ -362,14 +399,13 @@ run_benchmark_with_extra() {
 
 run_remote_desktop_visual_freshness_probe() {
   local report_mode="${1:-remote-desktop-visual-freshness-probe}"
-  swift build --quiet --product VNCLiveBenchmark
-  swift build --quiet --product VNCLiveStimulusWindow
+  benchmark_build VNCLiveBenchmark VNCLiveStimulusWindow
 
   local sidecar_file
   sidecar_file="$(mktemp "${TMPDIR:-/tmp}/naru-visual-freshness-sidecar.XXXXXX")"
   export NARU_LIVE_STIMULUS_VISUAL_FRESHNESS_FILE="$sidecar_file"
   local stimulus_executable stimulus_command
-  stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  stimulus_executable="$(benchmark_bin_dir)/VNCLiveStimulusWindow"
   printf -v stimulus_command '%q --top-left --width 960 --height 720 --visual-freshness-sidecar %q' \
     "$stimulus_executable" \
     "$sidecar_file"
@@ -1913,6 +1949,58 @@ viewport_interaction_trace_self_test() {
   rm -f "$progress_file"
 }
 
+# Recurrence gate for the defect that made every live measurement in this
+# script a debug measurement (see `benchmark_configuration`). A future edit that
+# reintroduces an unqualified `swift build` / `swift run`, a hardcoded
+# `.build/debug` path, or an unqualified `--show-bin-path` fails here instead of
+# silently producing timings that are 10x off. This checks the script source,
+# because that is where the class of defect lives — no live target required.
+measurement_configuration_self_test() {
+  reject_extra_args
+
+  local script_file="${BASH_SOURCE[0]}"
+  local offenders=()
+
+  # `swift build` / `swift run` must carry the configuration. The definition
+  # inside `benchmark_build` and the two owners in this gate's own comment are
+  # the only lines allowed to name the tools without it.
+  local line
+  while IFS= read -r line; do
+    [[ "$line" == *'-c "$benchmark_configuration"'* ]] && continue
+    [[ "$line" == *'-c '* && "$line" == *'--show-bin-path'* ]] && continue
+    offenders+=("unqualified-swift-invocation")
+  done < <(grep -nE '^[^#]*swift (build|run) ' "$script_file" || true)
+
+  if grep -qE '^[^#]*\.build/debug' "$script_file"; then
+    offenders+=("hardcoded-debug-bin-path")
+  fi
+  if ! grep -q 'benchmark_configuration="\${NARU_LIVE_BENCHMARK_CONFIGURATION:-release}"' "$script_file"; then
+    offenders+=("measurement-default-not-release")
+  fi
+
+  if ((${#offenders[@]} == 0)); then
+    printf '{"schemaVersion":1,"mode":"measurement-configuration-self-test","status":"passed"'
+    printf ',"measurementConfiguration":'
+    json_string "$benchmark_configuration"
+    printf ',"checkedRules":["swift-invocations-carry-configuration","no-hardcoded-debug-bin-path","measurement-default-is-release"]}\n'
+    return
+  fi
+
+  printf '{"schemaVersion":1,"mode":"measurement-configuration-self-test","status":"failed","safeFailureCodes":['
+  local first=1
+  local offender
+  for offender in "${offenders[@]}"; do
+    if ((first)); then
+      first=0
+    else
+      printf ','
+    fi
+    json_string "$offender"
+  done
+  printf ']}\n'
+  exit 1
+}
+
 json_glance_025_profile_sweep_failure() {
   local failure_code="$1"
   local phase_file="$2"
@@ -2088,17 +2176,24 @@ run_glance_025_profile_sweep() {
 }
 
 bounded_benchmark_executable() {
+  # `--show-bin-path` without a configuration reports the *debug* bin path, so
+  # asking for it unqualified is how a bounded sweep would keep measuring with
+  # a debug binary no matter what the rest of this script does. Every candidate
+  # here is qualified by `benchmark_configuration`.
   local build_bin_path
-  build_bin_path="$(cd "$repo_root" && swift build --show-bin-path 2>/dev/null || true)"
+  build_bin_path="$(
+    cd "$repo_root" \
+      && swift build -c "$benchmark_configuration" --show-bin-path 2>/dev/null || true
+  )"
 
   local candidates=()
   if [[ -n "$build_bin_path" ]]; then
     candidates+=("$build_bin_path/VNCLiveBenchmark")
   fi
-  candidates+=("$repo_root/.build/debug/VNCLiveBenchmark")
+  candidates+=("$(benchmark_bin_dir)/VNCLiveBenchmark")
 
   local candidate
-  for candidate in "$repo_root"/.build/*/debug/VNCLiveBenchmark; do
+  for candidate in "$repo_root"/.build/*/"$benchmark_configuration"/VNCLiveBenchmark; do
     [[ -e "$candidate" ]] && candidates+=("$candidate")
   done
 
@@ -2115,7 +2210,11 @@ prepare_bounded_benchmark_executable() {
   BOUNDED_BENCHMARK_EXECUTABLE=""
   write_bounded_sweep_phase "$phase_file" swift-build
   RUN_WITH_WALL_TIMEOUT_EXPIRED=0
-  if ! run_with_wall_timeout 30 swift build --product VNCLiveBenchmark >/dev/null 2>/dev/null; then
+  # 240s, not 30s: an optimised build of this product from cold takes minutes,
+  # and the old budget was sized for a cached debug build.
+  if ! run_with_wall_timeout 240 \
+    swift build -c "$benchmark_configuration" --product VNCLiveBenchmark \
+    >/dev/null 2>/dev/null; then
     return 1
   fi
 
@@ -9626,7 +9725,7 @@ helper_text_observed_probe_failure_label() {
 
 print_helper_text_observed_probe_report() {
   local helper_executable="${NARU_HELPER_EXECUTABLE:-}"
-  local target_executable="${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-$repo_root/.build/debug/VNCLiveStimulusWindow}"
+  local target_executable="${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-$(benchmark_bin_dir)/VNCLiveStimulusWindow}"
   local payload_label
   local duration_seconds
   local poll_count
@@ -10744,7 +10843,7 @@ print_helper_readiness_sweep_report() {
   json_step_or_fixed_failure \
     environmentPreflight \
     benchmarkStep.environmentPreflight.failed \
-    swift run --quiet VNCLiveBenchmark \
+    swift run -c "$benchmark_configuration" --quiet VNCLiveBenchmark \
     --environment-preflight \
     --visual-transport helper-video \
     --helper-video-probe external-helper-screen-capturekit-tcp \
@@ -10754,7 +10853,7 @@ print_helper_readiness_sweep_report() {
   json_step_or_fixed_failure \
     externalSyntheticProbe \
     benchmarkStep.externalSyntheticProbe.failed \
-    swift run --quiet VNCLiveBenchmark \
+    swift run -c "$benchmark_configuration" --quiet VNCLiveBenchmark \
     --helper-video-probe-only \
     --visual-transport helper-video \
     --helper-video-probe external-helper-synthetic-encoded-tcp \
@@ -10764,7 +10863,7 @@ print_helper_readiness_sweep_report() {
   json_step_or_fixed_failure \
     externalSustainedSyntheticProbe \
     benchmarkStep.externalSustainedSyntheticProbe.failed \
-    swift run --quiet VNCLiveBenchmark \
+    swift run -c "$benchmark_configuration" --quiet VNCLiveBenchmark \
     --helper-video-probe-only \
     --visual-transport helper-video \
     --helper-video-probe external-helper-sustained-synthetic-encoded-tcp \
@@ -10785,8 +10884,8 @@ print_helper_readiness_sweep_report() {
 }
 
 run_helper_screen_probe_command() {
-  swift build --quiet --product VNCLiveStimulusWindow
-  local stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  benchmark_build VNCLiveStimulusWindow
+  local stimulus_executable="$(benchmark_bin_dir)/VNCLiveStimulusWindow"
   local stimulus_duration="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_DURATION_SECONDS:-8}"
   local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
   local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
@@ -10818,8 +10917,8 @@ run_helper_screen_probe_command() {
 }
 
 run_helper_sustained_screen_probe_command() {
-  swift build --quiet --product VNCLiveStimulusWindow
-  local stimulus_executable="$repo_root/.build/debug/VNCLiveStimulusWindow"
+  benchmark_build VNCLiveStimulusWindow
+  local stimulus_executable="$(benchmark_bin_dir)/VNCLiveStimulusWindow"
   local stimulus_duration="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_DURATION_SECONDS:-8}"
   local stimulus_frame_interval="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_FRAME_INTERVAL_SECONDS:-0.0333333333}"
   local stimulus_warmup="${NARU_HELPER_VIDEO_SCREEN_STIMULUS_WARMUP_SECONDS:-0.35}"
@@ -11902,7 +12001,7 @@ case "$mode" in
     reject_extra_args
     cd "$repo_root"
     if [[ -z "${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-}" ]]; then
-      swift build --quiet --product VNCLiveStimulusWindow
+      benchmark_build VNCLiveStimulusWindow
     fi
     print_helper_text_live_gate_report
     ;;
@@ -11969,7 +12068,7 @@ case "$mode" in
     import_helper_env
     cd "$repo_root"
     if [[ -z "${NARU_HELPER_TEXT_OBSERVATION_TARGET_EXECUTABLE:-}" ]]; then
-      swift build --quiet --product VNCLiveStimulusWindow
+      benchmark_build VNCLiveStimulusWindow
     fi
     print_helper_text_observed_probe_report
     ;;
@@ -12001,8 +12100,8 @@ case "$mode" in
     reject_extra_flag --helper-video-probe
     import_live_env
     cd "$repo_root"
-    swift build --quiet --product VNCLiveStimulusWindow
-    export NARU_TEXT_KEYSTROKE_OBSERVATION_TARGET_EXECUTABLE="$repo_root/.build/debug/VNCLiveStimulusWindow"
+    benchmark_build VNCLiveStimulusWindow
+    export NARU_TEXT_KEYSTROKE_OBSERVATION_TARGET_EXECUTABLE="$(benchmark_bin_dir)/VNCLiveStimulusWindow"
     run_benchmark_with_extra \
       --text-keystroke-observed-probe-only \
       --text-keystroke-probe-payload unicode-hangul \
@@ -12018,8 +12117,8 @@ case "$mode" in
     reject_extra_flag --helper-video-probe
     import_live_env
     cd "$repo_root"
-    swift build --quiet --product VNCLiveStimulusWindow
-    export NARU_POINTER_HOVER_OBSERVATION_TARGET_EXECUTABLE="$repo_root/.build/debug/VNCLiveStimulusWindow"
+    benchmark_build VNCLiveStimulusWindow
+    export NARU_POINTER_HOVER_OBSERVATION_TARGET_EXECUTABLE="$(benchmark_bin_dir)/VNCLiveStimulusWindow"
     run_benchmark_with_extra \
       --pointer-hover-observed-probe-only \
       --timeout 15 \
@@ -12107,6 +12206,9 @@ case "$mode" in
     ;;
   viewport-interaction-trace-self-test)
     viewport_interaction_trace_self_test
+    ;;
+  measurement-configuration-self-test)
+    measurement_configuration_self_test
     ;;
   request-pipeline-sweep)
     import_live_env
