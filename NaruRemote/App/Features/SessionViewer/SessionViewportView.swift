@@ -1346,14 +1346,46 @@ public struct SessionViewportView: View {
                 panOffset: panOffset,
                 maxZoomScale: Self.maxZoomScale
             )
-            Image(systemName: "cursorarrow")
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.55), radius: 2, x: 0, y: 1)
-                .position(point)
+            // Spec 023 FR-006/FR-008: place the glyph so its *tip* lands on the
+            // cursor position. `.position` centres the view on its argument, and
+            // the arrow tip is far from the glyph's centre, so centring here is
+            // what made the drawn tip miss the clicked pixel.
+            trackpadCursorGlyph
+                .position(
+                    TrackpadCursorGlyph.center(
+                        placingTipAt: point,
+                        tipOffsetFromCenter: TrackpadCursorGlyph.tipOffsetFromCenter
+                    )
+                )
         }
         .allowsHitTesting(false)
         .accessibilityIdentifier("naru.session.cursor")
+    }
+
+    /// The fallback cursor artwork itself. On iOS this is the very image the
+    /// Metal hot path draws, so the two overlays cannot drift in size or shape
+    /// (spec 023 FR-008).
+    @ViewBuilder
+    private var trackpadCursorGlyph: some View {
+        #if canImport(UIKit)
+        if let image = TrackpadCursorGlyph.image {
+            Image(uiImage: image)
+                .renderingMode(.template)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.55), radius: 2, x: 0, y: 1)
+        } else {
+            trackpadCursorSymbolGlyph
+        }
+        #else
+        trackpadCursorSymbolGlyph
+        #endif
+    }
+
+    private var trackpadCursorSymbolGlyph: some View {
+        Image(systemName: TrackpadCursorGlyph.symbolName)
+            .font(.system(size: TrackpadCursorGlyph.pointSize, weight: .regular))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.55), radius: 2, x: 0, y: 1)
     }
 
     @ViewBuilder

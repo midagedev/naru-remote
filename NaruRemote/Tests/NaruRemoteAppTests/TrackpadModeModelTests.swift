@@ -36,11 +36,27 @@ final class TrackpadModeModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(120))
     }
 
-    func testDefaultPointerControlModeIsDirectTouch() {
+    /// Spec 023 FR-001: trackpad is the product default. Before a session
+    /// exists there is no remote coordinate space, so the cursor stays
+    /// unplaced — it is centred by FR-002 the moment the space is known.
+    func testDefaultPointerControlModeIsTrackpad() {
         let model = NaruRemoteAppModel()
-        XCTAssertEqual(model.pointerControlMode, .directTouch)
+        XCTAssertEqual(model.pointerControlMode, .trackpad)
         XCTAssertEqual(model.pointerControlMode, .productDefault)
         XCTAssertFalse(model.trackpadCursor.isVisible)
+    }
+
+    /// Spec 023 FR-002: the default mode is trackpad, so a fresh connect must
+    /// arrive with the cursor centred and visible — otherwise the user's first
+    /// drag walks the remote pointer out of the framebuffer origin.
+    func testConnectCentersAndShowsCursorWithoutAToggle() async throws {
+        let connector = TrackpadPointerCapturingConnector(width: 200, height: 100)
+        let model = try makeModel(connector: connector)
+        try await connect(model)
+
+        XCTAssertEqual(model.pointerControlMode, .trackpad)
+        XCTAssertTrue(model.trackpadCursor.isVisible)
+        XCTAssertEqual(model.trackpadCursor.position, CGPoint(x: 100, y: 50))
     }
 
     func testToggleIntoTrackpadCentersAndShowsCursor() async throws {
@@ -48,6 +64,9 @@ final class TrackpadModeModelTests: XCTestCase {
         let model = try makeModel(connector: connector)
         try await connect(model)
 
+        // Out of the default and back in — the toggle still owns the centering.
+        model.togglePointerControlMode()
+        XCTAssertEqual(model.pointerControlMode, .directTouch)
         model.togglePointerControlMode()
 
         XCTAssertEqual(model.pointerControlMode, .trackpad)
@@ -61,7 +80,6 @@ final class TrackpadModeModelTests: XCTestCase {
         let model = try makeModel(connector: connector)
         try await connect(model)
 
-        model.togglePointerControlMode()
         XCTAssertTrue(model.trackpadCursor.isVisible)
 
         model.togglePointerControlMode()
@@ -70,9 +88,11 @@ final class TrackpadModeModelTests: XCTestCase {
     }
 
     func testToggleWithoutFramebufferCentersOnDefaultSize() {
-        // No connect → no framebuffer.  Toggle must not crash and must
-        // still show a centered cursor on the default size.
+        // No connect → no framebuffer.  Round-tripping the toggle must not
+        // crash and must still show a centered cursor on the default size.
         let model = NaruRemoteAppModel()
+        model.togglePointerControlMode()
+        XCTAssertEqual(model.pointerControlMode, .directTouch)
         model.togglePointerControlMode()
         XCTAssertEqual(model.pointerControlMode, .trackpad)
         XCTAssertTrue(model.trackpadCursor.isVisible)
@@ -83,13 +103,14 @@ final class TrackpadModeModelTests: XCTestCase {
         let model = try makeModel(connector: connector)
         try await connect(model)
 
-        model.togglePointerControlMode()
         XCTAssertEqual(model.pointerControlMode, .trackpad)
         XCTAssertTrue(model.trackpadCursor.isVisible)
 
         model.disconnect()
 
-        XCTAssertEqual(model.pointerControlMode, .directTouch)
+        // Back to the product default with the cursor unplaced — the position
+        // must not leak into the next session (spec 003 T014).
+        XCTAssertEqual(model.pointerControlMode, .productDefault)
         XCTAssertFalse(model.trackpadCursor.isVisible)
     }
 

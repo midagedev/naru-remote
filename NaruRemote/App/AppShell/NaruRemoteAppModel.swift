@@ -4162,6 +4162,26 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func setInputCoordinateSpace(width: Int, height: Int) {
         inputCoordinateSpace = RemoteFramebufferCoordinateSpace(width: width, height: height)
+        centerTrackpadCursorIfUnplaced()
+    }
+
+    /// Place the trackpad cursor the moment the remote coordinate space
+    /// becomes known (spec 023 FR-002). Trackpad is the product default,
+    /// so a fresh session would otherwise start with an invisible cursor
+    /// parked at the framebuffer origin and the user's first drag would
+    /// walk the remote pointer out of the top-left corner.
+    ///
+    /// Only an *unplaced* cursor is moved: a later coordinate-space
+    /// update (a DesktopSize resize, a scale round-trip) must never
+    /// teleport a cursor the user has already positioned. Constitution
+    /// §IV: the position is published to the view and never logged.
+    private func centerTrackpadCursorIfUnplaced() {
+        guard pointerControlMode.isTrackpad,
+              !resolvedTrackpadCursor.isVisible
+        else {
+            return
+        }
+        publishTrackpadCursor(.centered(in: currentFramebufferSize), immediately: true)
     }
 
     private func currentInputCoordinateSpace() -> RemoteFramebufferCoordinateSpace? {

@@ -7,8 +7,11 @@ final class PointerControlTests: XCTestCase {
 
     // MARK: PointerControlMode
 
-    func testProductDefaultIsDirectTouch() {
-        XCTAssertEqual(PointerControlMode.productDefault, .directTouch)
+    /// Trackpad since 2026-08-21 (spec 023 FR-001, founder direction). The
+    /// previous assertion pinned `.directTouch`; this is a deliberate product
+    /// change, not a relaxed gate.
+    func testProductDefaultIsTrackpad() {
+        XCTAssertEqual(PointerControlMode.productDefault, .trackpad)
         XCTAssertFalse(PointerControlMode.directTouch.isTrackpad)
         XCTAssertTrue(PointerControlMode.trackpad.isTrackpad)
     }

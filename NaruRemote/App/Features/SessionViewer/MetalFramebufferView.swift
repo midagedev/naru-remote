@@ -550,10 +550,14 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private weak var metalView: MTKView?
     private weak var coordinator: MetalFramebufferView.Coordinator?
     private let hotCursorView = UIImageView()
-    private static let fallbackHotCursorImage = UIImage(systemName: "cursorarrow")
+    // Spec 023 FR-007/FR-008: the glyph keeps its natural box (it used to be
+    // forced into a 22x22 square with `.scaleToFill`, which distorted the arrow
+    // and moved its tip), and `TrackpadCursorGlyph` is the single owner of both
+    // the artwork and where its tip sits inside that box.
+    private static let fallbackHotCursorImage = TrackpadCursorGlyph.image
     private static let fallbackHotCursorBounds = CGRect(
         origin: .zero,
-        size: CGSize(width: 22, height: 22)
+        size: TrackpadCursorGlyph.glyphSize
     )
 
     /// Closure invoked on a tap inside the host view.  Reassigned by
@@ -781,7 +785,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
 
         hotCursorView.isHidden = true
         hotCursorView.isUserInteractionEnabled = false
-        hotCursorView.contentMode = .scaleToFill
+        hotCursorView.contentMode = .scaleAspectFit
         hotCursorView.tintColor = .white
         hotCursorView.layer.shadowColor = UIColor.black.cgColor
         hotCursorView.layer.shadowOpacity = 0.55
@@ -2095,8 +2099,15 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             if hotCursorView.bounds != Self.fallbackHotCursorBounds {
                 hotCursorView.bounds = Self.fallbackHotCursorBounds
             }
-            if hotCursorView.center != anchor {
-                hotCursorView.center = anchor
+            // The glyph's *tip* is the hotspot, not its centre (spec 023
+            // FR-006). Placing the centre on the anchor is what made the drawn
+            // arrow point up-and-left of the pixel being clicked.
+            let fallbackCenter = TrackpadCursorGlyph.center(
+                placingTipAt: anchor,
+                tipOffsetFromCenter: TrackpadCursorGlyph.tipOffsetFromCenter
+            )
+            if hotCursorView.center != fallbackCenter {
+                hotCursorView.center = fallbackCenter
             }
         }
 

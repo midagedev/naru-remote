@@ -25,8 +25,10 @@ public struct ViewportTransform: Equatable, Sendable {
     public let maxZoomScale: CGFloat
     /// User pinch zoom multiplier, clamped to `[1, maxZoomScale]`.
     public let zoomScale: CGFloat
-    /// Pan translation in view points, clamped so content edges stay
-    /// flush against the view (no out-of-bounds background revealed).
+    /// Pan translation in view points, clamped so horizontal content
+    /// edges stay flush against the view. Vertically, an overflowing
+    /// axis is additionally allowed `verticalPanBand` points of travel
+    /// past flush — see that property.
     public let panOffset: CGSize
     private let resolvedFitScale: CGFloat
     private let resolvedDisplayScale: CGFloat
@@ -235,9 +237,50 @@ public struct ViewportTransform: Equatable, Sendable {
         return Swift.min(view.width / fb.width, view.height / fb.height)
     }
 
+    /// Extra vertical pan travel allowed past flush on an axis that is
+    /// already overflowing the viewport — the top/bottom breathing band
+    /// (spec 023 FR-003).
+    ///
+    /// Why it exists: a live session draws its own chrome over the
+    /// viewport (the immersive action bar at the top, the floating input
+    /// dock at the bottom), and a flush-only clamp means the remote
+    /// screen's first and last rows can *only* rest underneath that
+    /// chrome. Trackpad mode has no one-finger pan to work around it —
+    /// moving the view is auto-pan only — so without the band the remote
+    /// Dock and menu bar are reachable but not comfortably clickable.
+    ///
+    /// Sized to `PointerGestureResolver`'s auto-pan follow margin so a
+    /// cursor pushed to the bottom edge comes to rest on the follow line
+    /// with the remote screen's bottom row above the dock. It is not a
+    /// rubber band: pan parked inside it stays parked (FR-005).
+    public static func verticalPanBand(viewSize: CGSize) -> CGFloat {
+        guard viewSize.height.isFinite, viewSize.height > 0 else { return 0 }
+        return Swift.min(96, viewSize.height * 0.16)
+    }
+
+    /// The band actually applied to this transform: zero unless the
+    /// vertical axis overflows the viewport.
+    public var verticalPanBand: CGFloat {
+        Self.verticalPanBand(
+            contentSize: resolvedContentSize,
+            viewSize: viewSize
+        )
+    }
+
+    static func verticalPanBand(contentSize: CGSize, viewSize: CGSize) -> CGFloat {
+        // Gate on real overflow, not on `zoomScale > 1`: at fit scale (and at
+        // any zoom that still leaves the content inside the viewport) the
+        // letterbox already provides the breathing room, and letting the
+        // fitted image drift inside its own bands would be a new defect
+        // (FR-004).
+        guard (contentSize.height - viewSize.height) / 2 > 0.5 else { return 0 }
+        return verticalPanBand(viewSize: viewSize)
+    }
+
     static func clampPan(_ pan: CGSize, contentSize: CGSize, viewSize: CGSize) -> CGSize {
         let maxX = Swift.max(0, (contentSize.width - viewSize.width) / 2)
         let maxY = Swift.max(0, (contentSize.height - viewSize.height) / 2)
+            + verticalPanBand(contentSize: contentSize, viewSize: viewSize)
         return CGSize(
             width: Swift.min(Swift.max(pan.width, -maxX), maxX),
             height: Swift.min(Swift.max(pan.height, -maxY), maxY)

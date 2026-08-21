@@ -156,8 +156,25 @@ same PR.
    widen to full-frame on hold, widen counter for observability). **Gate gap
    closed**: the fakes had no region semantics, so no unit/simulator test
    could fail on a stale region — a region-aware fake now reproduces the dead
-   stream deterministically in 0.2 s. Remaining: an app-model liveness gate
-   (T005) and HUD surfacing (T006).
+   stream deterministically in 0.2 s. Simulator E2E liveness gate landed
+   2026-08-21 (T005 — the lead reproduces the freeze itself). Remaining: HUD
+   surfacing of the widen counter (T006).
+1k. **`specs/023` trackpad-first pointing — implemented 2026-08-21**. Three
+   founder findings in one gesture loop. (a) `PointerControlMode.productDefault`
+   is now `.trackpad` — precision pointing is the phone baseline, not the
+   exception — and the cursor is centred the moment the remote coordinate space
+   arrives so the first drag does not walk the pointer out of the origin.
+   (b) The pan clamp gained a vertical breathing band (`min(96, height*0.16)`,
+   only on an overflowing axis) so the remote screen's bottom row can be parked
+   clear of the floating input dock; trackpad mode has no one-finger pan, so
+   auto-pan reaching into the band is the only way there. Verified visually
+   FAIL-first: with the band at 0 the remote Dock row sits behind the
+   Type/Compose pill. (c) Both cursor render paths placed the fallback glyph's
+   *box centre* on the click point, and the SF Symbol's tip is 6.5pt left /
+   10pt above that centre (measured) — a ~12pt lie. `TrackpadCursorGlyph` now
+   owns the artwork and its measured tip offset for both paths, and the Metal
+   path stopped squashing the arrow into a 22×22 box. Remaining: founder device
+   pass (T006).
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

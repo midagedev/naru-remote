@@ -14,10 +14,15 @@ public enum PointerControlMode: String, Sendable, Equatable, CaseIterable, Codab
     case directTouch
     case trackpad
 
-    /// Applied on every fresh session start. Direct-touch preserves
-    /// the established tap-where-you-touch behavior; trackpad is one
-    /// tap away in the control bar.
-    public static let productDefault: PointerControlMode = .directTouch
+    /// Applied on every fresh session start.
+    ///
+    /// Trackpad since 2026-08-21 (spec 023 FR-001, founder direction
+    /// "트랙패드 모드를 기본 입력모드로"): the canonical scenario is
+    /// precision work on a phone-sized viewport, where an absolute
+    /// fat-finger tap is the exception rather than the baseline. This is
+    /// also Chrome Remote Desktop's default. Direct touch stays one tap
+    /// away in the control bar and is otherwise unchanged.
+    public static let productDefault: PointerControlMode = .trackpad
 
     public var isTrackpad: Bool { self == .trackpad }
 }

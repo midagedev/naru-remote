@@ -85,6 +85,114 @@ final class ViewportTransformTests: XCTestCase {
         XCTAssertEqual(panned.panOffset.width, maxX, accuracy: 1e-3)
     }
 
+    // MARK: - Vertical breathing band (spec 023 FR-003..FR-005)
+
+    func testZoomedVerticalPanReachesPastFlushByTheBreathingBand() {
+        let square = CGSize(width: 1000, height: 500)
+        let transform = ViewportTransform(
+            framebufferSize: square,
+            viewSize: square,
+            zoomScale: 2,
+            panOffset: CGSize(width: 0, height: 10_000)
+        )
+        let flushMaxY = (transform.contentSize.height - square.height) / 2
+        let band = ViewportTransform.verticalPanBand(viewSize: square)
+
+        XCTAssertEqual(band, 80, accuracy: 1e-6) // 500 * 0.16, under the 96 cap
+        XCTAssertEqual(transform.verticalPanBand, band, accuracy: 1e-6)
+        XCTAssertEqual(transform.panOffset.height, flushMaxY + band, accuracy: 1e-3)
+    }
+
+    func testVerticalBandIsSymmetricSoTheTopRowClearsChromeToo() {
+        let square = CGSize(width: 1000, height: 500)
+        let transform = ViewportTransform(
+            framebufferSize: square,
+            viewSize: square,
+            zoomScale: 2,
+            panOffset: CGSize(width: 0, height: -10_000)
+        )
+        let flushMaxY = (transform.contentSize.height - square.height) / 2
+
+        XCTAssertEqual(
+            transform.panOffset.height,
+            -(flushMaxY + ViewportTransform.verticalPanBand(viewSize: square)),
+            accuracy: 1e-3
+        )
+    }
+
+    func testHorizontalPanStaysFlushWhileTheVerticalBandApplies() {
+        let square = CGSize(width: 1000, height: 500)
+        let transform = ViewportTransform(
+            framebufferSize: square,
+            viewSize: square,
+            zoomScale: 2,
+            panOffset: CGSize(width: 10_000, height: 10_000)
+        )
+
+        XCTAssertEqual(
+            transform.panOffset.width,
+            (transform.contentSize.width - square.width) / 2,
+            accuracy: 1e-3
+        )
+        XCTAssertGreaterThan(transform.verticalPanBand, 0)
+    }
+
+    func testNoVerticalBandWhileTheContentStillFitsVertically() {
+        // A wide desktop in portrait is letterboxed: at fit — and at any zoom
+        // that keeps the content shorter than the view — the bands already are
+        // the breathing room, so pan must stay locked at zero (FR-004).
+        let fit = ViewportTransform(framebufferSize: fb, viewSize: portrait)
+        let unstretched = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: portrait,
+            zoomScale: 2,
+            panOffset: CGSize(width: 0, height: 10_000)
+        )
+
+        XCTAssertEqual(fit.verticalPanBand, 0, accuracy: 1e-9)
+        XCTAssertLessThan(unstretched.contentSize.height, portrait.height)
+        XCTAssertEqual(unstretched.verticalPanBand, 0, accuracy: 1e-9)
+        XCTAssertEqual(unstretched.panOffset.height, 0, accuracy: 1e-9)
+    }
+
+    func testVerticalBandIsCappedForTallViewports() {
+        let tall = CGSize(width: 400, height: 1200)
+        XCTAssertEqual(ViewportTransform.verticalPanBand(viewSize: tall), 96, accuracy: 1e-9)
+    }
+
+    func testAutoPanRevealReachesIntoTheVerticalBand() {
+        // The bottom row of the remote screen must be liftable off the view's
+        // bottom edge — this is the whole point of the band, and trackpad mode
+        // can only get there through `panToReveal`.
+        let square = CGSize(width: 1000, height: 500)
+        let zoomed = ViewportTransform(
+            framebufferSize: square,
+            viewSize: square,
+            zoomScale: 2,
+            panOffset: CGSize(width: 0, height: 10_000)
+        )
+        let flushMaxY = (zoomed.contentSize.height - square.height) / 2
+        let bottomRow = CGPoint(x: 500, y: 499)
+
+        // Bottom edge flush with the view's bottom: content is pushed up, so
+        // the pan is negative. Revealing the bottom row must push further.
+        let flushAtBottom = ViewportTransform(
+            framebufferSize: square,
+            viewSize: square,
+            zoomScale: 2,
+            panOffset: CGSize(width: 0, height: -flushMaxY)
+        )
+        XCTAssertEqual(flushAtBottom.panOffset.height, -flushMaxY, accuracy: 1e-6)
+
+        let revealed = flushAtBottom.panToReveal(framebufferPoint: bottomRow, margin: 88)
+
+        XCTAssertLessThan(revealed.panOffset.height, -flushMaxY)
+        XCTAssertGreaterThanOrEqual(
+            revealed.panOffset.height,
+            -(flushMaxY + ViewportTransform.verticalPanBand(viewSize: square)) - 1e-3
+        )
+    }
+
     func testZoomAboutAnchorKeepsAnchorPixelFixed() {
         let transform = ViewportTransform(framebufferSize: fb, viewSize: sixteenByNine)
         let anchor = CGPoint(x: 200, y: 100)
