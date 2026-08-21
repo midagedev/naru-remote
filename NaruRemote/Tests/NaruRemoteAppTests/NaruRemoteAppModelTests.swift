@@ -5370,6 +5370,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.sendComposedText("status", pasteCommand: .commandV)
         try await waitForHelperInsertRequests(helper, count: 1)
+        try await waitForComposeSendState(model, .sent)
 
         XCTAssertEqual(helper.insertedTexts, ["status"])
         XCTAssertEqual(helper.requests.first?.strategyPreferences, [.nativeInsert])
@@ -5395,6 +5396,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .controlV)
         try await waitForHelperInsertRequests(helper, count: 2)
+        try await waitForComposeSendState(model, .sent)
 
         XCTAssertEqual(helper.insertedTexts, ["status", "한글과 English 😊"])
         XCTAssertEqual(helper.requests.last?.strategyPreferences, [.nativeInsert])
@@ -5845,6 +5847,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
         try await waitForNetworkHelperInsertRequests(recorder, count: 1)
+        try await waitForComposeSendState(model, .sent)
 
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
         XCTAssertTrue(connector.pasteCommands.isEmpty)
@@ -8501,6 +8504,35 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTFail("Timed out waiting for helper server port.", file: file, line: line)
         throw HelperTextBridgeError.unavailable(.unreachable)
+    }
+
+    /// Waits for the state the caller is about to assert.
+    ///
+    /// Waiting on the helper *receiving* a request and then asserting the
+    /// model's send state is a proxy wait: the request arriving is not the same
+    /// event as the model finishing with the response. Measured 2026-08-21, that
+    /// gap made `testModelRoutesUTF8ComposeThroughStoredHelperProfileTransport`
+    /// fail in a loaded full-suite run (`sending` where `sent` was expected)
+    /// while passing five times out of five in isolation.
+    private func waitForComposeSendState(
+        _ model: NaruRemoteAppModel,
+        _ expectedState: ComposeSendState,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<250 {
+            if model.snapshot.composeDraft?.sendState == expectedState {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(
+            model.snapshot.composeDraft?.sendState,
+            expectedState,
+            file: file,
+            line: line
+        )
     }
 
     private func waitForNetworkHelperInsertRequests(

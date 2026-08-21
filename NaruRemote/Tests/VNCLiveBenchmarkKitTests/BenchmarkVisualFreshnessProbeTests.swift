@@ -230,6 +230,73 @@ final class BenchmarkVisualFreshnessProbeTests: XCTestCase {
         XCTAssertNotNil(next.freshnessMilliseconds)
     }
 
+    /// A false marker match is rejected, and — this is the part that bit once —
+    /// rejecting it must not poison the probe. An accidental decode can carry an
+    /// arbitrarily large sequence, so if the monotonic high-water mark were
+    /// raised before checking that the sequence was actually rendered, every
+    /// later true read would be rejected forever.
+    func testAnImpossibleSequenceIsRejectedWithoutBlindingTheProbe() throws {
+        let sidecarURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("naru-freshness-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: sidecarURL)
+        }
+
+        BenchmarkVisualFreshnessSidecar.append(sequence: 5, to: sidecarURL.path)
+        let probe = BenchmarkVisualFreshnessProbe(sidecarPath: sidecarURL.path)
+
+        // A decode of something the host never rendered, with a huge sequence.
+        var bogus = RFBRawFramebuffer(
+            width: 360,
+            height: 160,
+            fill: RFBColor(red: 0, green: 0, blue: 0)
+        )
+        drawMarker(sequence: 0x0FFF_FFF0, x: 20, y: 20, cellSize: 20, framebuffer: &bogus)
+        XCTAssertNil(probe.observe(framebuffer: bogus))
+        XCTAssertEqual(probe.regressedObservationCount, 1)
+
+        // The real marker is still measurable afterwards.
+        var real = RFBRawFramebuffer(
+            width: 360,
+            height: 160,
+            fill: RFBColor(red: 0, green: 0, blue: 0)
+        )
+        drawMarker(sequence: 5, x: 20, y: 20, cellSize: 20, framebuffer: &real)
+        let observation = try XCTUnwrap(probe.observe(framebuffer: real))
+        XCTAssertEqual(observation.sequence, 5)
+        XCTAssertNotNil(observation.freshnessMilliseconds)
+    }
+
+    func testASequenceThatGoesBackwardsIsRejected() throws {
+        let sidecarURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("naru-freshness-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: sidecarURL)
+        }
+
+        BenchmarkVisualFreshnessSidecar.append(sequence: 3, to: sidecarURL.path)
+        BenchmarkVisualFreshnessSidecar.append(sequence: 9, to: sidecarURL.path)
+        let probe = BenchmarkVisualFreshnessProbe(sidecarPath: sidecarURL.path)
+
+        var framebuffer = RFBRawFramebuffer(
+            width: 360,
+            height: 160,
+            fill: RFBColor(red: 0, green: 0, blue: 0)
+        )
+        drawMarker(sequence: 9, x: 20, y: 20, cellSize: 20, framebuffer: &framebuffer)
+        XCTAssertNotNil(try XCTUnwrap(probe.observe(framebuffer: framebuffer)).freshnessMilliseconds)
+
+        // The on-screen marker never counts down, so this is not the marker.
+        var earlier = RFBRawFramebuffer(
+            width: 360,
+            height: 160,
+            fill: RFBColor(red: 0, green: 0, blue: 0)
+        )
+        drawMarker(sequence: 3, x: 20, y: 20, cellSize: 20, framebuffer: &earlier)
+        XCTAssertNil(probe.observe(framebuffer: earlier))
+        XCTAssertEqual(probe.regressedObservationCount, 1)
+    }
+
     func testMarkerStatusSeparatesAStalledMarkerFromAStalePicture() {
         XCTAssertEqual(
             BenchmarkVisualFreshnessMarkerStatus(observationCount: 0, deliveredSequenceCount: 0),

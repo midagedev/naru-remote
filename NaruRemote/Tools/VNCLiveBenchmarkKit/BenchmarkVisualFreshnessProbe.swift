@@ -283,6 +283,11 @@ public final class BenchmarkVisualFreshnessProbe {
     private let sidecarPath: String
     private var eventsBySequence: [Int: UInt64] = [:]
     private var lastReportedSequence: Int?
+    private var highestObservedSequence: Int?
+    /// Observations rejected because their sequence went backwards. Exposed so a
+    /// caller can tell "the marker was not found" from "the decoder found
+    /// something that cannot be the marker".
+    public private(set) var regressedObservationCount = 0
 
     public init(sidecarPath: String) {
         self.sidecarPath = sidecarPath
@@ -318,26 +323,54 @@ public final class BenchmarkVisualFreshnessProbe {
         guard let markerObservation = BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer) else {
             return nil
         }
+        // Reject decodes that cannot be the marker.
+        //
+        // The decoder scans every cell size from 96 down to 8 across several
+        // framebuffer bands and returns the first match, and the match test is
+        // four sentinel nibbles plus a four-bit checksum — twenty bits against
+        // millions of candidate positions per frame, which makes accidental
+        // matches expected rather than exceptional. A false match preempts the
+        // real marker because it is found first, and if its bogus sequence
+        // happens to exist in the sidecar the probe charges the whole elapsed run
+        // to the transport as staleness. That is what was left after spec 027:
+        // reported maxima kept tracking the run length (0.2 s in a 5 s run,
+        // 9.2 s in 15 s, 35.2 s in 40 s) even with each marker timed once, at
+        // render.
+        //
+        // Three properties of the stimulus reject them, in this order, and the
+        // order matters. A sequence the host has not rendered cannot be on
+        // screen, and a sequence beyond the newest rendered one cannot exist
+        // yet; both are checked *before* the monotonic high-water mark is
+        // touched. Doing it the other way round is a trap this went through: a
+        // single false match with a huge sequence sets the high-water mark out of
+        // reach and every later true read is rejected forever, which looked like
+        // a fixed metric (maxima collapsed) while actually reporting almost
+        // nothing (deliveries fell from 22–37 to 1–8 per run).
+        refreshEvents()
+        let sequence = markerObservation.sequence
+        let generatedAt = eventsBySequence[sequence]
+        let newestGeneratedSequence = eventsBySequence.keys.max()
+        let isImpossibleSequence = generatedAt == nil
+            || (newestGeneratedSequence.map { sequence > $0 } ?? true)
+        let hasRegressed = highestObservedSequence.map { sequence < $0 } ?? false
+        guard !isImpossibleSequence, !hasRegressed else {
+            regressedObservationCount += 1
+            return nil
+        }
+        highestObservedSequence = Swift.max(highestObservedSequence ?? sequence, sequence)
+
         let markerLocation = BenchmarkVisualFreshnessMarkerLocation(
             centerX: markerObservation.centerX,
             centerY: markerObservation.centerY
         )
-        guard markerObservation.sequence != lastReportedSequence else {
+        guard sequence != lastReportedSequence, let generatedAt else {
             return BenchmarkVisualFreshnessObservation(
-                sequence: markerObservation.sequence,
+                sequence: sequence,
                 freshnessMilliseconds: nil,
                 markerLocation: markerLocation
             )
         }
-        refreshEvents()
-        guard let generatedAt = eventsBySequence[markerObservation.sequence] else {
-            return BenchmarkVisualFreshnessObservation(
-                sequence: markerObservation.sequence,
-                freshnessMilliseconds: nil,
-                markerLocation: markerLocation
-            )
-        }
-        lastReportedSequence = markerObservation.sequence
+        lastReportedSequence = sequence
         let now = BenchmarkVisualFreshnessSidecar.currentUptimeNanoseconds()
         let elapsedNanoseconds = now >= generatedAt ? now - generatedAt : 0
         return BenchmarkVisualFreshnessObservation(

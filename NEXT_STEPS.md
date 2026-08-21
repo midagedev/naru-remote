@@ -261,18 +261,32 @@ same PR.
    transport staleness forever) / `tracking`. Delivery and re-read counts are
    published, and a round-trip test pins them against the hand-written
    encoder/decoder pair that dropped them on the first attempt.
-   **What it found**: re-reads outnumber deliveries about four to one (227 vs 50
-   in a 40 s run, status `tracking`), so **~80% of received updates carry no new
-   marker** even with the full framebuffer requested. The server answers with a
-   subset of what changed — a picture refreshed in turns rather than a low frame
-   rate. That is the first measured thing that plausibly matches "느리다".
-   **Still open**: corrected maxima of 4.2–9.2 s are now genuine deliveries,
-   which should be impossible if every delivery carries the marker that was on
-   screen at capture. Next experiment named in the spec: publish the
-   distribution of skipped marker sequences between consecutive deliveries as
-   counts (stays inside §IV) to tell "sampled sparsely" from "delivered late".
-   Until then freshness averages and p95 are **not** a target; the delivery and
-   re-read counts are the trustworthy part.
+   Two further defects were found by continuing rather than stopping at the
+   first: the sidecar timestamp was written from the frame timer *before* the
+   repaint it requested, so it meant "intended at" rather than "rendered at"
+   (fixed — but re-measurement showed it was **not** the cause, so the paint-
+   scheduling hypothesis is rejected); and the marker decoder produces
+   **false positives** — it scans every cell size 96→8 across several bands,
+   returns the first match, and validates only four sentinel nibbles plus a
+   four-bit checksum, which is twenty bits against millions of candidate
+   positions per frame. A false match preempts the real marker and, when its
+   bogus sequence happens to exist in the sidecar, charges the entire elapsed run
+   to the transport. Rejected now by three stimulus properties in a specific
+   order (rendered / not ahead of newest / never counts down); the first two must
+   precede the monotonic high-water mark, because one false match with a huge
+   sequence otherwise blinds the probe permanently — that looked like success
+   (maxima collapsed) while deliveries fell from 22–37 to 1–8 per run. Pinned as
+   its own test.
+   **Result — the staleness was never real.** With all three defects removed:
+   average **125 ms**, p95 135–385 ms, independent of run length (5 / 15 / 40 s).
+   The "median ~1 s, p95 7–13 s" figure was a debug build, then per-observation
+   resampling, then false matches, stacked. Note what the number is: the age of a
+   region *at the moment it arrives* — end-to-end delivery latency — not average
+   screen staleness. Re-reads still outnumber deliveries about five to one, so a
+   given region is refreshed roughly once per five updates.
+   This puts "느리다" back where 1l first placed it: **content frame rate**
+   (~8 fps here, 13.7 against a 30 Hz stimulus), not picture lag. The measured
+   answer stays helper video, blocked on spec 010 T014 pairing.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

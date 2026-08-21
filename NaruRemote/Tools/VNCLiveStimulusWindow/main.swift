@@ -740,6 +740,7 @@ private final class HoverProbeView: NSView {
 
 private final class StimulusView: NSView {
     private var frameIndex = 0
+    private var lastRecordedSequence: Int?
     private var visualFreshnessSidecarPath: String?
 
     override var isFlipped: Bool { true }
@@ -751,24 +752,45 @@ private final class StimulusView: NSView {
         }
     }
 
+    /// Ask for a repaint. The sidecar entry is written from `draw`, not here —
+    /// see `recordDrawnVisualFreshnessFrame`.
     func recordCurrentVisualFreshnessFrame() {
-        guard let visualFreshnessSidecarPath else {
-            return
-        }
-        BenchmarkVisualFreshnessSidecar.append(
-            sequence: frameIndex,
-            to: visualFreshnessSidecarPath
-        )
         needsDisplay = true
     }
 
     func advance() {
         frameIndex += 1
-        recordCurrentVisualFreshnessFrame()
         needsDisplay = true
     }
 
+    /// Records "this sequence was rendered", timed at render.
+    ///
+    /// This used to be written from the frame timer instead, before the repaint
+    /// it requested had happened, which made the sidecar mean "this sequence was
+    /// *intended* at this time". AppKit coalesces and defers drawing for a window
+    /// that is not front or is occluded, so intent and render can be far apart,
+    /// and every millisecond between them was charged to the transport as
+    /// picture staleness. That is a measurement artefact of the same family as
+    /// the persistent-framebuffer re-read that spec 027 removed: it inflates the
+    /// number without anything being wrong downstream.
+    ///
+    /// Written once per rendered sequence. `draw` can run more than once for one
+    /// frame index, and appending twice would record a later time for the same
+    /// sequence, understating its age.
+    private func recordDrawnVisualFreshnessFrame() {
+        guard let visualFreshnessSidecarPath,
+              lastRecordedSequence != frameIndex else {
+            return
+        }
+        lastRecordedSequence = frameIndex
+        BenchmarkVisualFreshnessSidecar.append(
+            sequence: frameIndex,
+            to: visualFreshnessSidecarPath
+        )
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        recordDrawnVisualFreshnessFrame()
         NSColor.black.setFill()
         dirtyRect.fill()
 
