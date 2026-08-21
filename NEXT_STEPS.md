@@ -183,10 +183,11 @@ same PR.
    request/response cadence.~~ **Retracted 2026-08-21 (spec 025)** — that came
    from a debug-built benchmark with a 12 Hz stimulus as the only moving
    content, so it was bounded by the stimulus and inflated by unoptimised
-   decode. Release build at 30 Hz: **13.7 content fps, 16.1 delivered**. There
-   is no ~10 fps server ceiling. Trackpad still did not slow anything — it put a
-   display-rate local cursor next to a picture that lags for other reasons (see
-   the staleness note in 1n).
+   decode. Release build at 30 Hz: 13.7 content fps, 16.1 delivered — and with
+   the instrument fully corrected (see 1o), **17.0 content / ~20 delivered at
+   111 ms delivery latency**. There is no ~10 fps server ceiling. Trackpad still
+   did not slow anything — it put a display-rate local cursor next to a ~17 fps
+   picture.
    Inside that, the benchmark's own primary issue was
    `full-upload-failed`: the upload plan re-uploaded the entire framebuffer
    whenever damage arrived as more than 64 rectangles, even though damage
@@ -277,16 +278,26 @@ same PR.
    sequence otherwise blinds the probe permanently — that looked like success
    (maxima collapsed) while deliveries fell from 22–37 to 1–8 per run. Pinned as
    its own test.
-   **Result — the staleness was never real.** With all three defects removed:
-   average **125 ms**, p95 135–385 ms, independent of run length (5 / 15 / 40 s).
-   The "median ~1 s, p95 7–13 s" figure was a debug build, then per-observation
-   resampling, then false matches, stacked. Note what the number is: the age of a
-   region *at the moment it arrives* — end-to-end delivery latency — not average
-   screen staleness. Re-reads still outnumber deliveries about five to one, so a
-   given region is refreshed roughly once per five updates.
-   This puts "느리다" back where 1l first placed it: **content frame rate**
-   (~8 fps here, 13.7 against a 30 Hz stimulus), not picture lag. The measured
-   answer stays helper video, blocked on spec 010 T014 pairing.
+   A **fourth** defect was then found by asking why the report could only account
+   for 32–55% of its own elapsed wall clock: the exhaustive marker search was
+   eating the rest. Probe off vs on, everything else held — content fps
+   **17.8 vs 8.1**, accounted time **97–98% vs 32–55%**. So every frame-rate
+   number ever taken from a freshness-enabled run in this repo was depressed by
+   roughly half by the instrument. Two obvious fixes were measured and did
+   nothing (caching the marker placement; reading the sidecar incrementally
+   instead of re-parsing ~1000 lines per observation — kept anyway, but not the
+   cause), because the cost is in the frame where the marker does *not* decode:
+   the full search runs, finds nothing, and pays the maximum price to learn that.
+   A failed search now buys silence for 60 observations.
+   **Corrected numbers for the VNC path** (real Screen Sharing, loopback, 30 Hz
+   stimulus, release build): **content 17.0 fps, delivered ~20 fps, picture
+   delivery latency 111 ms average / 135 ms p95**, 88–95% of elapsed time
+   accounted for, probe overhead ~5%.
+   **This retires the "VNC is stuck near 10 fps" line everywhere in this repo.**
+   The founder's "느리다" was being diagnosed against numbers that were half real.
+   Helper video (`upTo30`, `smooth`, `decodePressure: low`) is still the higher
+   ceiling and still blocked on spec 010 T014 pairing — but it is now an
+   improvement over a working baseline, not a rescue.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

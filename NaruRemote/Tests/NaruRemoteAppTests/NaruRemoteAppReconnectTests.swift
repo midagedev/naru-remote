@@ -54,7 +54,15 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await waitFor { connector.sessionRequests.count >= 2 }
+        // Wait for the frame accounting this test asserts, not just for the
+        // reconnect to be requested. Waiting on the request count alone is a
+        // proxy: it went green while the post-reconnect frames were still being
+        // counted, and the delivered-frame assertion read 1 instead of 3 on a
+        // loaded runner (2026-08-21) while passing on an idle one.
+        try await waitFor {
+            connector.sessionRequests.count >= 2
+                && model.snapshot.sessionStreamStats.deliveredFrameCount >= 3
+        }
 
         // Two streaming connects total: the original + one
         // reconnect.  The reconnect uses the same host/port and the
@@ -125,7 +133,9 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await waitFor { connector.sessionRequests.count >= 3 }
+        try await waitFor {
+            connector.sessionRequests.count >= 3 && model.snapshot.session?.state == .active
+        }
 
         // Three connects total (initial + two reconnects).  Both
         // drops were within the policy budget because each fresh

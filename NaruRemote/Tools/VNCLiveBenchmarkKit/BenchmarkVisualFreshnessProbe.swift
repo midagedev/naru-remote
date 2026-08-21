@@ -86,9 +86,36 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
     }
 
     public static func decodeObservation(in framebuffer: RFBRawFramebuffer) -> BenchmarkVisualFreshnessMarkerObservation? {
+        decodeObservation(in: framebuffer, hint: nil)
+    }
+
+    /// Decodes the marker, trying `hint`'s placement before searching.
+    ///
+    /// The search is the expensive part of this whole probe by a wide margin: it
+    /// walks every cell size from 96 down to 8 over several framebuffer bands,
+    /// stepping a fraction of a cell each time, which is millions of candidate
+    /// positions per frame. Measured 2026-08-21 against the live target, running
+    /// it on every received update cost **more than half of the benchmark's wall
+    /// clock** — content frames per second read 8.1 with the probe enabled and
+    /// 17.8 with it disabled, and the share of elapsed time the report could
+    /// account for went from 32–55% to 97–98%. Every frame-rate number ever
+    /// taken from a freshness-enabled run was depressed by roughly half by the
+    /// instrument itself.
+    ///
+    /// The marker does not move within a run, so the placement of the last
+    /// successful decode is tried first and the search is the fallback. That
+    /// turns the steady state into thirteen samples per frame.
+    public static func decodeObservation(
+        in framebuffer: RFBRawFramebuffer,
+        hint: BenchmarkVisualFreshnessMarkerObservation?
+    ) -> BenchmarkVisualFreshnessMarkerObservation? {
         guard framebuffer.width >= markerCellCount * minimumDecodedCellSize,
               framebuffer.height >= minimumDecodedCellSize else {
             return nil
+        }
+
+        if let hint, let hinted = decodeObservation(in: framebuffer, at: hint) {
+            return hinted
         }
 
         let cellSizes = stride(from: 96, through: minimumDecodedCellSize, by: -4)
@@ -117,7 +144,10 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
                             return BenchmarkVisualFreshnessMarkerObservation(
                                 sequence: sequence,
                                 centerX: x + (markerCellCount * cellSize) / 2,
-                                centerY: y + cellSize / 2
+                                centerY: y + cellSize / 2,
+                                originX: x,
+                                originY: y,
+                                cellSize: cellSize
                             )
                         }
                         x += step
@@ -128,6 +158,38 @@ public struct BenchmarkVisualFreshnessMarker: Equatable, Sendable {
         }
 
         return nil
+    }
+
+    /// Decodes at exactly one known placement, with no search.
+    ///
+    /// The search is the whole cost of this probe, so a caller that already knows
+    /// where the marker is must be able to ask without risking it.
+    public static func decodeObservation(
+        in framebuffer: RFBRawFramebuffer,
+        at placement: BenchmarkVisualFreshnessMarkerObservation
+    ) -> BenchmarkVisualFreshnessMarkerObservation? {
+        guard placement.cellSize >= minimumDecodedCellSize,
+              placement.originX >= 0,
+              placement.originY >= 0,
+              placement.originX + markerCellCount * placement.cellSize <= framebuffer.width,
+              placement.originY + placement.cellSize <= framebuffer.height,
+              let sequence = decodeSequence(
+                  in: framebuffer,
+                  x: placement.originX,
+                  y: placement.originY,
+                  cellSize: placement.cellSize
+              )
+        else {
+            return nil
+        }
+        return BenchmarkVisualFreshnessMarkerObservation(
+            sequence: sequence,
+            centerX: placement.originX + (markerCellCount * placement.cellSize) / 2,
+            centerY: placement.originY + placement.cellSize / 2,
+            originX: placement.originX,
+            originY: placement.originY,
+            cellSize: placement.cellSize
+        )
     }
 
     private static func searchBands(for framebuffer: RFBRawFramebuffer) -> [SearchBand] {
@@ -271,11 +333,28 @@ public struct BenchmarkVisualFreshnessMarkerObservation: Equatable, Sendable {
     public let sequence: Int
     public let centerX: Int
     public let centerY: Int
+    /// Where the marker was found, so the next decode can look there first
+    /// instead of searching. In-memory only — the encoded observation
+    /// (`BenchmarkVisualFreshnessObservation`) has never carried a coordinate,
+    /// and must not (constitution §IV).
+    public let originX: Int
+    public let originY: Int
+    public let cellSize: Int
 
-    public init(sequence: Int, centerX: Int, centerY: Int) {
+    public init(
+        sequence: Int,
+        centerX: Int,
+        centerY: Int,
+        originX: Int = 0,
+        originY: Int = 0,
+        cellSize: Int = 0
+    ) {
         self.sequence = max(sequence, 0)
         self.centerX = max(centerX, 0)
         self.centerY = max(centerY, 0)
+        self.originX = max(originX, 0)
+        self.originY = max(originY, 0)
+        self.cellSize = max(cellSize, 0)
     }
 }
 
@@ -284,6 +363,55 @@ public final class BenchmarkVisualFreshnessProbe {
     private var eventsBySequence: [Int: UInt64] = [:]
     private var lastReportedSequence: Int?
     private var highestObservedSequence: Int?
+    /// Placement of the last accepted decode, tried first on the next frame.
+    /// Only accepted observations become hints, so a false match cannot pin the
+    /// search to a position that is not the marker.
+    private var placementHint: BenchmarkVisualFreshnessMarkerObservation?
+    private var consumedByteCount: UInt64 = 0
+    private var newestGeneratedSequence: Int?
+    private var searchBackoffObservations = 0
+
+    /// How many observations to skip before searching again after a search that
+    /// found nothing, or after the known placement stopped decoding.
+    ///
+    /// The exhaustive search costs more than everything else this probe does
+    /// combined, and the case that matters is not the happy one — it is the
+    /// frame where the marker is *not* decodable, because then the full search
+    /// runs and finds nothing, and pays the maximum price to learn that. Live
+    /// measurement 2026-08-21 showed the probe roughly halving the frame rate it
+    /// was measuring: content frames per second read 6-8 with it enabled against
+    /// 17.8 with it disabled, and the elapsed time the report could account for
+    /// fell to 19-37%. Neither caching the placement nor reading the sidecar
+    /// incrementally moved that, because the misses were where the cost lived.
+    ///
+    /// So a failed search buys silence for this many observations. Freshness is
+    /// sampled per delivery anyway, so skipping observations costs sample count,
+    /// not correctness — and an instrument that halves the number it reports is
+    /// not a trade worth making.
+    private static let searchBackoffInterval = 60
+
+    /// Decodes at the known placement when there is one, and rations the
+    /// exhaustive search.
+    private func decodeMarker(
+        in framebuffer: RFBRawFramebuffer
+    ) -> BenchmarkVisualFreshnessMarkerObservation? {
+        if let placementHint,
+           let hinted = BenchmarkVisualFreshnessMarker.decodeObservation(
+               in: framebuffer,
+               at: placementHint
+           ) {
+            return hinted
+        }
+        if searchBackoffObservations > 0 {
+            searchBackoffObservations -= 1
+            return nil
+        }
+        guard let found = BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer) else {
+            searchBackoffObservations = Self.searchBackoffInterval
+            return nil
+        }
+        return found
+    }
     /// Observations rejected because their sequence went backwards. Exposed so a
     /// caller can tell "the marker was not found" from "the decoder found
     /// something that cannot be the marker".
@@ -320,7 +448,7 @@ public final class BenchmarkVisualFreshnessProbe {
     /// repainted on the host" — an occluded or unfocused stimulus window
     /// produces one sequence forever, and that must not read as staleness.
     public func observe(framebuffer: RFBRawFramebuffer) -> BenchmarkVisualFreshnessObservation? {
-        guard let markerObservation = BenchmarkVisualFreshnessMarker.decodeObservation(in: framebuffer) else {
+        guard let markerObservation = decodeMarker(in: framebuffer) else {
             return nil
         }
         // Reject decodes that cannot be the marker.
@@ -349,7 +477,6 @@ public final class BenchmarkVisualFreshnessProbe {
         refreshEvents()
         let sequence = markerObservation.sequence
         let generatedAt = eventsBySequence[sequence]
-        let newestGeneratedSequence = eventsBySequence.keys.max()
         let isImpossibleSequence = generatedAt == nil
             || (newestGeneratedSequence.map { sequence > $0 } ?? true)
         let hasRegressed = highestObservedSequence.map { sequence < $0 } ?? false
@@ -358,6 +485,7 @@ public final class BenchmarkVisualFreshnessProbe {
             return nil
         }
         highestObservedSequence = Swift.max(highestObservedSequence ?? sequence, sequence)
+        placementHint = markerObservation
 
         let markerLocation = BenchmarkVisualFreshnessMarkerLocation(
             centerX: markerObservation.centerX,
@@ -380,17 +508,47 @@ public final class BenchmarkVisualFreshnessProbe {
         )
     }
 
+    /// Reads only the sidecar lines appended since the last call.
+    ///
+    /// This used to re-read and re-decode the whole file on every observation.
+    /// The stimulus appends a line per rendered frame, so on a 40 s run at 30 Hz
+    /// that is on the order of a thousand JSON decodes per observation and
+    /// hundreds of thousands per run — a cost the probe charges to the very
+    /// frame rate it is measuring. Same failure family as the unhinted marker
+    /// search: the instrument competing with the thing under test.
     private func refreshEvents() {
-        guard let contents = try? String(contentsOfFile: sidecarPath, encoding: .utf8) else {
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: sidecarPath)) else {
             return
         }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: consumedByteCount)) != nil,
+              let appended = try? handle.readToEnd(),
+              !appended.isEmpty else {
+            return
+        }
+
+        // Keep a trailing partial line for the next call rather than dropping it.
+        let lastNewline = appended.lastIndex(of: UInt8(ascii: "\n"))
+        guard let lastNewline else {
+            return
+        }
+        let complete = appended[appended.startIndex...lastNewline]
+        consumedByteCount += UInt64(complete.count)
+
         let decoder = JSONDecoder()
-        for line in contents.split(separator: "\n") {
-            guard let data = line.data(using: .utf8),
-                  let event = try? decoder.decode(BenchmarkVisualFreshnessSidecarEvent.self, from: data) else {
+        for line in complete.split(separator: UInt8(ascii: "\n")) {
+            guard !line.isEmpty,
+                  let event = try? decoder.decode(
+                      BenchmarkVisualFreshnessSidecarEvent.self,
+                      from: Data(line)
+                  ) else {
                 continue
             }
             eventsBySequence[event.sequence] = event.generatedAtUptimeNanoseconds
+            newestGeneratedSequence = Swift.max(
+                newestGeneratedSequence ?? event.sequence,
+                event.sequence
+            )
         }
     }
 }
