@@ -298,6 +298,15 @@ same PR.
    Helper video (`upTo30`, `smooth`, `decodePressure: low`) is still the higher
    ceiling and still blocked on spec 010 T014 pairing — but it is now an
    improvement over a working baseline, not a rescue.
+   **Next lever, and the only gate item left on this target.** With the
+   instrument corrected, `iphone-remote-desktop-10fps-v1` no longer reports
+   `content-fps-failed` at all; the sole remaining issue is client-side
+   processing (`client-processing-warning`, avg 8–9 ms, p95 30–32 ms with the
+   probe off — the probe's residual ~5% is enough to push that p95 over the fail
+   line, so freshness-enabled runs still read `client-processing-failed`). That
+   p95 is the decode/upload tail on the high-damage frames (~700 damage
+   rectangles), which is where the next real work is if this path is pushed
+   further.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run
