@@ -170,6 +170,53 @@ final class TrackpadFirstPointingUITests: XCTestCase {
         )
     }
 
+    /// Responsiveness probe for the founder's "왜 이렇게 반응이 느리지"
+    /// (2026-08-21). Drives a sustained trackpad drag with the DEBUG perf HUD
+    /// on and captures it, so the bottleneck stage can be read off the HUD's
+    /// own `ceiling` row instead of guessed at. Constitution §IV: nothing is
+    /// printed — the numbers stay on the captured HUD.
+    func testTrackpadDragResponsivenessProbe() throws {
+        guard let password else {
+            throw XCTSkip("NARU_E2E_PASSWORD not set — skipping responsiveness probe")
+        }
+
+        let profileID = UUID()
+        let credentialRef = "vnc-password:\(profileID.uuidString)"
+        let app = launch(
+            seedProfileID: profileID,
+            credentialRef: credentialRef,
+            password: password,
+            perfHUD: true
+        )
+
+        let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 5))
+        firstCard.tap()
+
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 10))
+        let connectDeadline = Date().addingTimeInterval(30)
+        while Date() < connectDeadline, !isConnected(diagnosticCorner) {
+            allowSystemPermissionAlertIfPresent()
+            usleep(250_000)
+        }
+        XCTAssertTrue(isConnected(diagnosticCorner), "Operation diagnostics must report Connected")
+
+        let surface = app.windows.firstMatch
+        // Short strokes, back and forth, the way a thumb actually drives a
+        // trackpad — a single long drag would exercise one gesture, not the
+        // sustained per-sample path.
+        for index in 0..<14 {
+            let forward = index.isMultiple(of: 2)
+            let from = CGVector(dx: forward ? 0.38 : 0.60, dy: forward ? 0.44 : 0.56)
+            let to = CGVector(dx: forward ? 0.60 : 0.38, dy: forward ? 0.56 : 0.44)
+            surface.coordinate(withNormalizedOffset: from)
+                .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: to))
+        }
+        usleep(700_000)
+        try saveScreen(named: "trackpad-responsiveness-hud-iphone.png")
+    }
+
     // MARK: - Helpers
 
     private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
@@ -210,7 +257,8 @@ final class TrackpadFirstPointingUITests: XCTestCase {
     private func launch(
         seedProfileID: UUID,
         credentialRef: String,
-        password: String
+        password: String,
+        perfHUD: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NARU_TEST_SEED_PROFILE_HOST"] = host
@@ -221,6 +269,9 @@ final class TrackpadFirstPointingUITests: XCTestCase {
         app.launchEnvironment["NARU_TEST_SKIP_PROFILE_STORE_LOAD"] = "1"
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_REF"] = credentialRef
         app.launchEnvironment["NARU_TEST_INJECT_KEYCHAIN_PASSWORD"] = password
+        if perfHUD {
+            app.launchEnvironment["NARU_PERF_HUD"] = "1"
+        }
         app.launch()
         return app
     }

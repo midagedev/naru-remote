@@ -65,7 +65,11 @@ private struct MetalFramebufferStagedUpload: @unchecked Sendable {
         let startedAt = DispatchTime.now().uptimeNanoseconds
         let byteCount = pixelCount * 4
         let bytesPerRow = framebuffer.width * 4
-        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
+        // Spec 024: ask the plan for the regions it counted, not for the raw
+        // server rectangles — when there are more rectangles than the partial
+        // cap they are merged, and uploading the unmerged list here would make
+        // the reported region count a lie.
+        let validDirtyRectangles = FramebufferUploadPlan.uploadRegions(
             dirtyRectangles,
             textureWidth: framebuffer.width,
             textureHeight: framebuffer.height
@@ -601,7 +605,9 @@ public final class MetalFramebufferRenderer: NSObject {
         // array directly without per-channel swizzling.
         let bytesPerRow = framebuffer.width * 4
 
-        let validDirtyRectangles = FramebufferUploadPlan.validDirtyRectangles(
+        // Spec 024: the plan owns the region list, including the merge it
+        // performs when the server sends more rectangles than the partial cap.
+        let validDirtyRectangles = FramebufferUploadPlan.uploadRegions(
             dirtyRectangles,
             textureWidth: texture.width,
             textureHeight: texture.height

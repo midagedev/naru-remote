@@ -175,6 +175,31 @@ same PR.
    owns the artwork and its measured tip offset for both paths, and the Metal
    path stopped squashing the arrow into a 22×22 box. Remaining: founder device
    pass (T006).
+1l. **`specs/024` partial upload coalescing — implemented 2026-08-21**. Founder
+   report "트랙패드 잘 되는데 이게 왜 이렇게 반응이 느리지". Measured: the input
+   path is clean (outbound pointer queue/op `0 / 0 ms`); the picture is the
+   ceiling. With every client pacing floor removed on loopback the server still
+   produces only **9.4 content fps**, so ~10 fps is Screen Sharing's own
+   request/response cadence — trackpad did not slow anything, it made the
+   ceiling visible next to a locally drawn cursor moving at display rate.
+   Inside that ceiling the benchmark's own primary issue was
+   `full-upload-failed`: the upload plan re-uploaded the entire framebuffer
+   whenever damage arrived as more than 64 rectangles, even though damage
+   averaged 0.5% of the screen (rect count peaked at 112 — a scrolling
+   terminal). Rectangles are now merged (least-added-area over raster
+   neighbours) instead, with `uploadRegions` as the single owner the renderer
+   also uploads from. Live A/B with an identical controlled stimulus: full
+   uploads **200‰ → 0‰**, issue cleared. fps/decode unchanged on this Mac —
+   the phone-side bandwidth/power win is inferred, not measured, so a device
+   pass is the confirmation.
+   **Helper video is the answer to the ~10 fps ceiling itself**: Screen
+   Recording is already granted on the founder's Mac (`helper-dev-app-setup`
+   reports `granted`), and real ScreenCaptureKit capture measured
+   `frameRateBucket: upTo30`, `sustainedUpdateBand: smooth`,
+   `decodePressure: low`, verdict `pass`. Remaining for spec 007 is the
+   30-minute sustained run, which needs the physical iPhone gate (the Mac-side
+   probe clamps to 120 frames), plus spec 010 T014 pairing so the phone
+   actually selects that transport.
 2. **`specs/007` real-screen helper-video + sustained-device gate** — run
    `bash scripts/run-naru-live-benchmark.sh helper-dev-app-setup` on the Mac,
    approve Screen Recording, then re-run

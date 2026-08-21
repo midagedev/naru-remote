@@ -485,7 +485,14 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(bytes[outsideDirtyRectOffset + 2], 0)
     }
 
-    func testTooManyDirtyRectsFallsBackToFullUpload() throws {
+    /// Contract changed 2026-08-21 (spec 024). This case used to assert that
+    /// more rectangles than the partial cap re-uploads the entire texture; that
+    /// is exactly what live measurement showed re-uploading every pixel for
+    /// frames whose damage was under 1% of the framebuffer. The rectangles are
+    /// merged now, and the renderer must upload the *merged* set — so damaged
+    /// pixels refresh and undamaged ones are left alone, as on any other
+    /// partial upload.
+    func testTooManyDirtyRectsUploadMergedRegionsInsteadOfTheWholeTexture() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
 
@@ -494,6 +501,8 @@ final class MetalFramebufferRendererTests: XCTestCase {
         )
         XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
 
+        // 65 single-pixel rectangles over rows 0...4 — one more than the cap,
+        // and none of them touches the bottom-right corner.
         let tinyRects = (0...MetalFramebufferRenderer.maximumPartialUploadRegionCount).map { index in
             RFBFrameDamageRect(x: index % 16, y: index / 16, width: 1, height: 1)
         }
@@ -502,17 +511,22 @@ final class MetalFramebufferRendererTests: XCTestCase {
             dirtyRectangles: tinyRects
         )
         XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
-        XCTAssertEqual(
+        XCTAssertGreaterThan(renderer.lastUploadRegionCount, 0)
+        XCTAssertLessThanOrEqual(
             renderer.lastUploadRegionCount,
-            1,
-            "Too many tiny dirty rects should prefer one full upload over many driver calls."
+            MetalFramebufferRenderer.maximumPartialUploadRegionCount,
+            "Merging must bring the region count back under the partial cap."
         )
 
         let bytes = try XCTUnwrap(renderer.readbackTextureForTesting())
+        // Inside the damage: refreshed.
+        let insideDamageOffset = ((0 * 16) + 0) * 4
+        XCTAssertEqual(bytes[insideDamageOffset + 0], 0)
+        XCTAssertEqual(bytes[insideDamageOffset + 2], 222)
+        // Outside the damage: untouched, the same as any partial upload.
         let outsideTinyRectsOffset = ((15 * 16) + 15) * 4
-        XCTAssertEqual(bytes[outsideTinyRectsOffset + 0], 0)
-        XCTAssertEqual(bytes[outsideTinyRectsOffset + 1], 0)
-        XCTAssertEqual(bytes[outsideTinyRectsOffset + 2], 222)
+        XCTAssertEqual(bytes[outsideTinyRectsOffset + 0], 200)
+        XCTAssertEqual(bytes[outsideTinyRectsOffset + 2], 0)
     }
 
     func testFirstFrameAfterDimensionChangeForcesFullUpload() throws {
