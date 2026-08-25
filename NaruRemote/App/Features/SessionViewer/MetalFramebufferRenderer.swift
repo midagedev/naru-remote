@@ -261,6 +261,14 @@ public final class MetalFramebufferRenderer: NSObject {
     private var viewportMaxZoomScale: CGFloat = defaultMaximumViewportZoomScale
     private var isPendingFramebufferUploadSuspended = false
     private var pendingFramebufferUploadSuspensionBypassCount = 0
+    private var suspensionWatchdogStartedAtUptime: UInt64?
+    private var suspensionWatchdogIntervalNanoseconds: UInt64 = 2_000_000_000
+
+    /// Spec 028. The single owner of "why is the picture not updating". Every
+    /// early return on the presentation path records an outcome here, so a
+    /// frozen screen arrives already attributed instead of starting a hand-walk
+    /// down the render path.
+    public private(set) var presentationLedger = FramePresentationLedger()
 
     private struct ViewportRenderUniforms {
         var left: Float
@@ -327,6 +335,13 @@ public final class MetalFramebufferRenderer: NSObject {
         guard framebuffer.width > 0, framebuffer.height > 0 else {
             return
         }
+        // Spec 028: a frame that is replaced before it reaches the texture is
+        // not lost bookkeeping — it is shed load, and it has to be counted or a
+        // session that supersedes everything and presents nothing looks exactly
+        // like a healthy one.
+        if pendingFramebuffer != nil || pendingStagedUpload != nil {
+            presentationLedger.record(.superseded)
+        }
         pendingFramebuffer = framebuffer
         pendingDirtyRectangles = dirtyRectangles
         pendingChangedPixelCount = changedPixelCount.map { max($0, 0) }
@@ -350,6 +365,11 @@ public final class MetalFramebufferRenderer: NSObject {
         pendingStagedUpload = nil
         lastUploadRegionCount = 0
         lastUploadMilliseconds = nil
+        // Spec 028: a clear event ends this session's stream, so the books
+        // start over rather than carrying an unbalanced remainder across a
+        // disconnect or a profile change.
+        presentationLedger = FramePresentationLedger()
+        suspensionWatchdogStartedAtUptime = nil
     }
 
     /// Updates the local viewport transform used for drawing the
@@ -372,9 +392,75 @@ public final class MetalFramebufferRenderer: NSObject {
     /// pending and are uploaded when the gesture settles.
     public func setPendingFramebufferUploadSuspended(_ suspended: Bool) {
         isPendingFramebufferUploadSuspended = suspended
-        if !suspended {
+        if suspended {
+            if suspensionWatchdogStartedAtUptime == nil {
+                suspensionWatchdogStartedAtUptime = DispatchTime.now().uptimeNanoseconds
+            }
+        } else {
             pendingFramebufferUploadSuspensionBypassCount = 0
+            suspensionWatchdogStartedAtUptime = nil
         }
+    }
+
+    /// Spec 028 FR-004. A latch that can gate presentation must be able to
+    /// release itself.
+    ///
+    /// `isPendingFramebufferUploadSuspended` is set when a viewport gesture
+    /// begins and cleared when it finishes. If the finish path does not run —
+    /// for any reason, including ones not yet identified — presentation stops
+    /// for the rest of the session and the only frames that get through are the
+    /// single-shot throttle bypasses. That is indistinguishable, from the
+    /// user's side, from a dead connection.
+    ///
+    /// So the latch is bounded: once frames have been held with nothing
+    /// presented for longer than the watchdog interval, it releases itself and
+    /// records the release. A stale picture during a long pinch is a much
+    /// smaller failure than a session that never updates again, and the
+    /// recorded count means the underlying defect stays visible instead of
+    /// being papered over by the recovery.
+    private func releaseSuspensionIfWatchdogExpired() {
+        guard isPendingFramebufferUploadSuspended,
+              let startedAt = suspensionWatchdogStartedAtUptime
+        else {
+            return
+        }
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now >= startedAt,
+              now - startedAt >= suspensionWatchdogIntervalNanoseconds
+        else {
+            return
+        }
+        isPendingFramebufferUploadSuspended = false
+        pendingFramebufferUploadSuspensionBypassCount = 0
+        suspensionWatchdogStartedAtUptime = nil
+        presentationLedger.recordWatchdogRelease()
+    }
+
+    /// Records that the session frame store published a content frame. Called
+    /// by the view coordinator, which is where publication is observed — the
+    /// renderer never sees the frames the upload gate suppresses.
+    public func recordPublishedFrame() {
+        presentationLedger.recordPublished()
+    }
+
+    /// Records a presentation outcome decided outside the renderer (the upload
+    /// gate, the gesture defer, the redraw throttle).
+    public func recordPresentationOutcome(_ outcome: FramePresentationOutcome) {
+        presentationLedger.record(outcome)
+    }
+
+    /// Records that a presentation-gating latch released itself. Called by the
+    /// viewport host for the gesture latch it owns.
+    public func recordWatchdogRelease() {
+        presentationLedger.recordWatchdogRelease()
+    }
+
+    public func resetPresentationLedger() {
+        presentationLedger = FramePresentationLedger()
+    }
+
+    func setSuspensionWatchdogIntervalForTesting(nanoseconds: UInt64) {
+        suspensionWatchdogIntervalNanoseconds = nanoseconds
     }
 
     /// Allows one pending framebuffer upload to pass through even while
@@ -658,6 +744,11 @@ public final class MetalFramebufferRenderer: NSObject {
                 lastUploadRegionCount = 1
             }
         }
+        // Spec 028 FR-003: pixels are on the texture on the direct path too.
+        presentationLedger.record(.presented)
+        suspensionWatchdogStartedAtUptime = isPendingFramebufferUploadSuspended
+            ? DispatchTime.now().uptimeNanoseconds
+            : nil
         recordSuccessfulUploadTiming(startedAt: uploadStart)
         return true
     }
@@ -729,8 +820,12 @@ public final class MetalFramebufferRenderer: NSObject {
 
     @discardableResult
     private func applyPendingFramebufferIfAllowed() -> Bool {
+        releaseSuspensionIfWatchdogExpired()
         if isPendingFramebufferUploadSuspended {
             guard pendingFramebufferUploadSuspensionBypassCount > 0 else {
+                if pendingFramebuffer != nil {
+                    presentationLedger.record(.heldBySuspension)
+                }
                 lastUploadMilliseconds = nil
                 return false
             }
@@ -741,8 +836,12 @@ public final class MetalFramebufferRenderer: NSObject {
 
     @discardableResult
     private func applyPendingStagedUploadIfAllowed(commandBuffer: MTLCommandBuffer) -> Bool {
+        releaseSuspensionIfWatchdogExpired()
         if isPendingFramebufferUploadSuspended {
             guard pendingFramebufferUploadSuspensionBypassCount > 0 else {
+                if pendingStagedUpload != nil || pendingFramebuffer != nil {
+                    presentationLedger.record(.heldBySuspension)
+                }
                 lastUploadMilliseconds = nil
                 return false
             }
@@ -758,17 +857,43 @@ public final class MetalFramebufferRenderer: NSObject {
             return false
         }
         let uploadStart = DispatchTime.now().uptimeNanoseconds
+
+        // Spec 028: a partial upload cannot be applied to a texture of a
+        // different size, and this used to discard the frame outright. That was
+        // survivable while a busy frame still took the full-upload path and
+        // recreated the texture on its own — spec 026 removed that route, so
+        // the disagreement now has to be resolved here instead of waited out.
+        //
+        // The source framebuffer is still held at this point, so re-stage it as
+        // a full upload rather than dropping it. The frame is only abandoned
+        // when there is nothing left to re-stage, and both outcomes are counted:
+        // a recovery that works is not the same as a defect that never happened.
+        if case .partial = stagedUpload.storage,
+           texture?.width != stagedUpload.width || texture?.height != stagedUpload.height {
+            pendingStagedUpload = nil
+            lastUploadRegionCount = 0
+            lastUploadMilliseconds = nil
+            if let framebuffer = pendingFramebuffer {
+                presentationLedger.record(.restagedOnSizeMismatch)
+                pendingDirtyRectangles = nil
+                pendingChangedPixelCount = nil
+                scheduleStagedUploadPreparation(
+                    framebuffer: framebuffer,
+                    dirtyRectangles: nil,
+                    changedPixelCount: nil
+                )
+            } else {
+                presentationLedger.record(.abandonedOnSizeMismatch)
+            }
+            return false
+        }
+
         pendingStagedUpload = nil
         pendingFramebuffer = nil
         pendingDirtyRectangles = nil
         pendingChangedPixelCount = nil
         lastUploadRegionCount = 0
         lastUploadMilliseconds = nil
-
-        if case .partial = stagedUpload.storage,
-           (texture?.width != stagedUpload.width || texture?.height != stagedUpload.height) {
-            return false
-        }
 
         if texture?.width != stagedUpload.width || texture?.height != stagedUpload.height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -824,6 +949,13 @@ public final class MetalFramebufferRenderer: NSObject {
             blitEncoder.endEncoding()
             lastUploadRegionCount = 1
         }
+        // Spec 028 FR-003: pixels are on the texture. This is the only place a
+        // presentation may be claimed on the staged path — not where the frame
+        // was enqueued, staged, or scheduled for redraw.
+        presentationLedger.record(.presented)
+        suspensionWatchdogStartedAtUptime = isPendingFramebufferUploadSuspended
+            ? DispatchTime.now().uptimeNanoseconds
+            : nil
         recordSuccessfulUploadTiming(
             startedAt: uploadStart,
             additionalMilliseconds: stagedUpload.preparationMilliseconds

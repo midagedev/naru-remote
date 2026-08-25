@@ -103,6 +103,14 @@ public typealias MetalFramebufferViewportRedrawDiagnosticsHandler = @MainActor @
     ViewportRedrawDiagnostics
 ) -> Void
 
+/// Closure invoked with the frame presentation ledger (spec 028) — the account
+/// of which published frames reached the texture and, for those that did not,
+/// which named reason withheld them. Reported on frame arrival rather than at a
+/// gesture boundary, because a frozen session has frames and nothing else.
+public typealias MetalFramebufferPresentationLedgerHandler = @MainActor @Sendable (
+    FramePresentationLedger
+) -> Void
+
 public struct MetalFramebufferView: UIViewRepresentable {
     private let framebuffer: RFBRawFramebuffer
     private let frameStore: SessionFrameStore?
@@ -127,6 +135,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onTrackpadGesture: MetalFramebufferTrackpadGestureHandler?
     private let onViewportInteractionChange: MetalFramebufferViewportInteractionHandler?
     private let onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler?
+    private let onFramePresentationLedger: MetalFramebufferPresentationLedgerHandler?
     private let onUploadTiming: MetalFramebufferUploadTimingHandler?
     /// Current local zoom scale, owned by the SwiftUI parent and pushed
     /// down so the host's gesture handlers know whether a one-finger
@@ -168,6 +177,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onTrackpadGesture: MetalFramebufferTrackpadGestureHandler? = nil,
         onViewportInteractionChange: MetalFramebufferViewportInteractionHandler? = nil,
         onViewportRedrawDiagnostics: MetalFramebufferViewportRedrawDiagnosticsHandler? = nil,
+        onFramePresentationLedger: MetalFramebufferPresentationLedgerHandler? = nil,
         onUploadTiming: MetalFramebufferUploadTimingHandler? = nil
     ) {
         self.framebuffer = framebuffer
@@ -196,6 +206,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onTrackpadGesture = onTrackpadGesture
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
+        self.onFramePresentationLedger = onFramePresentationLedger
         self.onUploadTiming = onUploadTiming
     }
 
@@ -227,6 +238,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.trackpadGestureHandler = onTrackpadGesture
         host.viewportInteractionHandler = onViewportInteractionChange
         host.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
+        host.framePresentationLedgerHandler = onFramePresentationLedger
         host.syncInputState(
             pointerControlMode: pointerControlMode,
             trackpadCursor: trackpadCursor,
@@ -270,6 +282,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.trackpadGestureHandler = onTrackpadGesture
         uiView.viewportInteractionHandler = onViewportInteractionChange
         uiView.viewportRedrawDiagnosticsHandler = onViewportRedrawDiagnostics
+        uiView.framePresentationLedgerHandler = onFramePresentationLedger
         uiView.syncInputState(
             pointerControlMode: pointerControlMode,
             trackpadCursor: trackpadCursor,
@@ -357,11 +370,17 @@ public struct MetalFramebufferView: UIViewRepresentable {
             dirtyRectangles: [RFBFrameDamageRect]? = nil,
             changedPixelCount: Int? = nil
         ) -> Bool {
+            // Spec 028: publication is observed here, because the renderer never
+            // sees the frames the upload gate suppresses — and a gate that
+            // silently swallows every frame is one of the ways this pipeline can
+            // look alive while the screen is frozen.
+            renderer?.recordPublishedFrame()
             guard uploadGate.shouldEnqueue(
                 framebuffer: framebuffer,
                 dirtyRectangles: dirtyRectangles,
                 changedPixelCount: changedPixelCount
             ) else {
+                renderer?.recordPresentationOutcome(.duplicateSuppressed)
                 return false
             }
             renderer?.enqueue(
@@ -684,6 +703,30 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// not let those frame-driven updates overwrite the recognizer's
     /// in-flight accumulator with a one-frame-old parent value.
     private var isViewportTransformGestureActive = false
+
+    /// Spec 028 FR-004. When the gesture latch above went on, so a stuck latch
+    /// can be bounded.
+    ///
+    /// This latch is the more dangerous of the two, because it gates the
+    /// *redraw request* and not just the upload: while it is on and the frame
+    /// strategy defers, `requestRedrawForIncomingFrame` returns without calling
+    /// `setNeedsDisplay`, the paused `MTKView` never draws, and the renderer's
+    /// own watchdog — which only runs inside a draw — never gets a chance to
+    /// fire. A stuck latch here is therefore a total, self-sustaining freeze.
+    private var viewportTransformGestureStartedAt: TimeInterval?
+
+    /// Spec 028 FR-005. Reports the presentation ledger upward so the perf HUD
+    /// and the diagnostic export can answer "why is the picture not updating"
+    /// without a rebuild.
+    public var framePresentationLedgerHandler: (@MainActor @Sendable (FramePresentationLedger) -> Void)?
+    private var lastReportedLedger: FramePresentationLedger?
+
+    /// How long a viewport gesture may hold frames before the latch is treated
+    /// as stuck and released. Longer than any plausible continuous pinch or pan
+    /// that is still withholding every frame, short enough that a user who hits
+    /// the defect sees the session recover rather than reaching for the app
+    /// switcher.
+    private static let viewportGestureLatchWatchdogSeconds: TimeInterval = 3
 
     /// A two-finger pinch can be recognized simultaneously with the
     /// two-finger pan recognizer. While pinch is active, the pan
@@ -1117,10 +1160,17 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// Request a redraw for a newly arrived remote frame, giving touch
     /// tracking priority while the local viewport is being manipulated.
     public func requestRedrawForIncomingFrame(now: TimeInterval = CACurrentMediaTime()) {
+        releaseViewportGestureLatchIfWatchdogExpired(now: now)
+        // Spec 028 FR-005. Report the ledger on the arrival of a frame, not on a
+        // gesture boundary or a successful draw. A frozen session has neither of
+        // those — it only has frames arriving — so anything else would go quiet
+        // exactly when the reader needs it most.
+        reportFramePresentationLedgerIfNeeded()
         if isViewportTransformGestureActive {
             guard viewportGestureFrameStrategy.allowsLiveFramebufferPublication else {
                 deferredFramebufferRedrawDuringViewportGesture = true
                 pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
+                coordinator?.renderer?.recordPresentationOutcome(.heldByGesture)
                 return
             }
 
@@ -1135,6 +1185,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             case .deferRedraw:
                 deferredFramebufferRedrawDuringViewportGesture = true
                 pendingViewportRedrawDiagnostics.incomingFrameDeferredCount += 1
+                coordinator?.renderer?.recordPresentationOutcome(.heldByThrottle)
             }
             return
         }
@@ -1146,7 +1197,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         case .requestNow:
             requestRedraw()
         case .deferRedraw:
-            break
+            coordinator?.renderer?.recordPresentationOutcome(.heldByThrottle)
         }
     }
 
@@ -1840,10 +1891,56 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         finishViewportTransformGesture()
     }
 
+    /// Spec 028 FR-005. Publishes the presentation ledger upward whenever it
+    /// changed.
+    ///
+    /// The first version of this rationed reports to one every 15 incoming
+    /// frames, and the first live run of the rewritten gate showed why that was
+    /// wrong: the run carried 31 content frames in total, so the HUD published
+    /// roughly twice and the gate went red on a counter that had simply not been
+    /// pushed yet. A stall the instrument invents is worse than no instrument.
+    /// Reporting on change costs one struct comparison per frame, on a path the
+    /// model already publishes per frame.
+    @MainActor
+    private func reportFramePresentationLedgerIfNeeded() {
+        guard let handler = framePresentationLedgerHandler,
+              let ledger = coordinator?.renderer?.presentationLedger
+        else {
+            return
+        }
+        guard ledger != lastReportedLedger else {
+            return
+        }
+        lastReportedLedger = ledger
+        handler(ledger)
+    }
+
+    /// Spec 028 FR-004. Bounds the gesture latch.
+    ///
+    /// Every path that sets `isViewportTransformGestureActive` is supposed to
+    /// have a matching finish. This exists for the case where one does not —
+    /// including cases not yet identified, which is the point: the founder's
+    /// session should recover on its own instead of presenting a dead screen
+    /// until the app is relaunched. The release is counted in the presentation
+    /// ledger, so the underlying defect stays visible rather than being hidden
+    /// by its own recovery.
+    @MainActor
+    private func releaseViewportGestureLatchIfWatchdogExpired(now: TimeInterval) {
+        guard isViewportTransformGestureActive,
+              let startedAt = viewportTransformGestureStartedAt,
+              now - startedAt >= Self.viewportGestureLatchWatchdogSeconds
+        else {
+            return
+        }
+        coordinator?.renderer?.recordWatchdogRelease()
+        finishViewportTransformGesture()
+    }
+
     @MainActor
     private func finishViewportTransformGesture() {
         let wasActive = isViewportTransformGestureActive
         isViewportTransformGestureActive = false
+        viewportTransformGestureStartedAt = nil
         viewportGestureFrameStrategy = .deferUntilSettled
         viewportGestureLastSampleTimestamp = nil
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(false)
@@ -1874,6 +1971,9 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         }
         viewportGestureFrameStrategy = frameStrategy
         isViewportTransformGestureActive = true
+        if viewportTransformGestureStartedAt == nil {
+            viewportTransformGestureStartedAt = CACurrentMediaTime()
+        }
         coordinator?.renderer?.setPendingFramebufferUploadSuspended(true)
         if wasInactive {
             viewportGestureLastSampleTimestamp = nil

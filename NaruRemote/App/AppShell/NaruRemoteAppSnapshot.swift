@@ -93,6 +93,13 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var thermalState: SessionStreamThermalState
     public var firstFrameCapturedAt: Date?
     public var latestFrameCapturedAt: Date?
+    /// Spec 028. The account of which published frames reached the screen and,
+    /// for those that did not, which named reason withheld them. Carries a
+    /// default so every existing `SessionStreamStats(...)` call site keeps
+    /// compiling; it is replaced wholesale rather than merged, because the
+    /// renderer already keeps it cumulative for the life of the session.
+    public var framePresentationLedger = FramePresentationLedger()
+
     // Internal-only renderer planning cache. It is not exported in
     // diagnostics; only aggregate upload strategy counts leave memory.
     private var lastFramebufferWidth: Int?
@@ -709,6 +716,10 @@ public struct SessionStreamStats: Equatable, Sendable {
             mainActorResponsivenessDelayMillisecondsMax,
             milliseconds
         )
+    }
+
+    public mutating func recordFramePresentationLedger(_ ledger: FramePresentationLedger) {
+        framePresentationLedger = ledger
     }
 
     public mutating func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {

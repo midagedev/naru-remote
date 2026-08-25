@@ -94,6 +94,7 @@ struct SessionPerformanceHUDView: View {
                     .foregroundStyle(NaruColors.warning)
             }
             divider
+            presentationRow(stats)
             pacingReasonRow(stats)
             encodingRow(stats.actualEncodingMix)
             ceilingRow(ceiling)
@@ -126,6 +127,47 @@ struct SessionPerformanceHUDView: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("naru.session.perf.contentFrameCount")
         .accessibilityValue(String(stats.contentFrameCount))
+    }
+
+    /// Spec 028. What reached the screen, and what is holding back what did
+    /// not. This is the row that answers "갱신이 안 돼" without a rebuild: the
+    /// frame counter above it can climb at full rate while this one sits at
+    /// zero, which is exactly the failure the founder reported on build 7 and
+    /// exactly the failure no gate in this repository could see.
+    ///
+    /// Counts and a fixed reason label only (constitution §IV).
+    private func presentationRow(_ stats: SessionStreamStats) -> some View {
+        let ledger = stats.framePresentationLedger
+        let presented = ledger.count(.presented)
+        let reason = ledger.dominantWithholdingReason
+        let isStalled = ledger.isPresentationStalled(minimumPublished: 8)
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                Text("screen")
+                    .frame(width: 58, alignment: .leading)
+                    .foregroundStyle(isStalled ? NaruColors.warning : .white.opacity(0.85))
+                Spacer(minLength: 2)
+                Text("\(presented)/\(ledger.publishedCount)")
+                    .monospacedDigit()
+                    .foregroundStyle(isStalled ? NaruColors.warning : .white)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("naru.session.perf.presentedFrameCount")
+            .accessibilityValue(String(presented))
+
+            if let reason {
+                Text("held: \(reason.rawValue)")
+                    .foregroundStyle(isStalled ? NaruColors.warning : .white.opacity(0.6))
+                    .accessibilityIdentifier("naru.session.perf.presentationHeldReason")
+                    .accessibilityValue(reason.rawValue)
+            }
+            if ledger.watchdogReleaseCount > 0 {
+                Text("latch watchdog: \(ledger.watchdogReleaseCount)")
+                    .foregroundStyle(NaruColors.warning)
+                    .accessibilityIdentifier("naru.session.perf.presentationWatchdogCount")
+                    .accessibilityValue(String(ledger.watchdogReleaseCount))
+            }
+        }
     }
 
     private var divider: some View {

@@ -22,6 +22,12 @@ public typealias SessionViewportRedrawDiagnosticsHandler = @MainActor @Sendable 
     ViewportRedrawDiagnostics
 ) -> Void
 
+/// Spec 028. Declared here rather than reused from `MetalFramebufferView`
+/// because that file is inside the UIKit guard and this one is not.
+public typealias SessionFramePresentationLedgerHandler = @MainActor @Sendable (
+    FramePresentationLedger
+) -> Void
+
 public struct SessionViewportView: View {
     private let title: String
     private let subtitle: String
@@ -86,6 +92,9 @@ public struct SessionViewportView: View {
         ViewportInteractionFrameStrategy
     ) -> Void)?
     private let onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler?
+    /// Spec 028. Reports the frame presentation ledger upward so the perf HUD
+    /// and the diagnostic export can name what is withholding frames.
+    private let onFramePresentationLedger: SessionFramePresentationLedgerHandler?
     /// Reports actual Metal texture upload timing back to the app
     /// model. Raw milliseconds stay memory-only; diagnostics export
     /// only coarse timing buckets.
@@ -245,6 +254,7 @@ public struct SessionViewportView: View {
             ViewportInteractionFrameStrategy
         ) -> Void)? = nil,
         onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler? = nil,
+        onFramePresentationLedger: SessionFramePresentationLedgerHandler? = nil,
         onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
@@ -295,6 +305,7 @@ public struct SessionViewportView: View {
         self.onViewportDisplayPixelScaleChange = onViewportDisplayPixelScaleChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
+        self.onFramePresentationLedger = onFramePresentationLedger
         self.onRendererUploadTiming = onRendererUploadTiming
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
@@ -352,6 +363,7 @@ public struct SessionViewportView: View {
             ViewportInteractionFrameStrategy
         ) -> Void)? = nil,
         onViewportRedrawDiagnostics: SessionViewportRedrawDiagnosticsHandler? = nil,
+        onFramePresentationLedger: SessionFramePresentationLedgerHandler? = nil,
         onRendererUploadTiming: SessionRendererUploadTimingHandler? = nil,
         onTogglePointerMode: (() -> Void)? = nil,
         streamPowerMode: StreamPowerMode = .balanced,
@@ -400,6 +412,7 @@ public struct SessionViewportView: View {
         self.onViewportDisplayPixelScaleChange = onViewportDisplayPixelScaleChange
         self.onViewportInteractionChange = onViewportInteractionChange
         self.onViewportRedrawDiagnostics = onViewportRedrawDiagnostics
+        self.onFramePresentationLedger = onFramePresentationLedger
         self.onRendererUploadTiming = onRendererUploadTiming
         self.onTogglePointerMode = onTogglePointerMode
         self.streamPowerMode = streamPowerMode
@@ -1863,6 +1876,7 @@ public struct SessionViewportView: View {
                 },
                 onViewportInteractionChange: handleViewportInteractionChange(_:frameStrategy:),
                 onViewportRedrawDiagnostics: onViewportRedrawDiagnostics,
+                onFramePresentationLedger: onFramePresentationLedger,
                 onUploadTiming: onRendererUploadTiming
             )
                 // The Metal path applies zoom/pan directly inside

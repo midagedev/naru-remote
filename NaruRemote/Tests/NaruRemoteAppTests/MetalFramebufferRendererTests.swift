@@ -156,6 +156,137 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertEqual(renderer.currentTextureSize?.width, 8)
     }
 
+    // MARK: - Presentation ledger (spec 028)
+
+    func testASuspendedRendererNamesTheReasonFramesAreNotReachingTheScreen() throws {
+        // Spec 028. Before the ledger, this state incremented nothing at all:
+        // the pump could run at full rate, the frame counter the liveness gate
+        // asserts could climb, and the screen would sit frozen with no counter
+        // anywhere disagreeing. That is what made the same freeze class
+        // survivable twice.
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        renderer.setSuspensionWatchdogIntervalForTesting(nanoseconds: .max)
+        renderer.setPendingFramebufferUploadSuspended(true)
+
+        for index in 0..<12 {
+            renderer.recordPublishedFrame()
+            renderer.enqueue(
+                RFBRawFramebuffer(
+                    width: 4,
+                    height: 4,
+                    fill: RFBColor(red: UInt8(index), green: 0, blue: 0)
+                )
+            )
+            XCTAssertFalse(renderer.uploadPendingFramebufferRespectingSuspensionForTesting())
+        }
+
+        let ledger = renderer.presentationLedger
+        XCTAssertEqual(ledger.publishedCount, 12)
+        XCTAssertEqual(ledger.count(.presented), 0)
+        XCTAssertTrue(ledger.isPresentationStalled(minimumPublished: 10))
+        XCTAssertEqual(
+            ledger.dominantWithholdingReason,
+            .heldBySuspension,
+            "A frozen screen must arrive already attributed, not start an investigation."
+        )
+        XCTAssertTrue(ledger.isBalanced)
+    }
+
+    func testTheSuspensionLatchReleasesItselfOnceTheWatchdogExpires() throws {
+        // Spec 028 FR-004. `isPendingFramebufferUploadSuspended` had no release
+        // path other than the gesture-finish that set it. If that finish did not
+        // run, presentation stopped for the rest of the session.
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        // The two phases are driven by the interval, not by sleeping: a
+        // wall-clock margin here would be a flake on a loaded machine, and a
+        // flaky watchdog test is worse than none.
+        renderer.setSuspensionWatchdogIntervalForTesting(nanoseconds: .max)
+        renderer.setPendingFramebufferUploadSuspended(true)
+        renderer.recordPublishedFrame()
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+
+        XCTAssertFalse(
+            renderer.uploadPendingFramebufferRespectingSuspensionForTesting(),
+            "The latch must still hold before the watchdog interval elapses."
+        )
+        XCTAssertEqual(renderer.presentationLedger.watchdogReleaseCount, 0)
+
+        renderer.setSuspensionWatchdogIntervalForTesting(nanoseconds: 0)
+
+        XCTAssertTrue(
+            renderer.uploadPendingFramebufferRespectingSuspensionForTesting(),
+            "A latch held past its bound must release itself rather than freeze the session."
+        )
+        XCTAssertEqual(renderer.presentationLedger.watchdogReleaseCount, 1)
+        XCTAssertEqual(renderer.presentationLedger.count(.presented), 1)
+        XCTAssertEqual(renderer.currentTextureSize?.width, 4)
+    }
+
+    func testPresentationIsClaimedOnlyWherePixelsReachTheTexture() throws {
+        // Spec 028 FR-003. Enqueuing is not presenting — that conflation is what
+        // the existing liveness gate is built on.
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        renderer.recordPublishedFrame()
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+        XCTAssertEqual(
+            renderer.presentationLedger.count(.presented),
+            0,
+            "A frame that has only been enqueued has not been presented."
+        )
+
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+        XCTAssertEqual(renderer.presentationLedger.count(.presented), 1)
+        XCTAssertTrue(renderer.presentationLedger.isBalanced)
+    }
+
+    func testAFrameReplacedBeforePresentationIsCountedAsSuperseded() throws {
+        // Spec 028. Shedding load is legitimate; shedding it invisibly is what
+        // makes a stall indistinguishable from a healthy session.
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        for index in 0..<3 {
+            renderer.recordPublishedFrame()
+            renderer.enqueue(
+                RFBRawFramebuffer(
+                    width: 4,
+                    height: 4,
+                    fill: RFBColor(red: UInt8(index), green: 0, blue: 0)
+                )
+            )
+        }
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let ledger = renderer.presentationLedger
+        XCTAssertEqual(ledger.publishedCount, 3)
+        XCTAssertEqual(ledger.count(.superseded), 2)
+        XCTAssertEqual(ledger.count(.presented), 1)
+        XCTAssertEqual(ledger.framesInFlightCount, 0)
+        XCTAssertTrue(ledger.isBalanced)
+    }
+
+    func testAClearEventStartsTheBooksOverInsteadOfCarryingARemainder() throws {
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+        renderer.recordPublishedFrame()
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 10, green: 0, blue: 0))
+        )
+        renderer.clearFramebuffers()
+
+        XCTAssertEqual(renderer.presentationLedger.publishedCount, 0)
+        XCTAssertEqual(renderer.presentationLedger.terminalCount, 0)
+        XCTAssertTrue(renderer.presentationLedger.isBalanced)
+    }
+
     // MARK: - Dirty-rect partial uploads
 
     func testFullUploadCountsAsSingleRegion() throws {

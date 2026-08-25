@@ -1163,6 +1163,9 @@ private struct SessionViewportFrameBridge: View {
             onViewportRedrawDiagnostics: { diagnostics in
                 model.recordViewportRedrawDiagnostics(diagnostics)
             },
+            onFramePresentationLedger: { ledger in
+                model.recordFramePresentationLedger(ledger)
+            },
             onRendererUploadTiming: { milliseconds in
                 model.recordRendererUploadTiming(milliseconds: milliseconds)
             },

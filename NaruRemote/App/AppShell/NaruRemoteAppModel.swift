@@ -4507,6 +4507,12 @@ public final class NaruRemoteAppModel: ObservableObject {
         return milliseconds
     }
 
+    /// Spec 028. Stores the latest frame presentation ledger so the perf HUD
+    /// and the diagnostic export can say why the picture is not updating.
+    public func recordFramePresentationLedger(_ ledger: FramePresentationLedger) {
+        sessionStreamStats.recordFramePresentationLedger(ledger)
+    }
+
     public func recordViewportRedrawDiagnostics(_ diagnostics: ViewportRedrawDiagnostics) {
         sessionStreamStats.recordViewportRedrawDiagnostics(diagnostics)
     }

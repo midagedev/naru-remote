@@ -62,28 +62,59 @@ final class StreamLivenessUnderInteractionUITests: XCTestCase {
             "Operation diagnostics must report Connected"
         )
 
-        let counter = app.descendants(matching: .any)["naru.session.perf.contentFrameCount"]
+        // Spec 028. The liveness property is asserted on the *presented* counter
+        // — frames whose pixels reached the texture — not on the pump's content
+        // frame count.
+        //
+        // Until 2026-08-25 this gate asserted `contentFrameCount`, which the
+        // frame pump increments when it decodes a frame and which says nothing
+        // about whether anything reached the screen. That is a proxy wait: PASS
+        // meant "the pump ran". The founder's TestFlight build 7 report — the
+        // picture frozen while frames kept arriving — is exactly the state that
+        // assertion cannot distinguish from a healthy session, which is how the
+        // same freeze class survived spec 022 and shipped again.
+        let pumpCounter = app.descendants(matching: .any)["naru.session.perf.contentFrameCount"]
+        XCTAssertTrue(
+            pumpCounter.waitForExistence(timeout: 10),
+            "The perf HUD frame counter must be present (NARU_PERF_HUD=1)"
+        )
+        // Precondition only. The pump being alive is what makes a frozen screen
+        // a defect rather than a quiet remote.
+        XCTAssertTrue(
+            waitForFrameProgress(pumpCounter, from: currentFrameCount(pumpCounter), timeout: 20),
+            "The pump delivered no frames at all — this run cannot judge presentation"
+        )
+
+        let counter = app.descendants(matching: .any)["naru.session.perf.presentedFrameCount"]
         XCTAssertTrue(
             counter.waitForExistence(timeout: 10),
-            "The perf HUD frame counter must be present (NARU_PERF_HUD=1)"
+            "The perf HUD presentation counter must be present (spec 028)"
         )
         XCTAssertTrue(
             waitForFrameProgress(counter, from: currentFrameCount(counter), timeout: 20),
-            "The stream delivered no frames even before any interaction"
+            "Frames are arriving but none of them are reaching the screen"
+                + heldReasonSuffix(app)
         )
 
         var stalls: [String] = []
+        var inconclusive: [String] = []
         let surface = app.windows.firstMatch
 
         // 1. Zoom in. This is the state that makes the pump request a
         //    viewport-scoped region instead of the full framebuffer.
         surface.pinch(withScale: 2.4, velocity: 1.6)
-        let afterZoom = currentFrameCount(counter)
-        let zoomProgressed = waitForFrameProgress(counter, from: afterZoom, timeout: 20)
-        if !zoomProgressed { stalls.append("zoom") }
-        XCTAssertTrue(
-            zoomProgressed,
-            "Frames stopped after zooming in — region-scoped requests are starving the stream"
+        let zoomProgress = waitForPresentationToFollowThePump(
+            presented: counter,
+            pump: pumpCounter,
+            timeout: 25
+        )
+        if zoomProgress == .stalled { stalls.append("zoom") }
+        if zoomProgress == .inconclusive { inconclusive.append("zoom") }
+        XCTAssertNotEqual(
+            zoomProgress,
+            .stalled,
+            "Frames arrived after zooming in but none of them reached the screen"
+                + heldReasonSuffix(app)
         )
 
         // 2. Pan. The viewport region moves, so every request parked for the
@@ -93,12 +124,18 @@ final class StreamLivenessUnderInteractionUITests: XCTestCase {
             let end = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.34))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
-        let afterPan = currentFrameCount(counter)
-        let panProgressed = waitForFrameProgress(counter, from: afterPan, timeout: 20)
-        if !panProgressed { stalls.append("pan") }
-        XCTAssertTrue(
-            panProgressed,
-            "Frames stopped after panning — the pump stayed parked on the region the user left"
+        let panProgress = waitForPresentationToFollowThePump(
+            presented: counter,
+            pump: pumpCounter,
+            timeout: 25
+        )
+        if panProgress == .stalled { stalls.append("pan") }
+        if panProgress == .inconclusive { inconclusive.append("pan") }
+        XCTAssertNotEqual(
+            panProgress,
+            .stalled,
+            "Frames arrived after panning but none of them reached the screen"
+                + heldReasonSuffix(app)
         )
 
         // 3. Open the input dock: the visible area shrinks, which changes the
@@ -106,23 +143,50 @@ final class StreamLivenessUnderInteractionUITests: XCTestCase {
         let dockToggle = app.buttons["naru.input.type-reveal"].firstMatch
         if dockToggle.waitForExistence(timeout: 3) {
             dockToggle.tap()
-            let afterDock = currentFrameCount(counter)
-            let dockProgressed = waitForFrameProgress(counter, from: afterDock, timeout: 20)
-            if !dockProgressed { stalls.append("dock") }
-            XCTAssertTrue(
-                dockProgressed,
-                "Frames stopped after the dock opened and shrank the visible region"
+        let dockProgress = waitForPresentationToFollowThePump(
+                presented: counter,
+                pump: pumpCounter,
+                timeout: 25
+            )
+            if dockProgress == .stalled { stalls.append("dock") }
+            if dockProgress == .inconclusive { inconclusive.append("dock") }
+            XCTAssertNotEqual(
+                dockProgress,
+                .stalled,
+                "Frames arrived after the dock opened but none of them reached the screen"
+                    + heldReasonSuffix(app)
             )
         }
 
+        // Spec 028 FR-007: a run that presented frames throughout but released a
+        // stuck latch to do it is not a pass. The watchdog is a recovery, not a
+        // reason to stop reporting the defect it recovered from.
+        let watchdog = app.descendants(matching: .any)["naru.session.perf.presentationWatchdogCount"]
+        XCTAssertFalse(
+            watchdog.exists,
+            "A presentation latch had to release itself during this run"
+        )
+
         print(
-            "Stream liveness gate: framesAtEnd=\(currentFrameCount(counter)) "
+            "Stream liveness gate: presentedAtEnd=\(currentFrameCount(counter)) "
+                + "pumpAtEnd=\(currentFrameCount(pumpCounter)) "
                 + "stalledAt=\(stalls.isEmpty ? "none" : stalls.joined(separator: "+")) "
-                + "verdict=\(stalls.isEmpty ? "kept-streaming" : "stream-died")"
+                + "quietAt=\(inconclusive.isEmpty ? "none" : inconclusive.joined(separator: "+")) "
+                + "verdict=\(stalls.isEmpty ? "kept-presenting" : "presentation-died")"
         )
     }
 
     // MARK: - Helpers
+
+    /// Spec 028. Names what is withholding frames, so a red gate arrives already
+    /// attributed instead of starting an investigation. Fixed labels only.
+    private func heldReasonSuffix(_ app: XCUIApplication) -> String {
+        let reason = app.descendants(matching: .any)["naru.session.perf.presentationHeldReason"]
+        guard reason.exists, let value = reason.value as? String, !value.isEmpty else {
+            return ""
+        }
+        return " — held by: \(value)"
+    }
 
     private func currentFrameCount(_ element: XCUIElement) -> Int {
         Int((element.value as? String) ?? "") ?? 0
@@ -144,6 +208,45 @@ final class StreamLivenessUnderInteractionUITests: XCTestCase {
             usleep(300_000)
         }
         return false
+    }
+
+    /// Spec 028. The presentation property has to be **relative** to the pump.
+    ///
+    /// Asserting that the presented counter advances within a fixed window is
+    /// wrong on its own: the remote screen may simply not have changed, and then
+    /// there is nothing to present and the gate reddens on a healthy session.
+    /// The defect is presentation falling behind frames that actually arrived,
+    /// so this waits for the pump to move and only fails when it moved and
+    /// presentation did not follow.
+    ///
+    /// Returns `.inconclusive` when the remote stayed quiet for the whole
+    /// window — which is reported, never silently passed.
+    private enum PresentationProgress {
+        case kept
+        case stalled
+        case inconclusive
+    }
+
+    private func waitForPresentationToFollowThePump(
+        presented: XCUIElement,
+        pump: XCUIElement,
+        timeout: TimeInterval
+    ) -> PresentationProgress {
+        let presentedBaseline = currentFrameCount(presented)
+        let pumpBaseline = currentFrameCount(pump)
+        let deadline = Date().addingTimeInterval(timeout)
+        var pumpAdvanced = false
+
+        while Date() < deadline {
+            if currentFrameCount(presented) > presentedBaseline {
+                return .kept
+            }
+            if currentFrameCount(pump) > pumpBaseline + 2 {
+                pumpAdvanced = true
+            }
+            usleep(300_000)
+        }
+        return pumpAdvanced ? .stalled : .inconclusive
     }
 
     private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
