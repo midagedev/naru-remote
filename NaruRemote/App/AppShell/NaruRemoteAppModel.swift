@@ -4831,7 +4831,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func currentViewportRequestRegion(
         incrementalRequestIndex: Int
     ) -> RFBFramebufferUpdateRegion? {
-        guard usesViewportAwareRequestRegions else {
+        guard usesViewportAwareIncrementalRequestRegions else {
             return nil
         }
         guard let latestViewportTransform else {
@@ -4905,6 +4905,38 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// and D94's starvation risk stays covered by the every-10th full-request
     /// heartbeat. Previously this was the RGB565 lanes' opt-in (D106); the
     /// promotion is the incremental gate only.
+    /// Spec 030. Whether *incremental* framebuffer update requests are scoped to
+    /// the visible viewport.
+    ///
+    /// Off. Measured 2026-08-25 against live Apple Screen Sharing, release build,
+    /// no network conditioning, one axis at a time with an identical stimulus:
+    /// a viewport-scoped request is answered in 540–787 ms on average with a p95
+    /// sitting at the client's idle timeout, while a full-frame request is
+    /// answered in 33 ms with a p95 of 119–133 ms. Content frame rate across
+    /// three repeats: 0.49–0.74 scoped against 5.66–7.08 full. The ranges do not
+    /// come close to overlapping, and no other axis moved the result —
+    /// client-pressure pacing, empty-update backoff and stimulus rate were all
+    /// within noise of the scoped baseline.
+    ///
+    /// The obvious alternative explanation was tested rather than assumed: a
+    /// region that never changes would also sit at the idle timeout, and the
+    /// benchmark's region is a centred crop while its stimulus sits at the top
+    /// left. Moving the stimulus into the centre of the region did not close the
+    /// gap (0.83 fps scoped against 3.82 full).
+    ///
+    /// Commit 09f28915 had already corrected spec 017's ground truth to "Apple
+    /// does not reliably clip region requests under load". This is that finding
+    /// with its price attached, and the price was the whole frame rate — an
+    /// iPhone showing a wide desktop is always looking at a crop, so the scoped
+    /// path was the normal one and not a zoomed-in edge case.
+    ///
+    /// The machinery stays because this is one server family on one machine, and
+    /// spec 017's bandwidth argument is untested rather than refuted.
+    private var usesViewportAwareIncrementalRequestRegions: Bool {
+        false
+    }
+
+
     private var usesViewportAwareRequestRegions: Bool {
         guard appSettings.streamPowerMode != .powerSaver,
               !lowPowerModeProvider()

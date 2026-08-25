@@ -2259,7 +2259,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
     /// Rewritten for spec 017 (2026-08-19): the standard profile now DOES
     /// scope zoomed incremental requests (see
-    /// `testStandardProfileRequestsVisibleViewportRegionOnceZoomed`), so the
+    /// `testAZoomedStandardProfileStillRequestsTheWholeFramebuffer`), so the
     /// still-valid "off" side of the gate is the power-saver override — it
     /// keeps every request full-frame even while zoomed.
     func testPowerSaverKeepsFullIncrementalStreamRequestsWhileZoomed() async throws {
@@ -2342,7 +2342,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRegions, [nil])
     }
 
-    func testModelRequestsVisibleViewportRegionForLowTrafficIncrementalStreamFrames() async throws {
+    func testLowTrafficIncrementalStreamFramesRequestTheWholeFramebuffer() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1_000,
@@ -2385,20 +2385,28 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(260))
 
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
-        XCTAssertEqual(
-            connector.frameUpdateRegions,
-            [
-                nil,
-                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
-            ]
+        // Spec 030, 2026-08-25: incremental requests are full-frame even when
+        // the viewport is a zoomed crop. This assertion previously required the
+        // scoped region and was inverted on measurement, not on preference —
+        // against live Apple Screen Sharing (release, no conditioning, one axis
+        // at a time, three repeats) a scoped request was answered in 540-787 ms
+        // with a p95 at the client's idle timeout while a full-frame request was
+        // answered in 33 ms, and content frame rate went 0.49-0.74 scoped
+        // against 5.66-7.08 full. No other axis moved the result, and moving the
+        // stimulus inside the region did not close the gap. The scoping policy
+        // itself is still covered by ViewportRequestRegionPolicyTests.
+        XCTAssertTrue(
+            connector.frameUpdateRegions.allSatisfy { $0 == nil },
+            "Incremental requests must cover the whole framebuffer (spec 030)."
         )
+        XCTAssertEqual(connector.frameUpdateRegions.count, 2)
     }
 
     /// Spec 017: the default profile also scopes *incremental* requests to the
     /// visible viewport once the user zooms in. Un-zoomed sessions are
     /// unaffected — the policy returns nil (full request) when the visible
     /// region saves less than 10% of the framebuffer.
-    func testStandardProfileRequestsVisibleViewportRegionOnceZoomed() async throws {
+    func testAZoomedStandardProfileStillRequestsTheWholeFramebuffer() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let firstFramebuffer = RFBRawFramebuffer(
             width: 1_000,
@@ -2442,13 +2450,21 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(260))
 
         XCTAssertEqual(connector.frameUpdateRequests, [false, true])
-        XCTAssertEqual(
-            connector.frameUpdateRegions,
-            [
-                nil,
-                RFBFramebufferUpdateRegion(x: 186, y: 186, width: 628, height: 628)
-            ]
+        // Spec 030, 2026-08-25: incremental requests are full-frame even when
+        // the viewport is a zoomed crop. This assertion previously required the
+        // scoped region and was inverted on measurement, not on preference —
+        // against live Apple Screen Sharing (release, no conditioning, one axis
+        // at a time, three repeats) a scoped request was answered in 540-787 ms
+        // with a p95 at the client's idle timeout while a full-frame request was
+        // answered in 33 ms, and content frame rate went 0.49-0.74 scoped
+        // against 5.66-7.08 full. No other axis moved the result, and moving the
+        // stimulus inside the region did not close the gap. The scoping policy
+        // itself is still covered by ViewportRequestRegionPolicyTests.
+        XCTAssertTrue(
+            connector.frameUpdateRegions.allSatisfy { $0 == nil },
+            "Incremental requests must cover the whole framebuffer (spec 030)."
         )
+        XCTAssertEqual(connector.frameUpdateRegions.count, 2)
     }
 
     /// Spec 017 keeps the *initial* request full-frame on the default profile:

@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-20 KST.
+Updated: 2026-08-25 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -9,6 +9,31 @@ features. When you finish or reprioritize an item, update this file in the
 same PR.
 
 ## Now — ship blockers (P0)
+
+0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
+   Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
+   viewport made Apple Screen Sharing answer roughly twenty times slower
+   (540–787 ms average with a p95 at the client's idle timeout, against 33 ms
+   full-frame; 0.49–0.74 content fps against 5.66–7.08, three repeats). An
+   iPhone showing a wide desktop is always looking at a crop, so this was the
+   normal path. Incrementals are now full-frame. **Open:** founder device pass
+   on build 9 — does `contentFramesPerSecond` leave `underFive`, and does the
+   bandwidth half of the trade show up in `dirtyAreaPermille` /
+   `changedPixelsPermille`? Also unmeasured: what full-frame incrementals cost
+   on a metered link, which is spec 017's original argument and is untested
+   rather than refuted.
+
+0a. **`specs/028` presentation ledger — keep reading it.** The renderer is
+   cleared: the founder's build 8 export presented every frame it received
+   (11 of 11) with no latch watchdog firing. The ledger is in the diagnostic
+   export, so future "it froze" reports should start there rather than with a
+   code read.
+
+0b. **`specs/029` — the link is not the constraint.** Measured RTT to the
+   founder's iPhone is 41–500 ms (median ~185 ms, direct over mobile), and a
+   184 ms modelled round trip adds 212 ms to update latency and nothing else.
+   Pipeline depth 1/2/3 are indistinguishable with and without conditioning;
+   `requestPipelineDepth` is unchanged. The conditioning harness is validated.
 
 1. **`specs/011` physical-device pass** — the simplified input UX is
    implemented, `swift test` green (1522 tests), and the live-Mac E2E is
