@@ -254,7 +254,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         // and there is nothing prior on the GPU to combine with the
         // damage rects.  Pass nil here so the renderer takes the
         // full-frame path regardless of what the pump reported.
-        context.coordinator.enqueue(framebuffer, dirtyRectangles: nil)
+        context.coordinator.enqueue(framebuffer, dirtyRectangles: nil, origin: .viewUpdate)
         host.requestRedrawForIncomingFrame()
         return host
     }
@@ -267,7 +267,8 @@ public struct MetalFramebufferView: UIViewRepresentable {
         let didEnqueueFramebuffer = context.coordinator.enqueue(
             framebuffer,
             dirtyRectangles: dirtyRectangles,
-            changedPixelCount: changedPixelCount
+            changedPixelCount: changedPixelCount,
+            origin: .viewUpdate
         )
         uiView.tapHandler = onTap
         uiView.rightClickHandler = onRightClick
@@ -306,6 +307,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         private var sessionID: RemoteSession.ID?
         private var uploadGate = FramebufferUploadGate()
         private var boundFrameStoreID: ObjectIdentifier?
+        private var hasBoundFrameStore = false
         private var frameCancellable: AnyCancellable?
 
         init(device: MTLDevice?) {
@@ -345,6 +347,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
 
             frameCancellable = nil
             boundFrameStoreID = nextStoreID
+            hasBoundFrameStore = frameStore != nil
 
             guard let frameStore else {
                 return
@@ -364,29 +367,52 @@ public struct MetalFramebufferView: UIViewRepresentable {
             }
         }
 
+        /// Where an enqueue came from. Only one of these is a *frame arriving*;
+        /// the other is SwiftUI rebuilding the representable, which happens on
+        /// any state change — zoom, cursor, dock — and far more often than
+        /// frames arrive.
+        ///
+        /// Spec 028's first device export made the distinction necessary: the
+        /// ledger reported 568 published frames against 11 content frames,
+        /// because every view update was being counted as a publication. That
+        /// reads as "98% of frames never reach the screen" when presentation was
+        /// in fact keeping up perfectly, which is the opposite of the truth and
+        /// exactly the kind of confident wrong number this ledger exists to
+        /// prevent.
+        enum EnqueueOrigin {
+            case frameStore
+            case viewUpdate
+        }
+
         @discardableResult
         func enqueue(
             _ framebuffer: RFBRawFramebuffer,
             dirtyRectangles: [RFBFrameDamageRect]? = nil,
-            changedPixelCount: Int? = nil
+            changedPixelCount: Int? = nil,
+            origin: EnqueueOrigin = .frameStore
         ) -> Bool {
-            // Spec 028: publication is observed here, because the renderer never
-            // sees the frames the upload gate suppresses — and a gate that
-            // silently swallows every frame is one of the ways this pipeline can
-            // look alive while the screen is frozen.
-            renderer?.recordPublishedFrame()
+            // The frame store is the authority on what was published. When one
+            // is bound, view updates are plumbing and are not accounted at all —
+            // counting them on either side of the ledger would unbalance it.
+            let isAccounted = origin == .frameStore || !hasBoundFrameStore
+            if isAccounted {
+                renderer?.recordPublishedFrame()
+            }
             guard uploadGate.shouldEnqueue(
                 framebuffer: framebuffer,
                 dirtyRectangles: dirtyRectangles,
                 changedPixelCount: changedPixelCount
             ) else {
-                renderer?.recordPresentationOutcome(.duplicateSuppressed)
+                if isAccounted {
+                    renderer?.recordPresentationOutcome(.duplicateSuppressed)
+                }
                 return false
             }
             renderer?.enqueue(
                 framebuffer,
                 dirtyRectangles: dirtyRectangles,
-                changedPixelCount: changedPixelCount
+                changedPixelCount: changedPixelCount,
+                recordsSupersededOutcome: isAccounted
             )
             lastFramebufferDimensions = (framebuffer.width, framebuffer.height)
             return true

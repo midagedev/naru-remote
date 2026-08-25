@@ -273,6 +273,32 @@ final class MetalFramebufferRendererTests: XCTestCase {
         XCTAssertTrue(ledger.isBalanced)
     }
 
+    func testAnUnaccountedEnqueueDoesNotMoveTheBooks() throws {
+        // Spec 028. SwiftUI rebuilds the framebuffer view on any state change,
+        // far more often than frames arrive, and those rebuilds re-enqueue the
+        // same framebuffer. The first device export counted them: 568 published
+        // against 11 content frames, which reads as a catastrophic presentation
+        // failure when presentation was in fact keeping up exactly.
+        let device = try requireDevice()
+        let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))
+
+        renderer.recordPublishedFrame()
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 1, green: 0, blue: 0))
+        )
+        renderer.enqueue(
+            RFBRawFramebuffer(width: 4, height: 4, fill: RFBColor(red: 2, green: 0, blue: 0)),
+            recordsSupersededOutcome: false
+        )
+        XCTAssertTrue(renderer.uploadPendingFramebufferForTesting())
+
+        let ledger = renderer.presentationLedger
+        XCTAssertEqual(ledger.publishedCount, 1)
+        XCTAssertEqual(ledger.count(.superseded), 0)
+        XCTAssertEqual(ledger.count(.presented), 1)
+        XCTAssertTrue(ledger.isBalanced)
+    }
+
     func testAClearEventStartsTheBooksOverInsteadOfCarryingARemainder() throws {
         let device = try requireDevice()
         let renderer = try XCTUnwrap(MetalFramebufferRenderer(device: device))

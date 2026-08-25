@@ -330,7 +330,8 @@ public final class MetalFramebufferRenderer: NSObject {
     public func enqueue(
         _ framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]? = nil,
-        changedPixelCount: Int? = nil
+        changedPixelCount: Int? = nil,
+        recordsSupersededOutcome: Bool = true
     ) {
         guard framebuffer.width > 0, framebuffer.height > 0 else {
             return
@@ -339,7 +340,8 @@ public final class MetalFramebufferRenderer: NSObject {
         // not lost bookkeeping — it is shed load, and it has to be counted or a
         // session that supersedes everything and presents nothing looks exactly
         // like a healthy one.
-        if pendingFramebuffer != nil || pendingStagedUpload != nil {
+        if recordsSupersededOutcome,
+           pendingFramebuffer != nil || pendingStagedUpload != nil {
             presentationLedger.record(.superseded)
         }
         pendingFramebuffer = framebuffer

@@ -2,7 +2,14 @@
 
 **Feature Branch**: `028-frame-presentation-ledger`
 **Created**: 2026-08-25
-**Status**: Implemented 2026-08-25. The ledger, both latch watchdogs, the HUD row
+**Status**: Implemented 2026-08-25, and it has already returned its first device
+answer: **the founder's freeze is not a presentation defect.** On build 8, every
+content frame that arrived reached the screen (presented 11 == contentFrameCount
+11) and no latch watchdog ever fired; the session was receiving under five content
+frames per second with the network read stalled. The investigation moves to the
+transport. Original status follows.
+
+**Status (as implemented)**: 2026-08-25. The ledger, both latch watchdogs, the HUD row
 and the rewritten gate are in. **The gate does not reproduce the founder's freeze
 in the simulator** — against live Screen Sharing it reports 26 presented / 26
 pumped, `stalledAt=none`. What is proven is narrower and is stated as such below:
@@ -131,6 +138,72 @@ gate at all, which was not previously true at any layer.
 The one defect proven by measurement is the unbounded suspension latch, and it was
 proven at the unit layer against build 7's exact source: suspended, twelve frames
 enqueued over six seconds, zero presented, no release path. That is fixed.
+
+## The First Device Export — Presentation Was Never The Problem
+
+Build 8, founder's iPhone, a real tailnet profile (`profileHostKind: magicDNS`),
+exported while the picture was not updating:
+
+| | |
+|---|---|
+| `framePresentationPresentedCount` | 11 |
+| `contentFrameCount` | 11 |
+| `rendererUploadSampleCount` | 11 |
+| `framePresentationWatchdogReleaseCount` | **0** |
+
+**Every content frame that arrived reached the screen.** No latch was ever stuck —
+the watchdogs never fired. The suspension-latch hypothesis this spec was built
+around is refuted on the device, and the freeze is not a presentation defect at
+all. What the same export shows instead:
+
+| | |
+|---|---|
+| `contentFrameCount` | 11, over `overTenSeconds` |
+| `contentFramesPerSecondBucket` | `underFive` |
+| `emptyUpdatePermille` | 558 |
+| `transportIdleTimeoutCount` | 8 |
+| `averageNetworkReadTimingBucket` | `stalled` |
+| `averageReceiveTotalTimingBucket` | `stalled` |
+
+The screen is not updating because the server is barely sending anything. The
+17 fps measured against loopback Screen Sharing (spec 027) does not survive the
+trip over a real tailnet, and **every frame-rate number in this repository was
+taken on loopback.** That is the next investigation, and it belongs to the
+transport, not the renderer.
+
+Two further things the export settles:
+
+- `dirtyRectangleCountMax` is **1488** on the founder's Mac. Spec 026 set
+  `quadraticMergeInputCeiling = 1024` on the basis that real damage counts peaked
+  at 738 — measured on loopback with a synthetic stimulus. The real peak is
+  double that, so the blunt linear pre-reduction is running in production, which
+  spec 026 described as "the backstop for counts no server has been observed to
+  send". It has now been observed. `rendererFullUploadCount` is still only 1
+  (91 permille), so this is a note, not a regression.
+- The ledger's own `publishedCount` read **568 against 11 content frames** — see
+  below. The instrument was counting SwiftUI view rebuilds as publications.
+
+### The Fifth Instrument Defect
+
+`recordPublishedFrame()` sat in `Coordinator.enqueue`, which SwiftUI calls from
+`updateUIView` on *any* state change — zoom, cursor movement, dock — not only when
+a frame arrives. So `publishedCount` counted view rebuilds, and
+`framePresentationPresentedPermille` reported **19 permille**: a number that says
+98% of frames never reach the screen, in a session where presentation was keeping
+up perfectly. Left alone it would have sent the next round after the renderer,
+which is exactly the wrong direction and exactly what this ledger exists to
+prevent.
+
+Fixed by making the frame store the authority on what was published: view-update
+enqueues are now unaccounted on both sides of the books, so the ledger cannot be
+inflated by SwiftUI. Pinned by `testAnUnaccountedEnqueueDoesNotMoveTheBooks`.
+
+Counting the tally honestly: five instrument defects across specs 025–028, four of
+them found only because something downstream refused to agree with them. The
+ledger's value here was not that it named the culprit — its first reading named
+the wrong one — but that `presented == contentFrameCount` was checkable at all,
+which ruled the renderer out in a single export instead of another week of
+reading code.
 
 ## Non-Goals
 
