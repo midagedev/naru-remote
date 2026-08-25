@@ -16,6 +16,8 @@ public struct DiagnosticExport: Equatable, Sendable {
     public let input: DiagnosticInputReport?
     public let helperVideo: DiagnosticHelperVideoReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
+    /// PiP Watch lifecycle counts (spec 032 FR-006).
+    public let pipWatch: DiagnosticPiPWatchReport?
     /// Stage rows captured from the underlying
     /// `ConnectionDiagnosticRun`.  Stored as safe-catalog tuples
     /// (`stage.rawValue`, `status.rawValue`) so the formatter has no
@@ -35,7 +37,8 @@ public struct DiagnosticExport: Equatable, Sendable {
         viewerStartupGlanceScaleMode: StreamStartupGlanceScaleMode? = nil,
         input: DiagnosticInputReport? = nil,
         helperVideo: DiagnosticHelperVideoReport? = nil,
-        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
+        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil,
+        pipWatch: DiagnosticPiPWatchReport? = nil
     ) {
         self.runID = run.id
         self.profileFingerprint = Self.profileFingerprint(for: run.profileID)
@@ -51,6 +54,7 @@ public struct DiagnosticExport: Equatable, Sendable {
         self.input = input
         self.helperVideo = helperVideo
         self.sustainedSessionAssessment = sustainedSessionAssessment
+        self.pipWatch = pipWatch
 
         let lines = run.stages.map { stage in
             var line = "\(stage.stage.rawValue)=\(stage.status.rawValue) \(stage.safeTitle)"
@@ -152,7 +156,8 @@ public struct DiagnosticExport: Equatable, Sendable {
             viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode?.rawValue,
             input: input,
             helperVideo: helperVideo,
-            sustainedSessionAssessment: sustainedSessionAssessment
+            sustainedSessionAssessment: sustainedSessionAssessment,
+            pipWatch: pipWatch
         )
     }
 
@@ -2410,7 +2415,7 @@ public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 34
+    public static let currentSchemaVersion = 35
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
@@ -2437,6 +2442,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         case input
         case helperVideo
         case sustainedSessionAssessment
+        case pipWatch
     }
 
     public let schemaVersion: Int
@@ -2463,6 +2469,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
     public let input: DiagnosticInputReport?
     public let helperVideo: DiagnosticHelperVideoReport?
     public let sustainedSessionAssessment: DiagnosticSustainedSessionAssessment?
+    public let pipWatch: DiagnosticPiPWatchReport?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -2488,7 +2495,8 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         viewerStartupGlanceScaleMode: String? = nil,
         input: DiagnosticInputReport? = nil,
         helperVideo: DiagnosticHelperVideoReport? = nil,
-        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil
+        sustainedSessionAssessment: DiagnosticSustainedSessionAssessment? = nil,
+        pipWatch: DiagnosticPiPWatchReport? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -2514,6 +2522,7 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
         self.input = input
         self.helperVideo = helperVideo
         self.sustainedSessionAssessment = sustainedSessionAssessment
+        self.pipWatch = pipWatch
     }
 
     public init(from decoder: Decoder) throws {
@@ -2557,6 +2566,10 @@ public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
             sustainedSessionAssessment: try container.decodeIfPresent(
                 DiagnosticSustainedSessionAssessment.self,
                 forKey: .sustainedSessionAssessment
+            ),
+            pipWatch: try container.decodeIfPresent(
+                DiagnosticPiPWatchReport.self,
+                forKey: .pipWatch
             )
         )
     }

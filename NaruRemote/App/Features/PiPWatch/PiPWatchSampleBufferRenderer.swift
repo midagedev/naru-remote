@@ -105,6 +105,29 @@ public extension PiPWatchControlling {
     }
 }
 
+/// What the system told us about a PiP window, after the fact.  Before
+/// spec 032 the app was told nothing: `AVPictureInPictureControllerDelegate`
+/// was conformed to with an empty extension, so a window the user closed from
+/// the system chrome left `PiPWatchSession` reading `.watching` forever.
+public enum PiPWatchLifecycleEvent: Equatable, Sendable {
+    case started
+    case stopped(PiPWatchStopReason)
+    case startFailed
+}
+
+/// Capability protocol for controllers that report their own lifecycle.
+/// `NaruRemoteAppModel` downcasts to it, the way it downcasts RFB clients to
+/// their most capable boundary, so a controller that cannot report one stays
+/// usable.
+@MainActor
+public protocol PiPWatchLifecycleReporting: PiPWatchControlling {
+    var lifecycle: PiPWatchControllerLifecycle { get }
+    var onLifecycleEvent: ((PiPWatchLifecycleEvent) -> Void)? { get set }
+    /// Leaves PiP for a stated reason, so an app-initiated teardown is
+    /// distinguishable from the system taking the window away.
+    func stop(reason: PiPWatchStopReason)
+}
+
 #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
 import AVFoundation
 import CoreMedia
@@ -374,9 +397,17 @@ public final class PiPWatchSampleBufferRenderer {
 
 #if os(iOS) && canImport(AVKit) && canImport(UIKit)
 @MainActor
-public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControlling, PiPWatchLayerHostAttaching {
+public final class PiPWatchPictureInPictureController: NSObject,
+    PiPWatchControlling,
+    PiPWatchLayerHostAttaching,
+    PiPWatchLifecycleReporting
+{
     public private(set) var layerHost: PiPLayerHost?
     public private(set) var pictureInPictureController: AVPictureInPictureController?
+    /// The lifecycle decisions live in a Core value type; this class does what
+    /// it says and reports what the system did back into it (spec 032 FR-005).
+    public private(set) var lifecycle = PiPWatchControllerLifecycle()
+    public var onLifecycleEvent: ((PiPWatchLifecycleEvent) -> Void)?
     private let fallbackRenderer: PiPWatchSampleBufferRenderer
 
     public init(renderer: PiPWatchSampleBufferRenderer = PiPWatchSampleBufferRenderer()) {
@@ -394,22 +425,7 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     /// in-app layer is the single source.
     @discardableResult
     public func prepare() -> Bool {
-        guard isSupported else {
-            pictureInPictureController = nil
-            return false
-        }
-
-        activateAudioSessionForPiP()
-
-        let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: fallbackRenderer.displayLayer,
-            playbackDelegate: self
-        )
-        let controller = AVPictureInPictureController(contentSource: source)
-        controller.delegate = self
-        controller.requiresLinearPlayback = true
-        pictureInPictureController = controller
-        return true
+        prepare(boundTo: nil, layer: fallbackRenderer.displayLayer)
     }
 
     /// Attach the controller to a live `PiPLayerHost`.  The hosted
@@ -419,17 +435,50 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     /// so the controller does not own a separate renderer.
     @discardableResult
     public func prepare(layerHost: PiPLayerHost) -> Bool {
-        self.layerHost = layerHost
+        prepare(boundTo: layerHost, layer: layerHost.layer)
+    }
+
+    /// One `AVPictureInPictureController` per layer, for the life of the layer
+    /// (spec 032 FR-001).
+    ///
+    /// This used to construct a fresh controller and a fresh `ContentSource`
+    /// over the *same* `AVSampleBufferDisplayLayer` on every entry, releasing
+    /// the previous controller while AVKit could still be mid-transition —
+    /// the founder's "PiP twice and the app quits" on build 10.  A second
+    /// preparation against the same host now reuses what exists; only a
+    /// genuinely different layer host rebuilds, and that path tears the old
+    /// controller down first.
+    @discardableResult
+    private func prepare(boundTo host: PiPLayerHost?, layer: AVSampleBufferDisplayLayer) -> Bool {
+        let reusesExistingHost = host === layerHost
+        if !reusesExistingHost {
+            invalidateController(reason: .sessionEnded)
+        }
+        // Bound before the support check, as it was before this spec: the host
+        // is the single frame sink whether or not the system offers PiP, and
+        // `enqueue` renders through the fallback renderer when it is nil.
+        layerHost = host
 
         guard isSupported else {
-            pictureInPictureController = nil
             return false
+        }
+
+        if reusesExistingHost, lifecycle.hasController, pictureInPictureController != nil {
+            // Idempotent. The audio session is re-armed because iOS can
+            // deactivate it while the app is backgrounded, and re-arming it is
+            // not a lifecycle event.
+            activateAudioSessionForPiP()
+            return true
         }
 
         activateAudioSessionForPiP()
 
+        guard lifecycle.prepare() == .createController else {
+            return pictureInPictureController != nil
+        }
+
         let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: layerHost.layer,
+            sampleBufferDisplayLayer: layer,
             playbackDelegate: self
         )
         let controller = AVPictureInPictureController(contentSource: source)
@@ -437,6 +486,20 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         controller.requiresLinearPlayback = true
         pictureInPictureController = controller
         return true
+    }
+
+    /// Drops the system controller. Anything holding a stale reference to the
+    /// previous one is exactly what FR-001 exists to prevent, so the reference
+    /// is cleared here and nowhere else. The layer host is rebound by the
+    /// caller rather than cleared here, because the host outlives any one
+    /// controller.
+    private func invalidateController(reason: PiPWatchStopReason) {
+        if lifecycle.isEngaged {
+            pictureInPictureController?.stopPictureInPicture()
+        }
+        pictureInPictureController?.delegate = nil
+        pictureInPictureController = nil
+        lifecycle.invalidate(reason: reason)
     }
 
     public func enqueue(_ framebuffer: RFBRawFramebuffer) throws {
@@ -456,6 +519,11 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         pictureInPictureController?.invalidatePlaybackState()
     }
 
+    /// Delivers a start only when the lifecycle says it is safe (spec 032
+    /// FR-002).  `startPictureInPicture()` used to be called unconditionally,
+    /// including while a window was already up or a teardown was in flight —
+    /// which Apple treats as a programmer error, and which is the second
+    /// hazard behind the reported crash.
     @discardableResult
     public func start() -> Bool {
         if pictureInPictureController == nil {
@@ -463,6 +531,14 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
         }
 
         guard let pictureInPictureController else {
+            _ = lifecycle.requestEntry(isPictureInPicturePossible: false)
+            return false
+        }
+
+        let decision = lifecycle.requestEntry(
+            isPictureInPicturePossible: pictureInPictureController.isPictureInPicturePossible
+        )
+        guard decision == .start else {
             return false
         }
 
@@ -471,6 +547,16 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     }
 
     public func stop() {
+        stop(reason: .userRequested)
+    }
+
+    public func stop(reason: PiPWatchStopReason) {
+        guard lifecycle.requestStop(reason: reason) else {
+            // Nothing is up. Releasing the audio session is still correct and
+            // is what the old unconditional stop did.
+            deactivateAudioSessionAfterPiP()
+            return
+        }
         pictureInPictureController?.stopPictureInPicture()
         deactivateAudioSessionAfterPiP()
     }
@@ -493,16 +579,46 @@ public final class PiPWatchPictureInPictureController: NSObject, PiPWatchControl
     }
 }
 
-extension PiPWatchPictureInPictureController: @MainActor AVPictureInPictureControllerDelegate {}
+/// The delegate is where the app finds out what the system did (spec 032
+/// FR-003).  It used to be an empty conformance, so a window the user closed
+/// from the system chrome left the app's `PiPWatchSession` reading `.watching`
+/// and the next entry was taken against a state that was already wrong.
+extension PiPWatchPictureInPictureController: @MainActor AVPictureInPictureControllerDelegate {
+    public func pictureInPictureControllerDidStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        lifecycle.noteStarted()
+        onLifecycleEvent?(.started)
+    }
+
+    public func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        // The error itself is deliberately not propagated: it is a system
+        // string and diagnostic exports carry fixed-catalog detail only
+        // (constitution §IV).
+        lifecycle.noteStartFailed()
+        onLifecycleEvent?(.startFailed)
+    }
+
+    public func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        lifecycle.noteStopped()
+        onLifecycleEvent?(.stopped(lifecycle.lastStopReason))
+    }
+}
 
 extension PiPWatchPictureInPictureController: @MainActor AVPictureInPictureSampleBufferPlaybackDelegate {
     public func pictureInPictureControllerTimeRangeForPlayback(
         _ pictureInPictureController: AVPictureInPictureController
     ) -> CMTimeRange {
-        CMTimeRange(
-            start: .zero,
-            duration: CMTime(value: Int64.max, timescale: 1)
-        )
+        // A live source: `.positiveInfinity` is the value that means "no end",
+        // and it cannot overflow anything AVKit derives from it across a
+        // transition. `CMTime(value: .max, timescale: 1)` was the third hazard
+        // in spec 032 — arithmetically finite, and re-derived on every entry.
+        CMTimeRange(start: .zero, duration: .positiveInfinity)
     }
 
     public func pictureInPictureControllerIsPlaybackPaused(

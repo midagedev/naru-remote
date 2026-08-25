@@ -2540,6 +2540,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             input: input,
             contentFramesPerSecond: sessionStreamStats.contentFramesPerSecond
         )
+        let pipWatch = pipWatchDiagnosticReport()
         guard let run = diagnosticRun else {
             return DiagnosticExport(
                 run: ConnectionDiagnosticRun(
@@ -2553,7 +2554,8 @@ public final class NaruRemoteAppModel: ObservableObject {
                 viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
                 input: input,
                 helperVideo: helperVideo,
-                sustainedSessionAssessment: sustainedSessionAssessment
+                sustainedSessionAssessment: sustainedSessionAssessment,
+                pipWatch: pipWatch
             )
         }
         return DiagnosticExport(
@@ -2565,8 +2567,23 @@ public final class NaruRemoteAppModel: ObservableObject {
             viewerStartupGlanceScaleMode: viewerStartupGlanceScaleMode,
             input: input,
             helperVideo: helperVideo,
-            sustainedSessionAssessment: sustainedSessionAssessment
+            sustainedSessionAssessment: sustainedSessionAssessment,
+            pipWatch: pipWatch
         )
+    }
+
+    /// Spec 032 FR-006 — the lifecycle counts, from the controller that owns
+    /// them. Absent when the controller cannot report a lifecycle, rather than
+    /// reported as zeros that would read as "PiP was never asked for".
+    private func pipWatchDiagnosticReport() -> DiagnosticPiPWatchReport? {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        guard let reporting = pipWatchController as? any PiPWatchLifecycleReporting else {
+            return nil
+        }
+        return DiagnosticPiPWatchReport(lifecycle: reporting.lifecycle)
+        #else
+        return nil
+        #endif
     }
 
     private func helperVideoDiagnosticReport() -> DiagnosticHelperVideoReport? {
@@ -9617,6 +9634,14 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
+        // Already up: entering again is what terminated the app on build 10,
+        // and the lifecycle refuses it. Returning here keeps the refusal out
+        // of the session's failure message, which "could not be delivered"
+        // would misdescribe (spec 032).
+        guard !isPiPWatchEngaged else {
+            return
+        }
+
         var watchSession = PiPWatchSession(sessionID: session.id)
         watchSession.prepare(
             from: session,
@@ -9681,7 +9706,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        pipWatchController?.stop()
+        stopPiPWatchController(reason: .userRequested)
         pipWatchSession.stop()
         self.pipWatchSession = pipWatchSession
     }
@@ -9735,7 +9760,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func clearPiPWatchSession() {
-        pipWatchController?.stop()
+        stopPiPWatchController(reason: .sessionEnded)
         pipWatchSession = nil
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         pipLayerHost.flush()
@@ -9761,6 +9786,34 @@ public final class NaruRemoteAppModel: ObservableObject {
         #endif
     }
 
+    /// True while a PiP window is up or coming up, as the *system* sees it.
+    /// The published `pipWatchSession` is the app's view; these can disagree
+    /// while a transition is in flight, and this is the one that gates entry.
+    public var isPiPWatchEngaged: Bool {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        if let reporting = pipWatchController as? any PiPWatchLifecycleReporting {
+            return reporting.lifecycle.isEngaged
+        }
+        #endif
+        return pipWatchSession?.state == .watching || pipWatchSession?.state == .stale
+    }
+
+    /// Routes to the reason-carrying stop where the controller supports it,
+    /// so a session teardown and a user request are distinguishable in the
+    /// export (spec 032 FR-006).
+    private func stopPiPWatchController(reason: PiPWatchStopReason) {
+        guard let pipWatchController else {
+            return
+        }
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        if let reporting = pipWatchController as? any PiPWatchLifecycleReporting {
+            reporting.stop(reason: reason)
+            return
+        }
+        #endif
+        pipWatchController.stop()
+    }
+
     private var currentPiPWatchViewport: PiPWatchViewport {
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         return pipLayerHost.currentViewport
@@ -9771,12 +9824,52 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func prepareController(_ controller: any PiPWatchControlling) -> Bool {
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        observePiPWatchLifecycleIfNeeded(controller)
         if let attaching = controller as? any PiPWatchLayerHostAttaching {
             return attaching.prepare(layerHost: pipLayerHost)
         }
         #endif
         return controller.prepare()
     }
+
+    #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    /// Subscribes to the controller's lifecycle once, so the app's PiP state
+    /// follows the system's rather than assuming it (spec 032 FR-003).  A
+    /// controller that cannot report a lifecycle keeps the previous
+    /// behaviour — the same capability-downcast idiom the RFB boundary uses.
+    private func observePiPWatchLifecycleIfNeeded(_ controller: any PiPWatchControlling) {
+        guard let reporting = controller as? any PiPWatchLifecycleReporting,
+              reporting.onLifecycleEvent == nil
+        else {
+            return
+        }
+        reporting.onLifecycleEvent = { [weak self] event in
+            self?.handlePiPWatchLifecycleEvent(event)
+        }
+    }
+
+    private func handlePiPWatchLifecycleEvent(_ event: PiPWatchLifecycleEvent) {
+        guard var watchSession = pipWatchSession else {
+            return
+        }
+
+        switch event {
+        case .started:
+            guard let frame = watchSession.lastFrame else {
+                return
+            }
+            watchSession.markWatching(frame: frame)
+        case .startFailed:
+            watchSession.fail("PiP start request could not be delivered.")
+        case .stopped:
+            // Includes the user closing the floating window from the system
+            // chrome, which the app previously never learned about.
+            watchSession.stop()
+        }
+
+        pipWatchSession = watchSession
+    }
+    #endif
 }
 
 private struct ConnectionResult: Sendable {
