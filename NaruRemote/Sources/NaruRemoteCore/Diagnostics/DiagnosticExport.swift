@@ -396,6 +396,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case rendererPartialUploadPermille
         case rendererFullUploadPermille
         case rendererUploadRegionCountMax
+        case appleServerDownscaleRung
         case framePresentationPublishedCount
         case framePresentationPresentedCount
         case framePresentationPresentedPermille
@@ -481,6 +482,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let rendererPartialUploadPermille: Int?
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCountMax: Int
+    /// Spec 031. Whether the session asked the server to halve its framebuffer.
+    /// A fixed label (`full` / `half`), never a scale factor tied to framebuffer
+    /// dimensions (constitution §IV). Absent from every export before build 10,
+    /// which is why a soft picture could not be attributed from a report.
+    public let appleServerDownscaleRung: String
+
     /// Spec 028. How many content frames the session frame store published, and
     /// how many of those reached the texture. A large gap with a named reason is
     /// the signature of a frozen picture on a live stream — the state that
@@ -573,6 +580,7 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         rendererPartialUploadPermille: Int? = nil,
         rendererFullUploadPermille: Int? = nil,
         rendererUploadRegionCountMax: Int = 0,
+        appleServerDownscaleRung: String = AppleServerDownscaleRungCatalog.full,
         framePresentationPublishedCount: Int = 0,
         framePresentationPresentedCount: Int = 0,
         framePresentationPresentedPermille: Int? = nil,
@@ -669,6 +677,8 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         self.rendererPartialUploadPermille = Self.clampPermille(rendererPartialUploadPermille)
         self.rendererFullUploadPermille = Self.clampPermille(rendererFullUploadPermille)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        self.appleServerDownscaleRung = AppleServerDownscaleRungCatalog
+            .sanitized(appleServerDownscaleRung)
         self.framePresentationPublishedCount = max(framePresentationPublishedCount, 0)
         self.framePresentationPresentedCount = max(framePresentationPresentedCount, 0)
         self.framePresentationPresentedPermille = framePresentationPresentedPermille.map { max($0, 0) }
@@ -933,6 +943,10 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
                 Int.self,
                 forKey: .rendererUploadRegionCountMax
             ) ?? 0,
+            appleServerDownscaleRung: try container.decodeIfPresent(
+                String.self,
+                forKey: .appleServerDownscaleRung
+            ) ?? AppleServerDownscaleRungCatalog.full,
             framePresentationPublishedCount: try container.decodeIfPresent(
                 Int.self,
                 forKey: .framePresentationPublishedCount

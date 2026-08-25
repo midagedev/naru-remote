@@ -4797,11 +4797,44 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
     }
 
+    /// Spec 031. Whether the app may ask the server to halve its framebuffer.
+    ///
+    /// Only where the user has asked for less data. The downscale was a
+    /// compensation for slowness, and the slowness turned out to be spec 030's
+    /// viewport-scoped request defect — Apple answered those in 540-787 ms
+    /// instead of 33 ms. **The measurements that showed 5.66-7.08 content fps
+    /// after that fix were taken at full 3024x1964 resolution**, because the
+    /// live benchmark never sends ScaleFactor at all, so the pixels were being
+    /// spent on a problem that no longer exists.
+    ///
+    /// The policy's "visually lossless" rule is an inequality over framebuffer
+    /// pixels per device pixel, and it had never been checked against a phone
+    /// screen — constitution §III requires that before such a claim counts. On
+    /// build 9 the founder looked at it: "해상도 너무 낮은데... 왜 이렇게
+    /// 뭉개지지". The margin explains it. After halving, 1512 framebuffer pixels
+    /// cover about 1290 device pixels, so any zoom at all magnifies a
+    /// half-resolution source through one bilinear tap.
+    ///
+    /// Power saver and Low Data Mode keep it, which turns the trade into
+    /// something the user chose rather than something the app inferred.
+    private var mayRequestAppleServerDownscale: Bool {
+        appSettings.streamPowerMode == .powerSaver || lowPowerModeProvider()
+    }
+
     private func requestedAppleServerDownscaleRung(
         serverAdvertisedAppleSecurity: Bool,
         fallbackFramebufferWidth: Int,
         fallbackFramebufferHeight: Int
     ) -> Double? {
+        guard mayRequestAppleServerDownscale else {
+            // Restore full resolution if a previous mode had halved it, then
+            // stay quiet.
+            if appliedServerDownscaleRung != AppleServerDownscalePolicy.fullRung {
+                appleServerDownscalePolicy.reset()
+                return AppleServerDownscalePolicy.fullRung
+            }
+            return nil
+        }
         let liveWidth = latestFramebuffer?.width ?? fallbackFramebufferWidth
         let liveHeight = latestFramebuffer?.height ?? fallbackFramebufferHeight
         return appleServerDownscalePolicy.requestedRung(
@@ -4816,6 +4849,10 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func noteAppliedServerDownscaleRung(_ rung: Double) {
         appliedServerDownscaleRung = rung
+        // Spec 031: make the rung readable from a diagnostic export. Its absence
+        // is why the founder's soft-picture report could not be attributed
+        // without a direct RFB probe.
+        sessionStreamStats.recordAppleServerDownscaleRung(rung)
         // Capture the unscaled pointer-space baseline at the moment the
         // downscale is requested — the framebuffer is still unscaled here
         // (the DesktopSize resize lands later), and pointer traffic alone

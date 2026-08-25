@@ -2506,6 +2506,35 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.frameUpdateRegions, [nil])
     }
 
+    /// Spec 031: the default power mode keeps full resolution.
+    ///
+    /// The downscale was a compensation for slowness, and spec 030 found the
+    /// slowness was viewport-scoped request regions — Apple answered those in
+    /// 540-787 ms instead of 33 ms. The measurements that showed 5.66-7.08
+    /// content fps after that fix were taken at full 3024x1964 resolution,
+    /// because the live benchmark never sends ScaleFactor, so the pixels bought
+    /// nothing that was still needed. The founder looked at build 9 and said so:
+    /// "해상도 너무 낮은데... 왜 이렇게 뭉개지지".
+    func testBalancedSessionKeepsFullResolution() async throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let (connector, model) = makeAppleDownscaleHarness(
+            profile: profile,
+            advertisedAppleSecurity: true,
+            allowsDownscale: false
+        )
+        model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
+
+        await model.connectSelectedProfile()
+        // Long enough that the policy's ten-tick threshold would have fired
+        // several times over on the old default.
+        try await Task.sleep(for: .milliseconds(900))
+
+        XCTAssertTrue(
+            connector.sentScaleFactors.isEmpty,
+            "A balanced-power session must not trade resolution for latency it no longer needs."
+        )
+    }
+
     /// Spec 018: Apple-gated session sends ScaleFactor 0.5 exactly once after
     /// 10 consecutive un-zoomed lossless incremental ticks.
     func testAppleGatedSessionDownscalesAfterSustainedUnzoomedFit() async throws {
@@ -8580,9 +8609,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
         zoomScale: 2
     )
 
+    /// Spec 031: the downscale now only runs where the user asked for less data,
+    /// so these harnesses report system low-power mode by default. The machinery
+    /// itself is unchanged and still covered; what moved is when the app asks for
+    /// it. `allowsDownscale: false` is the new product default.
     private func makeAppleDownscaleHarness(
         profile: ConnectionProfile,
-        advertisedAppleSecurity: Bool
+        advertisedAppleSecurity: Bool,
+        allowsDownscale: Bool = true
     ) -> (FakeStreamingConnector, NaruRemoteAppModel) {
         let framebuffer = RFBRawFramebuffer(
             width: 120,
@@ -8606,7 +8640,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 idleFrameInterval: 0
             ),
             connectorFactory: { connector },
-            lowPowerModeProvider: { false }
+            lowPowerModeProvider: { allowsDownscale }
         )
         return (connector, model)
     }

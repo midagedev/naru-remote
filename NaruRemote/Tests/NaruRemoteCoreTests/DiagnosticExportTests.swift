@@ -1821,7 +1821,8 @@ final class DiagnosticExportTests: XCTestCase {
         presented: Int = 0,
         presentedPermille: Int? = nil,
         heldReason: String = FramePresentationHeldReasonCatalog.none,
-        watchdogReleases: Int = 0
+        watchdogReleases: Int = 0,
+        downscaleRung: String = AppleServerDownscaleRungCatalog.full
     ) -> DiagnosticStreamPerformanceReport {
         DiagnosticStreamPerformanceReport(
             observedDurationBucket: DiagnosticTimingBucket.notMeasured.rawValue,
@@ -1834,6 +1835,7 @@ final class DiagnosticExportTests: XCTestCase {
             dirtyRectangleCountMax: 0,
             dirtyAreaPermilleMax: 0,
             changedPixelsPermilleMax: 0,
+            appleServerDownscaleRung: downscaleRung,
             framePresentationPublishedCount: published,
             framePresentationPresentedCount: presented,
             framePresentationPresentedPermille: presentedPermille,
@@ -1946,6 +1948,46 @@ final class DiagnosticExportTests: XCTestCase {
             DiagnosticStreamPerformanceReport.self,
             from: try JSONSerialization.data(withJSONObject: object)
         )
+    }
+
+    // MARK: - Applied server downscale (spec 031)
+
+    func testTheAppliedDownscaleRungIsWrittenAsAFixedLabel() throws {
+        // Its absence is why the founder's soft-picture report could not be
+        // attributed from an export, and why establishing what the server was
+        // even serving needed a direct RFB probe.
+        XCTAssertEqual(
+            AppleServerDownscaleRungCatalog.label(
+                forAppliedRung: AppleServerDownscalePolicy.fullRung
+            ),
+            "full"
+        )
+        XCTAssertEqual(
+            AppleServerDownscaleRungCatalog.label(
+                forAppliedRung: AppleServerDownscalePolicy.downscaledRung
+            ),
+            "half"
+        )
+        // A rung the policy cannot apply reads as unknown rather than being
+        // rounded into a claim.
+        XCTAssertEqual(AppleServerDownscaleRungCatalog.label(forAppliedRung: 0.73), "unknown")
+        // Constitution §IV: a caller-supplied string never reaches the export.
+        XCTAssertEqual(
+            makeLedgerReport(downscaleRung: "3024x1964").appleServerDownscaleRung,
+            "unknown"
+        )
+
+        let report = makeLedgerReport(downscaleRung: "half")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payload = String(decoding: try encoder.encode(report), as: UTF8.self)
+        XCTAssertTrue(payload.contains("\"appleServerDownscaleRung\":\"half\""))
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+        XCTAssertEqual(decoded.appleServerDownscaleRung, "half")
     }
 
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {

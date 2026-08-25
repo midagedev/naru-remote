@@ -100,6 +100,12 @@ public struct SessionStreamStats: Equatable, Sendable {
     /// renderer already keeps it cumulative for the life of the session.
     public var framePresentationLedger = FramePresentationLedger()
 
+    /// Spec 031. The server-side downscale rung the session is running under, as
+    /// a fixed label. Carried so a soft picture is attributable from an export
+    /// instead of requiring a direct RFB probe to establish what the server was
+    /// serving.
+    public var appleServerDownscaleRungLabel = AppleServerDownscaleRungCatalog.full
+
     // Internal-only renderer planning cache. It is not exported in
     // diagnostics; only aggregate upload strategy counts leave memory.
     private var lastFramebufferWidth: Int?
@@ -494,6 +500,7 @@ public struct SessionStreamStats: Equatable, Sendable {
             rendererPartialUploadPermille: rendererPartialUploadPermille,
             rendererFullUploadPermille: rendererFullUploadPermille,
             rendererUploadRegionCountMax: rendererUploadRegionCountMax,
+            appleServerDownscaleRung: appleServerDownscaleRungLabel,
             framePresentationPublishedCount: framePresentationLedger.publishedCount,
             framePresentationPresentedCount: framePresentationLedger.count(.presented),
             framePresentationPresentedPermille: framePresentationPresentedPermille,
@@ -736,6 +743,11 @@ public struct SessionStreamStats: Equatable, Sendable {
             (Double(framePresentationLedger.count(.presented)) / Double(published) * 1_000)
                 .rounded()
         )
+    }
+
+    public mutating func recordAppleServerDownscaleRung(_ rung: Double) {
+        appleServerDownscaleRungLabel = AppleServerDownscaleRungCatalog
+            .label(forAppliedRung: rung)
     }
 
     public mutating func recordFramePresentationLedger(_ ledger: FramePresentationLedger) {
