@@ -58,10 +58,18 @@ are in when they are *about to* leave the app.
     matter, and a **cooldown** bounds how often the window can move, because a
     PiP window that re-frames on every terminal line is worse than a fixed one;
   - **idle holds the last framing** rather than drifting or zooming out.
-- **FR-005 The chosen region is drawn on the remote screen**, initialised to
-  the current view, and confirmed explicitly. It is session-scoped: it names a
-  place on a particular desktop layout, and persisting it across relaunches
-  would restore a frame around whatever now happens to be there.
+- **FR-005 The chosen region is drawn on the remote screen** and confirmed
+  explicitly. The box is **aspect-locked to the framebuffer**, because
+  `PiPWatchViewport.sourceRect` crops width and height by the same factor — a
+  free-form rectangle would promise a framing the system cannot deliver. It
+  opens as a centred box at a readable fraction of the view rather than
+  around the whole thing, which would select nothing. What it reports is a view
+  rect, converted through the live `ViewportTransform`: reading it as
+  framebuffer coordinates is correct only at zoom 1 with no pan, which is not
+  the state a user is in when choosing something to watch. The region is
+  session-scoped: it names a place on a particular desktop layout, and
+  persisting it across relaunches would restore a frame around whatever now
+  happens to be there.
 - **FR-006 The mode persists; the region does not.** The mode is a user
   preference (`AppSettings`); the region is a session fact.
 - **FR-007 Constitution §I and §IV.** Framing is a local viewport decision —
@@ -78,8 +86,8 @@ are in when they are *about to* leave the app.
 |---|---|---|
 | `swift test` — auto-framing policy | centring, the legible clamp, the dead zone, the cooldown, idle hold, and that a re-frame is suppressed when the target has not moved | direct, synthetic damage sequences |
 | `swift test` — settings round-trip | the mode persists and decodes to the default when absent | direct |
-| iPhone simulator, fixture captures | the long-press sheet and the region picker | screenshot pass |
-| iPhone simulator UITest | tap does not present anything; long-press does | direct |
+| iPhone simulator, fixture captures | the long-press menu and the region picker | done — and they caught three defects every green test missed: the picker's buttons inheriting an ancestor's accessibility identifier, a box locked to the screen's aspect instead of the framebuffer's, and the confirm buttons sitting behind the input dock |
+| iPhone simulator UITest | tap presents nothing; long-press offers the choices; a confirmed region becomes a selectable mode | `PiPFramingUITests`, 3 tests, via the DEBUG availability hook |
 | **Founder device, build 11** | **is the PiP window readable, and does Follow activity land on the terminal that is printing** | the judgement this spec exists for |
 
 ## Non-Goals

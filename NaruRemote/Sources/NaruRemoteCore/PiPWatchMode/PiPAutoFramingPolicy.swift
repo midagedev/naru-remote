@@ -213,25 +213,55 @@ public struct PiPAutoFramingState: Equatable, Sendable {
         return candidate
     }
 
+    /// Folds a whole frame's damage into **one** observation.
+    ///
+    /// Not one per rectangle: the founder's own export reports
+    /// `dirtyRectangleCountMax: 1488`, so keeping every rectangle for a
+    /// multi-second window would put tens of thousands of records through a
+    /// reduce on every frame, on a phone. Folding is exact for both quantities
+    /// this policy uses — an area-weighted centroid is a weighted mean of
+    /// per-frame weighted means, and a bounding box is a union of unions — so
+    /// the bound costs nothing but memory.
     private mutating func record(damage: [RFBFrameDamageRect], at now: TimeInterval) {
+        var area = 0.0
+        var weightedX = 0.0
+        var weightedY = 0.0
+        var minX = Double.greatestFiniteMagnitude
+        var minY = Double.greatestFiniteMagnitude
+        var maxX = -Double.greatestFiniteMagnitude
+        var maxY = -Double.greatestFiniteMagnitude
+
         for rect in damage where rect.width > 0 && rect.height > 0 {
-            let minX = Double(rect.x)
-            let minY = Double(rect.y)
-            let maxX = Double(rect.x + rect.width)
-            let maxY = Double(rect.y + rect.height)
-            observations.append(
-                Observation(
-                    at: now,
-                    centerX: (minX + maxX) / 2,
-                    centerY: (minY + maxY) / 2,
-                    minX: minX,
-                    minY: minY,
-                    maxX: maxX,
-                    maxY: maxY,
-                    area: Double(rect.width) * Double(rect.height)
-                )
-            )
+            let rectArea = Double(rect.width) * Double(rect.height)
+            let left = Double(rect.x)
+            let top = Double(rect.y)
+            let right = Double(rect.x + rect.width)
+            let bottom = Double(rect.y + rect.height)
+            area += rectArea
+            weightedX += (left + right) / 2 * rectArea
+            weightedY += (top + bottom) / 2 * rectArea
+            minX = min(minX, left)
+            minY = min(minY, top)
+            maxX = max(maxX, right)
+            maxY = max(maxY, bottom)
         }
+
+        guard area > 0 else {
+            return
+        }
+
+        observations.append(
+            Observation(
+                at: now,
+                centerX: weightedX / area,
+                centerY: weightedY / area,
+                minX: minX,
+                minY: minY,
+                maxX: maxX,
+                maxY: maxY,
+                area: area
+            )
+        )
     }
 
     private func shouldReframe(

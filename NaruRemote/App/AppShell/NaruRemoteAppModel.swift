@@ -9756,7 +9756,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             break
         case .chosenRegion:
             if let pipChosenRegion {
-                applyPiPFraming(pipChosenRegion, framebuffer: latestFramebuffer)
+                applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
             }
         case .followActivity:
             pipAutoFramingState.adopt(
@@ -9929,7 +9929,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             break
         case .chosenRegion:
             if let pipChosenRegion {
-                applyPiPFraming(pipChosenRegion, framebuffer: latestFramebuffer)
+                applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
             }
         case .followActivity:
             pipAutoFramingState.adopt(
@@ -9965,10 +9965,19 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard let target else {
             return
         }
-        applyPiPFraming(target, framebuffer: framebuffer)
+        // No replay here: the caller enqueues this very frame immediately
+        // after, through the viewport this call just set. Replaying would
+        // convert the same framebuffer to video samples twice.
+        applyPiPFraming(target, replaying: nil)
     }
 
-    private func applyPiPFraming(_ target: PiPFramingTarget, framebuffer: RFBRawFramebuffer) {
+    /// `replaying` re-sends a frame through the new viewport, which is what a
+    /// mode or region change needs — a static remote screen would otherwise
+    /// keep the old framing until something moved.
+    private func applyPiPFraming(
+        _ target: PiPFramingTarget,
+        replaying framebuffer: RFBRawFramebuffer?
+    ) {
         _ = try? pipLayerHost.updateViewport(
             PiPWatchViewport(
                 centerX: target.centerX,
