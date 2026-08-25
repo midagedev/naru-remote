@@ -137,6 +137,15 @@ import AVKit
 import UIKit
 #endif
 
+/// Capability protocol for controllers that can hand entry to the system
+/// (spec 036 FR-004): PiP starts when the app leaves the foreground, which is
+/// the only way "the app should go to the background" can actually be
+/// delivered — iOS gives an app no way to background itself.
+@MainActor
+public protocol PiPWatchAutomaticEntryControlling: PiPWatchControlling {
+    func setStartsAutomaticallyFromInline(_ enabled: Bool)
+}
+
 /// Capability protocol for `PiPWatchControlling` implementations that
 /// support being attached to a long-lived `PiPLayerHost`.  The host's
 /// `AVSampleBufferDisplayLayer` is mounted in the SwiftUI view tree and
@@ -400,7 +409,8 @@ public final class PiPWatchSampleBufferRenderer {
 public final class PiPWatchPictureInPictureController: NSObject,
     PiPWatchControlling,
     PiPWatchLayerHostAttaching,
-    PiPWatchLifecycleReporting
+    PiPWatchLifecycleReporting,
+    PiPWatchAutomaticEntryControlling
 {
     public private(set) var layerHost: PiPLayerHost?
     public private(set) var pictureInPictureController: AVPictureInPictureController?
@@ -408,6 +418,8 @@ public final class PiPWatchPictureInPictureController: NSObject,
     /// it says and reports what the system did back into it (spec 032 FR-005).
     public private(set) var lifecycle = PiPWatchControllerLifecycle()
     public var onLifecycleEvent: ((PiPWatchLifecycleEvent) -> Void)?
+    /// Spec 036 FR-004, held across controller construction.
+    private var startsAutomaticallyFromInline = false
     private let fallbackRenderer: PiPWatchSampleBufferRenderer
 
     public init(renderer: PiPWatchSampleBufferRenderer = PiPWatchSampleBufferRenderer()) {
@@ -484,6 +496,7 @@ public final class PiPWatchPictureInPictureController: NSObject,
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.requiresLinearPlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = startsAutomaticallyFromInline
         pictureInPictureController = controller
         return true
     }
@@ -544,6 +557,14 @@ public final class PiPWatchPictureInPictureController: NSObject,
 
         pictureInPictureController.startPictureInPicture()
         return true
+    }
+
+    /// Hands entry to the system (spec 036 FR-004). Held so a controller built
+    /// later is armed the same way, and applied to the live controller when
+    /// there is one.
+    public func setStartsAutomaticallyFromInline(_ enabled: Bool) {
+        startsAutomaticallyFromInline = enabled
+        pictureInPictureController?.canStartPictureInPictureAutomaticallyFromInline = enabled
     }
 
     public func stop() {

@@ -1065,10 +1065,6 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// a sealed/committed line can be cleared by the model.  Memory-only
     /// and never exported — raw typed content stays process-local (SP-002).
     public var liveFieldText: String
-    /// Fixed hint that the most recent Live backspace was clamped at the
-    /// start of the current editing window (no remote delete crossed the
-    /// seal, FR-011).  Content-free; memory-only.
-    public var liveReachedWindowStart: Bool
     /// Sticky modifier slot state for the Direct-mode special-keys
     /// page (Phase 4 / US-2).  Mirrors the `directKeystrokeMode`
     /// pattern — pure value type carried on the snapshot so views
@@ -1118,7 +1114,6 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         liveTypeThroughMode: LiveTypeThroughMode = LiveTypeThroughMode(),
         liveFieldText: String = "",
-        liveReachedWindowStart: Bool = false,
         stickyModifierState: StickyModifierState = StickyModifierState(),
         isRemoteInputAccessoryPanelExpanded: Bool = false,
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
@@ -1147,7 +1142,6 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.directKeystrokeMode = directKeystrokeMode
         self.liveTypeThroughMode = liveTypeThroughMode
         self.liveFieldText = liveFieldText
-        self.liveReachedWindowStart = liveReachedWindowStart
         self.stickyModifierState = stickyModifierState
         self.isRemoteInputAccessoryPanelExpanded = isRemoteInputAccessoryPanelExpanded
         self.lastDiagnosticVerdict = lastDiagnosticVerdict
@@ -1353,36 +1347,56 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         }
     }
 
-    /// The subset of `liveStatusText` that earns a line (spec 015 FR-006):
-    /// anything the user can act on or be misled by. A delivery that landed
-    /// is signalled by the crossing pulse overlay, which costs no height —
-    /// FR-013 forbids reporting an observed helper delivery as "unknown", not
-    /// staying quiet about a success the user is already watching happen on
-    /// the remote screen.
+    /// One word naming the transport in force, for the compact dock's inline
+    /// badge (spec 035 FR-003).
+    ///
+    /// FR-006 of spec 015 kept the *nominal* sentence off the keyboard-up dock
+    /// and left the degraded one holding a full-width row for the rest of the
+    /// session — which, with no helper, is every session the founder has. The
+    /// guarantee (spec 009 FR-014: a degraded transport is always disclosed) is
+    /// unchanged; only its form is. `nil` means the transport is nominal and
+    /// there is nothing to disclose.
+    public var liveTransportBadgeLabel: String? {
+        guard liveTypeThroughMode.isActive,
+              let tier = liveTypeThroughMode.selectedTier
+        else {
+            return nil
+        }
+        switch tier {
+        case .helperNativeInsert:
+            return nil
+        case .clipboardChunk:
+            return "Clipboard"
+        case .keyEvent:
+            return "ASCII"
+        }
+    }
+
+    /// The subset of `liveStatusText` that earns a *row* of the compact dock
+    /// (spec 015 FR-006, narrowed by spec 035 FR-004): only what the user must
+    /// act on. "Sent via clipboard, confirmation unavailable" and "typed as
+    /// ASCII" are properties of the transport, and `liveTransportBadgeLabel` is
+    /// where they are now stated — permanently, and for no height. A delivery
+    /// that landed is signalled by the crossing pulse overlay, which also costs
+    /// no height.
     public var liveActionableStatusText: String? {
         guard liveTypeThroughMode.isActive else {
             return nil
         }
-        if liveReachedWindowStart {
-            return liveStatusText
-        }
         switch liveTypeThroughMode.lastStatus {
-        case .idle, .delivering, .deliveredObserved:
+        case .idle, .delivering, .deliveredObserved, .unconfirmedClipboard, .asciiLastResort:
             return nil
-        case .unconfirmedClipboard, .asciiLastResort, .retainedFailure:
+        case .retainedFailure:
             return liveStatusText
         }
     }
 
     /// Per-window Live delivery status line (spec 009 FR-013). Fixed
-    /// catalog copy; the retained-failure and clamp states surface here so
-    /// the user is never told a failed delivery "landed".
+    /// catalog copy; the retained-failure state surfaces here so the user is
+    /// never told a failed delivery "landed".
     public var liveStatusText: String? {
         guard liveTypeThroughMode.isActive else {
             return nil
-        }
-        if liveReachedWindowStart {
-            return "Reached the start of the Live window."
         }
         switch liveTypeThroughMode.lastStatus {
         case .idle:

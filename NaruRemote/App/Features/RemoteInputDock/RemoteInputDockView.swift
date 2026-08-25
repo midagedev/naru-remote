@@ -22,6 +22,11 @@ public struct RemoteInputDockView: View {
     nonisolated static let composeSendStabilizationSnapshotCount = 30
     nonisolated static let composeSendStabilizationDelayNanoseconds: UInt64 = 16_000_000
     nonisolated static let composeTextPropagationDebounceNanoseconds: UInt64 = 120_000_000
+    /// Spec 035 FR-002: bounded focus retry — six attempts, ~50ms apart, so a
+    /// mount that lands late still gets a keyboard and one that never lands
+    /// stops asking.
+    nonisolated static let composeFocusAttemptLimit = 6
+    nonisolated static let composeFocusRetryDelayNanoseconds: UInt64 = 50_000_000
 
     #if os(iOS) && canImport(UIKit)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -101,10 +106,13 @@ public struct RemoteInputDockView: View {
     private let liveTransportDisclosureText: String
     /// Per-window Live delivery status line (FR-013). Fixed catalog copy.
     private let liveStatusText: String?
-    /// Spec 015 FR-006: at compact width these two decide whether the
-    /// sentence earns a row. At standard width both lines render as before —
-    /// the height pressure was never there.
-    private let liveTransportIsDegraded: Bool
+    /// Spec 035 FR-003: one word naming a degraded transport, rendered inside
+    /// the row instead of a sentence above it. `nil` when the transport is
+    /// nominal and there is nothing to disclose.
+    private let liveTransportBadgeLabel: String?
+    /// Spec 015 FR-006 as narrowed by spec 035 FR-004: only a status the user
+    /// must act on earns a row of the compact dock. At standard width both
+    /// lines render as before — the height pressure was never there.
     private let liveStatusIsActionable: Bool
     private let onSelectMode: (NaruRemoteAppModel.RemoteInputDockMode) -> Void
     /// Committed-text snapshot hook for Live mode: `(committedText, hasMarkedText)`.
@@ -142,7 +150,7 @@ public struct RemoteInputDockView: View {
         liveTypeThroughActive: Bool = false,
         liveTransportDisclosureText: String = "",
         liveStatusText: String? = nil,
-        liveTransportIsDegraded: Bool = false,
+        liveTransportBadgeLabel: String? = nil,
         liveStatusIsActionable: Bool = false,
         onToggleDirectMode: @escaping () -> Void = {},
         onSelectMode: @escaping (NaruRemoteAppModel.RemoteInputDockMode) -> Void = { _ in },
@@ -181,7 +189,7 @@ public struct RemoteInputDockView: View {
         self.liveTypeThroughActive = liveTypeThroughActive
         self.liveTransportDisclosureText = liveTransportDisclosureText
         self.liveStatusText = liveStatusText
-        self.liveTransportIsDegraded = liveTransportIsDegraded
+        self.liveTransportBadgeLabel = liveTransportBadgeLabel
         self.liveStatusIsActionable = liveStatusIsActionable
         self.onToggleDirectMode = onToggleDirectMode
         self.onSelectMode = onSelectMode
@@ -372,7 +380,7 @@ public struct RemoteInputDockView: View {
     /// the keyboard and the remote screen; the gate that holds it down is
     /// `KeyboardUpDockHeightUITests`.
     private var compactAccessoryBody: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // Type mode hosts the strip inside its own row (spec 015 v1.1
             // FR-008): rendering the panel here too would show it twice.
             if !liveTypeThroughActive, showsAccessoryPanel {
@@ -384,9 +392,11 @@ public struct RemoteInputDockView: View {
                 compactStatusLine(compactStatusText)
             }
         }
+        // Spec 035 FR-005: 6pt, not 8. Everything between the keyboard and the
+        // remote screen is subtracted from what the user came for.
         .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 6)
         .remoteChromeSurface()
         .overlay(alignment: .top) {
             Rectangle()
@@ -525,7 +535,7 @@ public struct RemoteInputDockView: View {
     /// affordance over the leading edge above the keyboard, and that overlay
     /// must not cover the mode switch or Send.
     private var compactComposeRow: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             liveDisclosureBadge
 
             if liveTypeThroughActive {
@@ -576,16 +586,19 @@ public struct RemoteInputDockView: View {
     /// is the strip (remote ⌫/↵ leading), a keyboard-dismiss key, and the
     /// mode switch.
     private var liveSoftKeyRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             composeTextEditor
                 .frame(width: 1, height: 1)
+
+            liveTransportBadge
 
             accessoryKeyStrip
 
             #if os(iOS) && canImport(UIKit)
             // With the visible field gone, the field's interactive drag was
-            // the last way to lower the keyboard — this key replaces it.
-            keyboardDismissButton
+            // the last way to lower the keyboard — and nothing raised it
+            // again (spec 035 FR-001). This key does both.
+            keyboardToggleButton
             #endif
 
             compactModeToggleButton
@@ -593,11 +606,33 @@ public struct RemoteInputDockView: View {
     }
 
     #if os(iOS) && canImport(UIKit)
-    private var keyboardDismissButton: some View {
-        Button {
-            composeCommitController.blur()
+    /// Type mode's keyboard key, both ways (spec 035 FR-001).
+    ///
+    /// It used to only lower the keyboard. Type mode has no visible field
+    /// (spec 015 v1.1 FR-008), and the dock keeps its keyboard-up layout while
+    /// the mirror holds a draft — so a focus loss with text in flight (the app
+    /// backgrounding, PiP, a system interruption) left a row of soft keys, no
+    /// keyboard, and **nothing that raised one**. Compose mode has its reveal
+    /// button as the way back; this is Type mode's.
+    private var keyboardToggleButton: some View {
+        let isRaised = composeFieldFocused
+        return Button {
+            if isRaised {
+                composeCommitController.blur()
+            } else {
+                // Raising goes through the *same* path the idle capsule takes:
+                // request the expanded dock first, then focus. Focusing
+                // directly worked and then undid itself — gaining focus flips
+                // the shell's placement, which recreates this view (and its
+                // `@State` commit controller) out from under the responder that
+                // was just installed. Requesting expansion first means the
+                // placement is already settled, and the recreated instance
+                // takes first responder in its own `onAppear`.
+                onRequestComposeExpansion(true)
+                requestComposeEditorFocus()
+            }
         } label: {
-            Image(systemName: "keyboard.chevron.compact.down")
+            Image(systemName: isRaised ? "keyboard.chevron.compact.down" : "keyboard")
                 .font(.system(size: 16, weight: .semibold))
                 .frame(width: 40, height: 40)
                 .background(NaruColors.surfaceKey)
@@ -612,10 +647,45 @@ public struct RemoteInputDockView: View {
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Hide keyboard")
-        .accessibilityIdentifier("naru.input.keyboard-dismiss")
+        .accessibilityLabel(isRaised ? "Hide keyboard" : "Show keyboard")
+        // The dismiss identifier is kept for the raised state so the existing
+        // dock-height coverage keeps resolving it; the raise state is its own
+        // identifier because a test asserting recovery must not pass by
+        // finding the key that hides.
+        .accessibilityIdentifier(
+            isRaised ? "naru.input.keyboard-dismiss" : "naru.input.keyboard-raise"
+        )
     }
     #endif
+
+    /// Persistent one-word disclosure of a degraded Live transport, inside the
+    /// row (spec 035 FR-003).
+    ///
+    /// Spec 009 FR-014 requires that a degraded transport always be disclosed —
+    /// the clipboard path overwrites the remote clipboard, the ASCII path cannot
+    /// carry Korean. It was disclosed as a full-width two-line caption on its
+    /// own row, permanently, for the whole session. Same guarantee, no row.
+    @ViewBuilder
+    private var liveTransportBadge: some View {
+        if let liveTransportBadgeLabel, !liveTransportBadgeLabel.isEmpty {
+            HStack(spacing: 3) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .bold))
+                Text(liveTransportBadgeLabel)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(NaruColors.warning)
+            .padding(.horizontal, 6)
+            .frame(height: 36)
+            .background(NaruColors.warning.opacity(0.16))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(liveTransportDisclosureText)
+            .accessibilityIdentifier("naru.input.live-transport-badge")
+        }
+    }
 
     /// Is the key panel on screen? Compact width hides it until `⋯` (FR-001);
     /// regular width keeps it (FR-005) — the height pressure this spec closes
@@ -733,10 +803,32 @@ public struct RemoteInputDockView: View {
               !directKeystrokeMode.isActive,
               !composeFieldFocused
         else { return }
+        requestComposeEditorFocus()
+    }
+
+    /// Asks for first responder until the editor takes it, or until the
+    /// attempts run out (spec 035 FR-002).
+    ///
+    /// One `Task.yield()` used to be the whole retry policy: if the
+    /// `UITextView` was not yet attachable when the request landed, nothing
+    /// tried again and nothing reported. The bound matters as much as the
+    /// retry — an editor that genuinely cannot take focus must not spin, and
+    /// FR-001's keyboard key is what makes that case recoverable by hand.
+    private func requestComposeEditorFocus() {
+        #if os(iOS) && canImport(UIKit)
         Task { @MainActor in
-            await Task.yield()
-            focusComposeEditor()
+            for attempt in 0..<Self.composeFocusAttemptLimit {
+                if attempt == 0 {
+                    await Task.yield()
+                } else {
+                    try? await Task.sleep(nanoseconds: Self.composeFocusRetryDelayNanoseconds)
+                }
+                if composeCommitController.focus() {
+                    return
+                }
+            }
         }
+        #endif
     }
 
     nonisolated static func shouldShowCompactComposeEditor(
@@ -841,7 +933,9 @@ public struct RemoteInputDockView: View {
     /// nominal sentence from holding a row of an iPhone screen open while the
     /// user types; at standard width it renders as it always did.
     private var showsLiveDisclosureBadge: Bool {
-        layoutStyle == .standard || liveTransportIsDegraded
+        // Compact discloses through `liveTransportBadge` (spec 035 FR-003),
+        // which costs no row; the full sentence stays at standard width.
+        layoutStyle == .standard
     }
 
     /// Same split for the per-window delivery status (FR-013): everything at
@@ -2060,8 +2154,28 @@ final class ComposeTextCommitController {
         updateCurrentTextSnapshot(textView.text ?? "")
     }
 
-    func focus() {
-        textView?.becomeFirstResponder()
+    func isAttached(to candidate: UITextView) -> Bool {
+        textView === candidate
+    }
+
+    /// Requests first responder and **reports whether it landed** (spec 035
+    /// FR-002). The result used to be discarded, so a request that arrived
+    /// before the text view was attachable failed silently — and in Type mode,
+    /// where the editor is 1×1 and invisible, a silent failure is a keyboard
+    /// that never comes up with nothing on screen to tap.
+    @discardableResult
+    func focus() -> Bool {
+        guard let textView else {
+            return false
+        }
+        if textView.isFirstResponder {
+            return true
+        }
+        return textView.becomeFirstResponder()
+    }
+
+    var isFocused: Bool {
+        textView?.isFirstResponder ?? false
     }
 
     /// Type mode's keyboard-dismiss key (spec 015 v1.1): with no visible
@@ -2189,6 +2303,13 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
+        // The commit controller is `@State` on `RemoteInputDockView`, so a view
+        // recreation hands the coordinator a *new* controller — while UIKit
+        // keeps the same `UITextView` and never calls `makeUIView` again. The
+        // new controller's weak reference was therefore nil, and every
+        // `focus()` against it was a silent no-op: measured as Type mode's
+        // keyboard key doing nothing (spec 035 FR-002).
+        context.coordinator.attachIfNeeded(textView)
         context.coordinator.recordUpdate()
         textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.backgroundColor = .clear
@@ -2245,6 +2366,17 @@ private struct MultilingualComposeTextView: UIViewRepresentable {
 
         func recordUpdate() {
             updateCount += 1
+        }
+
+        /// Keeps whatever commit controller the current parent carries pointed
+        /// at the live text view. Idempotent, so the common case (same
+        /// controller, same view) costs one identity comparison.
+        func attachIfNeeded(_ textView: UITextView) {
+            guard !parent.commitController.isAttached(to: textView) else {
+                return
+            }
+            self.textView = textView
+            parent.commitController.attach(textView)
         }
 
         func applyAccessibilityIdentifier(to textView: UITextView) {

@@ -41,6 +41,15 @@ enum UXAuditFixtureToken: String {
     /// warning form. Spec 033 FR-004 makes the healthy form silent, and a
     /// screenshot gate that can only reach the silent one proves half a rule.
     case sessionDegraded = "session-degraded"
+    /// Active session already in Type mode with a **degraded** Live transport
+    /// locked in (spec 035 FR-005).
+    ///
+    /// This is the founder's every session — no helper, so the tier locks to
+    /// clipboard or ASCII at the first commit — and no fixture could reach it,
+    /// which is why `KeyboardUpDockHeightUITests` measured a one-row dock while
+    /// the device showed three. A height gate that cannot see the configuration
+    /// the user is in proves nothing about the height the user gets.
+    case sessionTypeModeDegradedTransport = "session-type-mode-degraded-transport"
     /// Active session in trackpad mode with a server-provided cursor
     /// shape so screenshots cover the "real remote cursor" overlay path.
     case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
@@ -95,6 +104,8 @@ enum UXAuditFixtures {
             return sessionConnectingDelayedFirstFrameSnapshot()
         case .sessionDegraded:
             return sessionDegradedSnapshot()
+        case .sessionTypeModeDegradedTransport:
+            return sessionTypeModeDegradedTransportSnapshot()
         case .sessionActiveTrackpadCursor:
             return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
         case .storeConnectionGrid:
@@ -207,6 +218,8 @@ enum UXAuditFixtures {
             // A measured-but-poor link, which is the tone the warning form
             // exists for.
             model.seedConnectionQualityForTesting(.poor)
+        case .sessionTypeModeDegradedTransport:
+            model.seedConnectionQualityForTesting(.good)
         case .sessionActiveTrackpadCursor:
             // Same active-session surface, but start in trackpad mode so
             // the cursor overlay uses the server cursor shape seeded on
@@ -638,6 +651,34 @@ enum UXAuditFixtures {
             selectedProfileID: profile.id,
             session: session,
             latestFramebuffer: activeSessionDesktopFramebuffer()
+        )
+    }
+
+    /// Type mode, live, with the ASCII tier locked and its status set — the
+    /// state in which the dock used to grow two sentence rows and keep them for
+    /// the rest of the session.
+    private static func sessionTypeModeDegradedTransportSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: activeSessionDesktopFramebuffer(),
+            liveTypeThroughMode: LiveTypeThroughMode(
+                isActive: true,
+                selectedTier: .keyEvent,
+                lastStatus: .asciiLastResort
+            ),
+            // A line already in flight. This is the other half of the founder's
+            // report (spec 035 FR-001): the dock keeps its keyboard-up layout
+            // while the mirror holds a draft, so a keyboard that went down for
+            // any reason leaves a row of soft keys and no way to type into it.
+            liveFieldText: "ls"
         )
     }
 

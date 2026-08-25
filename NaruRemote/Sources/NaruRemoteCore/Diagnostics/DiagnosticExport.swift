@@ -1291,6 +1291,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         case latestInjectionPasteCommandStatus
         case latestInjectionRemoteClipboardRestore
         case latestInjectionDurationBucket
+        case liveBackspacePassThroughCount
     }
 
     public let directKeystrokeModeActive: Bool?
@@ -1321,6 +1322,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
     public let latestInjectionPasteCommandStatus: String?
     public let latestInjectionRemoteClipboardRestore: String?
     public let latestInjectionDurationBucket: String?
+    /// How many Type-mode ⌫ taps fell through to a plain remote `BackSpace`
+    /// because the Live window had nothing of its own to un-type (spec 035
+    /// FR-007). A count, never what was deleted.
+    public let liveBackspacePassThroughCount: Int?
 
     public init(
         directKeystrokeModeActive: Bool? = nil,
@@ -1350,7 +1355,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         latestInjectionClipboardSetStatus: String? = nil,
         latestInjectionPasteCommandStatus: String? = nil,
         latestInjectionRemoteClipboardRestore: String? = nil,
-        latestInjectionDurationBucket: String? = nil
+        latestInjectionDurationBucket: String? = nil,
+        liveBackspacePassThroughCount: Int? = nil
     ) {
         self.directKeystrokeModeActive = directKeystrokeModeActive
         self.hasComposeDraftText = hasComposeDraftText
@@ -1408,6 +1414,7 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionRemoteClipboardRestore
         )
         self.latestInjectionDurationBucket = Self.safeDurationBucket(latestInjectionDurationBucket)
+        self.liveBackspacePassThroughCount = liveBackspacePassThroughCount.map { max($0, 0) }
     }
 
     public init(
@@ -1418,7 +1425,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
         composeUTF8ClipboardSupport: RemoteClipboardUTF8Support? = nil,
         composeRouteBlocker: DiagnosticComposeRouteBlocker? = nil,
         latestComposeSendPreparation: ComposeSendPreparationReport? = nil,
-        helperTextBridgeState: HelperTextBridgeProfileState? = nil
+        helperTextBridgeState: HelperTextBridgeProfileState? = nil,
+        liveBackspacePassThroughCount: Int? = nil
     ) {
         self.init(
             directKeystrokeModeActive: directKeystrokeModeActive,
@@ -1458,7 +1466,8 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
                     startedAt: $0.startedAt,
                     finishedAt: $0.finishedAt
                 ).rawValue
-            }
+            },
+            liveBackspacePassThroughCount: liveBackspacePassThroughCount
         )
     }
 
@@ -1558,6 +1567,10 @@ public struct DiagnosticInputReport: Codable, Equatable, Sendable {
             latestInjectionDurationBucket: try container.decodeIfPresent(
                 String.self,
                 forKey: .latestInjectionDurationBucket
+            ),
+            liveBackspacePassThroughCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .liveBackspacePassThroughCount
             )
         )
     }
@@ -2415,7 +2428,7 @@ public struct DiagnosticHelperVideoReport: Codable, Equatable, Sendable {
 }
 
 public struct DiagnosticCollectionReport: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 35
+    public static let currentSchemaVersion = 36
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

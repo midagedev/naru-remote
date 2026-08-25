@@ -158,6 +158,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// What PiP Watch frames on (spec 034 FR-006). The mode is a preference;
     /// the drawn region it can refer to is a session fact and is not stored.
     public var pipFramingMode: PiPFramingMode
+    /// Does leaving the app put a live session in a floating window
+    /// (spec 036 FR-005)?
+    ///
+    /// Default on, because it is what was asked for — an app cannot send
+    /// itself to the background, so the gesture that backgrounds it is where
+    /// PiP belongs. Switchable, because a PiP window keeps streaming while
+    /// backgrounded and what that costs on cellular is still unmeasured.
+    public var pipEntersOnLeavingApp: Bool
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
@@ -165,7 +173,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
         composeDelivery: ComposeDeliveryMode = .keystrokeStream,
-        pipFramingMode: PiPFramingMode = .currentView
+        pipFramingMode: PiPFramingMode = .currentView,
+        pipEntersOnLeavingApp: Bool = true
     ) {
         self.streamPowerMode = streamPowerMode
         self.streamEncodingMode = streamEncodingMode
@@ -173,6 +182,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.startupGlanceScaleMode = startupGlanceScaleMode
         self.composeDelivery = composeDelivery
         self.pipFramingMode = pipFramingMode
+        self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
     }
 
     public init(from decoder: Decoder) throws {
@@ -201,13 +211,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
             PiPFramingMode.self,
             forKey: .pipFramingMode
         ) ?? .currentView
+        let pipEntersOnLeavingApp = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .pipEntersOnLeavingApp
+        ) ?? true
         self.init(
             streamPowerMode: streamPowerMode,
             streamEncodingMode: streamEncodingMode,
             startupPreflightMode: startupPreflightMode,
             startupGlanceScaleMode: startupGlanceScaleMode,
             composeDelivery: composeDelivery,
-            pipFramingMode: pipFramingMode
+            pipFramingMode: pipFramingMode,
+            pipEntersOnLeavingApp: pipEntersOnLeavingApp
         )
     }
 
@@ -231,6 +246,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if pipFramingMode != .currentView {
             try container.encode(pipFramingMode, forKey: .pipFramingMode)
         }
+        if !pipEntersOnLeavingApp {
+            try container.encode(pipEntersOnLeavingApp, forKey: .pipEntersOnLeavingApp)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -240,5 +258,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case startupGlanceScaleMode
         case composeDelivery
         case pipFramingMode
+        case pipEntersOnLeavingApp
     }
 }

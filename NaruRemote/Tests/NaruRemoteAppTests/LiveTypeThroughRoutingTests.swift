@@ -153,9 +153,26 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         XCTAssertNil(model.liveTypeThroughMode.selectedTier)
     }
 
-    // MARK: - (e) Pointer interaction seals; later backspace does not cross the seal
+    // MARK: - (e) Pointer interaction seals; a later backspace sends exactly one key
 
-    func testPointerInteractionSealsWindowAndBackspaceDoesNotCrossSeal() async throws {
+    /// Re-baselined 2026-08-25 for spec 035 FR-006/D1.
+    ///
+    /// This assertion used to be "no key event at all crosses the seal", which
+    /// is how spec 009 FR-011 was implemented: the delete was clamped to the
+    /// window's own graphemes, and at the window start that meant the key did
+    /// nothing. The founder reported that as Type mode's backspace being
+    /// broken (build 11), and it is: the mirror is empty on entering Type mode
+    /// and again after every Return, so in a terminal session ⌫ was inert
+    /// exactly when it was reached for — while the *same control* in Compose
+    /// mode sent a plain remote BackSpace and always had.
+    ///
+    /// What FR-011 was protecting is a **bulk** delete crossing a seal: the
+    /// window believing it owns five graphemes and issuing five BackSpaces
+    /// against remote content Naru never typed. That is still forbidden. What
+    /// this test now pins is the narrower rule — one keypress, one BackSpace,
+    /// never the clamped count — which is the part that keeps the founder's
+    /// "hello" from being deleted five characters at a time.
+    func testPointerInteractionSealsWindowAndBackspaceSendsExactlyOneKey() async throws {
         let helper = LiveRoutingHelper()
         let connector = LiveRoutingConnector(width: 80, height: 60, name: "Desk")
         let model = try await makeConnectedModel(
@@ -172,13 +189,56 @@ final class LiveTypeThroughRoutingTests: XCTestCase {
         model.sendTapAt(viewPoint: CGPoint(x: 40, y: 30), viewSize: CGSize(width: 80, height: 60))
         XCTAssertEqual(model.liveTypeThroughMode.lastSealReason, .pointerInteraction)
 
-        let keyEventsBefore = connector.recordedKeyEvents.count
-        // A backspace after the seal is clamped: no delete crosses into the
-        // previously delivered "hello" (FR-011 / SC-004).
+        // The seal retains nothing here (delivered == committed), so the
+        // window has no graphemes of its own left to un-type — which is the
+        // state the founder's ⌫ kept landing in.
+        XCTAssertEqual(model.liveFieldText, "")
+
+        let backspacesBefore = connector.recordedKeyEvents.filter { $0.keysym == 0xFF08 }.count
         model.liveDeleteBackward()
-        try await Task.sleep(for: .milliseconds(40))
-        XCTAssertEqual(connector.recordedKeyEvents.count, keyEventsBefore, "No BackSpace may cross the seal")
-        XCTAssertTrue(model.liveReachedWindowStart)
+        try await waitFor { connector.recordedKeyEvents.filter { $0.keysym == 0xFF08 }.count > backspacesBefore }
+
+        let backspaces = connector.recordedKeyEvents.filter { $0.keysym == 0xFF08 }
+        XCTAssertEqual(
+            backspaces.map(\.isDown),
+            [true, false],
+            "One tap is one BackSpace — never the five 'hello' was, which is the bulk delete FR-011 forbids"
+        )
+        XCTAssertEqual(
+            model.liveBackspacePassThroughCount,
+            1,
+            "The fall-through is counted so a session can be asked how often the mirror was behind (spec 035 FR-007)"
+        )
+    }
+
+    /// The founder's actual sequence: type a command, press Return, then reach
+    /// for backspace. `openFreshLiveWindowAfterNewline()` clears the mirror, so
+    /// this is the moment ⌫ used to do nothing at all.
+    func testBackspaceAfterReturnStillReachesTheRemote() async throws {
+        let helper = LiveRoutingHelper()
+        let connector = LiveRoutingConnector(width: 80, height: 60, name: "Desk")
+        let model = try await makeConnectedModel(
+            connector: connector,
+            helper: helper,
+            helperReachable: true
+        )
+
+        model.setRemoteInputDockMode(.live)
+        model.liveCommit(committedText: "ls", hasMarkedText: false)
+        try await waitFor { helper.insertedTexts == ["ls"] }
+
+        model.liveNewline()
+        try await waitFor { connector.recordedKeyEvents.contains { $0.keysym == 0xFF0D } }
+        try await waitFor { model.liveFieldText.isEmpty }
+
+        model.liveDeleteBackward()
+        try await waitFor { connector.recordedKeyEvents.contains { $0.keysym == 0xFF08 } }
+
+        XCTAssertEqual(
+            connector.recordedKeyEvents.filter { $0.keysym == 0xFF08 }.map(\.isDown),
+            [true, false],
+            "After Return the mirror is empty; the key still has to be a backspace key"
+        )
     }
 
     // MARK: - (f) Diagnostics carry only fixed catalog values — no typed content

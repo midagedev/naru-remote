@@ -53,6 +53,10 @@ public struct SessionViewportView: View {
     private let pipChosenRegion: PiPFramingTarget?
     private let onSelectPiPFramingMode: ((PiPFramingMode) -> Void)?
     private let onChoosePiPRegion: ((PiPFramingTarget) -> Void)?
+    /// Spec 036 FR-005: whether leaving the app opens the floating window, and
+    /// the hook that changes it. `nil` hides the switch entirely.
+    private let pipEntersOnLeavingApp: Bool
+    private let onSetPiPEntersOnLeavingApp: ((Bool) -> Void)?
     /// Owned by the shell: while the picker is up the shell also steps the
     /// input dock aside, which it can only do if it knows (spec 034 FR-005).
     /// The first capture had `Cancel` and `Watch this region` behind the dock.
@@ -255,6 +259,8 @@ public struct SessionViewportView: View {
         pipChosenRegion: PiPFramingTarget? = nil,
         onSelectPiPFramingMode: ((PiPFramingMode) -> Void)? = nil,
         onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
+        pipEntersOnLeavingApp: Bool = true,
+        onSetPiPEntersOnLeavingApp: ((Bool) -> Void)? = nil,
         isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
@@ -321,6 +327,8 @@ public struct SessionViewportView: View {
         self.pipChosenRegion = pipChosenRegion
         self.onSelectPiPFramingMode = onSelectPiPFramingMode
         self.onChoosePiPRegion = onChoosePiPRegion
+        self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
+        self.onSetPiPEntersOnLeavingApp = onSetPiPEntersOnLeavingApp
         self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
@@ -380,6 +388,8 @@ public struct SessionViewportView: View {
         pipChosenRegion: PiPFramingTarget? = nil,
         onSelectPiPFramingMode: ((PiPFramingMode) -> Void)? = nil,
         onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
+        pipEntersOnLeavingApp: Bool = true,
+        onSetPiPEntersOnLeavingApp: ((Bool) -> Void)? = nil,
         isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
@@ -444,6 +454,8 @@ public struct SessionViewportView: View {
         self.pipChosenRegion = pipChosenRegion
         self.onSelectPiPFramingMode = onSelectPiPFramingMode
         self.onChoosePiPRegion = onChoosePiPRegion
+        self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
+        self.onSetPiPEntersOnLeavingApp = onSetPiPEntersOnLeavingApp
         self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
@@ -604,6 +616,38 @@ public struct SessionViewportView: View {
             : .move(edge: .top).combined(with: .opacity)
     }
 
+    /// Keeps the PiP content layer in the view hierarchy for the life of the
+    /// session (spec 036 FR-001).
+    ///
+    /// `AVPictureInPictureController` transitions *this layer* into the
+    /// floating window, so it has to be in a live hierarchy when the
+    /// transition begins. It used to be mounted only while
+    /// `isPiPWatching` — which the shell derives from a session state the model
+    /// assigns *after* `startPictureInPicture()` has already been called, in
+    /// the same synchronous pass. The system was being asked to fly a layer
+    /// that was not on screen, and it waited: the founder's "PiP doesn't
+    /// happen right away" on build 11.
+    ///
+    /// It sits in the surface's background, behind an opaque fill, so it
+    /// renders nothing and takes no space. Once PiP engages, the visible
+    /// branch in `remoteScreenPreview` claims the same layer and the hosting
+    /// view hands it over.
+    @ViewBuilder
+    private var pipContentLayerMount: some View {
+        #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        if let pipLayerHost, !isPiPWatching, canStartPiPWatch {
+            PiPSampleBufferDisplayLayerView(
+                layer: pipLayerHost.layer,
+                accessibilityIdentifier: "naru.session.pipDisplayLayer.mount",
+                accessibilityLabel: "Picture-in-Picture content layer"
+            )
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        #endif
+    }
+
     private var viewportSurface: some View {
         ZStack {
             RoundedRectangle(cornerRadius: viewportCornerRadius)
@@ -652,6 +696,8 @@ public struct SessionViewportView: View {
                     .accessibilityIdentifier("naru.session.reconnectBadge")
             }
         }
+        // Behind the opaque fill above: in the hierarchy, never on screen.
+        .background { pipContentLayerMount }
         .accessibilityIdentifier("naru.session.viewport")
     }
 
@@ -830,6 +876,24 @@ public struct SessionViewportView: View {
         }
         .disabled(onChoosePiPRegion == nil || framebuffer == nil || isChoosingPiPRegion == nil)
         .accessibilityIdentifier("naru.session.pip.chooseRegion")
+
+        // Spec 036 FR-005. The switch is here rather than in Settings because
+        // this is where the user is thinking about PiP, and because it is the
+        // answer to "the app should go to the background when I tap" — it
+        // cannot, so leaving the app is what opens the window instead.
+        if let onSetPiPEntersOnLeavingApp {
+            Section {
+                Button {
+                    onSetPiPEntersOnLeavingApp(!pipEntersOnLeavingApp)
+                } label: {
+                    Label(
+                        "Enter PiP when leaving the app",
+                        systemImage: pipEntersOnLeavingApp ? "checkmark" : "square"
+                    )
+                }
+                .accessibilityIdentifier("naru.session.pip.autoEntry")
+            }
+        }
     }
 
     @ViewBuilder

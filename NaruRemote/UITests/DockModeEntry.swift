@@ -45,6 +45,18 @@ extension XCUIApplication {
             return true
         }
 
+        // The dock can already be up in this mode with the keyboard down —
+        // Type mode keeps its keyboard-up layout while the mirror holds a
+        // draft, and then there is no capsule to tap, only the keyboard key
+        // (spec 035 FR-001).
+        if mode == .type {
+            let raise = buttons["naru.input.keyboard-raise"].firstMatch
+            if raise.exists, raise.isHittable {
+                raise.tap()
+                return true
+            }
+        }
+
         let modeSwitch = buttons["naru.input.mode-switch"].firstMatch
         guard modeSwitch.waitForExistence(timeout: timeout), modeSwitch.isHittable else {
             return false

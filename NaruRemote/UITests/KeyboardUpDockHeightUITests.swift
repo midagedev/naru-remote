@@ -92,6 +92,100 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         )
     }
 
+    /// The configuration the founder is actually in (spec 035 FR-005).
+    ///
+    /// With no helper the Live tier locks to clipboard or ASCII at the first
+    /// commit, and from then on `liveDegradedTransportDisclosureText` and
+    /// `liveActionableStatusText` were both non-nil — a two-line caption above
+    /// the keys and a status sentence below them, permanently. The gate above
+    /// could not see it, because its fixture never selects a tier. This one
+    /// starts in that state.
+    func testTypeModeStaysOneRowWithADegradedTransport() throws {
+        let app = launchLiveSession(fixture: "session-type-mode-degraded-transport")
+        try raiseKeyboard(in: app, mode: .type)
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["naru.input.live-transport-badge"]
+                .waitForExistence(timeout: 6),
+            """
+            Spec 009 FR-014 is not weakened by spec 035: a degraded transport is \
+            still disclosed, as a badge inside the row.
+            """
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["naru.input.live-disclosure"].exists,
+            "The full-width sentence is a standard-width affordance now, not a row of an iPhone"
+        )
+
+        let measurement = try measureChrome(in: app, mode: "type-degraded")
+        XCTAssertEqual(
+            measurement.bands.count,
+            1,
+            """
+            A degraded transport must not buy itself extra rows: \
+            \(measurement.bandDescription)
+            """
+        )
+        XCTAssertLessThanOrEqual(
+            measurement.span,
+            Self.singleRowSpanBudget,
+            "One row, degraded or not: \(measurement.description)"
+        )
+    }
+
+    /// Spec 035 FR-001: the state the founder got stuck in.
+    ///
+    /// Type mode has no visible field (spec 015 v1.1 FR-008), and the dock
+    /// keeps its keyboard-up layout while the mirror holds a draft. So a focus
+    /// loss with a line in flight — the app backgrounding, PiP, a system
+    /// interruption — left a row of soft keys, no keyboard, and nothing on
+    /// screen that raised one. Compose mode has its reveal button; Type mode
+    /// had only the key that *hides* the keyboard.
+    ///
+    /// The fixture launches in exactly that state: Type active, a line in the
+    /// mirror, keyboard down. With an empty mirror the dock collapses back to
+    /// the capsule and recovery already worked, which is why this needs the
+    /// draft — and why the first run of this test passed for the wrong reason.
+    func testTypeModeWithADraftAndNoKeyboardCanStillRaiseOne() throws {
+        let app = launchLiveSession(fixture: "session-type-mode-degraded-transport")
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["naru.input.accessory.strip"]
+                .waitForExistence(timeout: 8),
+            "The dock is up in its keyboard-up Type layout — that is the state under test"
+        )
+
+        let raise = app.buttons["naru.input.keyboard-raise"]
+        XCTAssertTrue(
+            raise.waitForExistence(timeout: 6),
+            """
+            A Type dock with no keyboard has to offer to raise one. Without \
+            this the founder's session is a row of keys that cannot type and \
+            no way back.
+            """
+        )
+        raise.tap()
+
+        let editor = app.descendants(matching: .any)["naru.input.editor"].firstMatch
+        guard editor.waitForExistence(timeout: 4) else {
+            throw XCTSkip("the mirror editor is not exposed in this configuration")
+        }
+        let deadline = Date().addingTimeInterval(6)
+        var editorHasFocus = false
+        while Date() < deadline, !editorHasFocus {
+            editorHasFocus = (editor.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+            if !editorHasFocus { usleep(250_000) }
+        }
+        XCTAssertTrue(
+            editorHasFocus,
+            "Tapping the keyboard key has to hand first responder back to the mirror editor"
+        )
+        XCTAssertTrue(
+            app.buttons["naru.input.keyboard-dismiss"].waitForExistence(timeout: 4),
+            "And the same key has to turn back into the one that lowers it"
+        )
+    }
+
     func testComposeModeKeepsItsChromeToOneRow() throws {
         let app = launchLiveSession()
         try raiseKeyboard(in: app, mode: .compose)
@@ -238,6 +332,8 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         "naru.input.focused-status",
         "naru.input.live-status",
         "naru.input.live-disclosure",
+        "naru.input.live-transport-badge",
+        "naru.input.keyboard-raise",
     ]
 
     private func measureChrome(in app: XCUIApplication, mode: String) throws -> ChromeMeasurement {
@@ -344,13 +440,13 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         }
     }
 
-    private func launchLiveSession() -> XCUIApplication {
+    private func launchLiveSession(fixture: String = "store-session-active") -> XCUIApplication {
         let app = XCUIApplication()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("naru-uitest-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("profiles.json")
         app.launchEnvironment["NARU_PROFILE_STORE_URL"] = storeURL.path
-        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = "store-session-active"
+        app.launchEnvironment["NARU_TEST_FIXTURE_SNAPSHOT"] = fixture
         app.launchEnvironment["NARU_TEST_SUPPRESS_DIRECT_WARNING"] = "1"
         app.launch()
         return app

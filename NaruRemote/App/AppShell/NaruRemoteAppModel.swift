@@ -306,10 +306,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// clean. Memory-only, never exported (SP-002).
     @Published public private(set) var liveFieldText: String = ""
 
-    /// Fixed content-free hint that the most recent Live backspace was
-    /// clamped at the start of the current window (FR-011). Cleared on the
-    /// next commit.
-    @Published public private(set) var liveReachedWindowStart: Bool = false
+    /// How many ⌫ taps this session fell through to a plain remote
+    /// `BackSpace` because the Live window had nothing of its own left to
+    /// un-type (spec 035 FR-007). A count only — never what was deleted
+    /// (constitution §IV). Reset with the rest of the Live state on a fresh
+    /// session; asking a session for this is how "the mirror was behind"
+    /// becomes a number instead of a guess.
+    public private(set) var liveBackspacePassThroughCount: Int = 0
 
     /// The in-memory reconciliation mirror for the open Live editing
     /// window (spec 009 `LiveEditingWindow`). Pure value type; sealed and
@@ -691,6 +694,15 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.latestFrameChangedPixelCount = snapshot.latestFrameChangedPixelCount
         self.sessionStreamStats = snapshot.sessionStreamStats
         self.latestServerCursor = snapshot.latestServerCursor
+        // The Live dock state was on the snapshot and silently dropped here, so
+        // no fixture could put the app in Type mode with a delivery tier
+        // chosen. That is a large part of why `KeyboardUpDockHeightUITests`
+        // measured a one-row dock while the founder's device showed three
+        // (spec 035 FR-005): the configuration that grows the dock was
+        // unreachable. Both fields default to inactive/empty, so adopting them
+        // changes nothing for any caller that does not set them.
+        self.liveTypeThroughMode = snapshot.liveTypeThroughMode
+        self.liveFieldText = snapshot.liveFieldText
         self.frameStore = SessionFrameStore(
             state: SessionFrameState(
                 framebuffer: snapshot.latestFramebuffer,
@@ -1014,6 +1026,54 @@ public final class NaruRemoteAppModel: ObservableObject {
         applyPiPFramingForActiveWatch()
     }
 
+    // MARK: - PiP automatic entry (spec 036)
+
+    /// Does leaving the app open the floating window by itself (FR-005)?
+    ///
+    /// An app cannot send itself to the background, so a button that tries to
+    /// is the wrong shape for what was asked. This is the platform's own
+    /// answer, and it makes the gesture the trigger.
+    public var pipEntersOnLeavingApp: Bool {
+        appSettings.pipEntersOnLeavingApp
+    }
+
+    public func setPiPEntersOnLeavingApp(_ enabled: Bool) {
+        var updated = appSettings
+        updated.pipEntersOnLeavingApp = enabled
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+        refreshPiPAutomaticEntry()
+    }
+
+    /// Keeps a live session's PiP controller built and its automatic-entry
+    /// policy current (FR-002/FR-004).
+    ///
+    /// Preparation used to happen inside `startPiPWatch`, so before the first
+    /// tap there was no controller at all — and with no controller there is
+    /// nothing for the system to start automatically when the app leaves the
+    /// foreground. Idempotent per layer host (spec 032 FR-001): this changes
+    /// when preparation happens, not how many controllers exist.
+    public func refreshPiPAutomaticEntry() {
+        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+        guard let pipWatchController, pipWatchController.isSupported else {
+            return
+        }
+        guard canStartPiPWatch || isPiPWatchEngaged else {
+            return
+        }
+        guard prepareController(pipWatchController) else {
+            return
+        }
+        if let automatic = pipWatchController as? any PiPWatchAutomaticEntryControlling {
+            automatic.setStartsAutomaticallyFromInline(appSettings.pipEntersOnLeavingApp)
+        }
+        #endif
+    }
+
     /// Single entry point the Compose & Send UI calls. Routes the finished
     /// draft through the user-selected delivery transport (Settings →
     /// Compose delivery): keystroke-stream (default — Unicode-keysym
@@ -1155,7 +1215,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             directKeystrokeMode: directKeystrokeMode,
             liveTypeThroughMode: liveTypeThroughMode,
             liveFieldText: liveFieldText,
-            liveReachedWindowStart: liveReachedWindowStart,
             stickyModifierState: stickyModifierState,
             isRemoteInputAccessoryPanelExpanded: isRemoteInputAccessoryPanelExpanded,
             lastDiagnosticVerdict: lastDiagnosticVerdict
@@ -2606,7 +2665,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             composeUTF8ClipboardSupport: composeRoute.utf8ClipboardSupport,
             composeRouteBlocker: composeRoute.routeBlocker,
             latestComposeSendPreparation: latestComposeSendPreparation,
-            helperTextBridgeState: helperTextBridgeState(for: composeRoute.helperProfileID)
+            helperTextBridgeState: helperTextBridgeState(for: composeRoute.helperProfileID),
+            liveBackspacePassThroughCount: liveBackspacePassThroughCount
         )
         let sustainedSessionAssessment = DiagnosticSustainedSessionAssessment.assess(
             streamPerformance: streamPerformance,
@@ -6488,7 +6548,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
-        liveReachedWindowStart = false
         liveFieldText = ""
         liveTypeThroughMode = LiveTypeThroughMode(
             isActive: true,
@@ -6504,7 +6563,6 @@ public final class NaruRemoteAppModel: ObservableObject {
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
-        liveReachedWindowStart = false
         liveFieldText = ""
         liveTypeThroughMode = LiveTypeThroughMode(
             isActive: false,
@@ -6526,8 +6584,8 @@ public final class NaruRemoteAppModel: ObservableObject {
         liveWindow = LiveTypeThroughWindow()
         liveChunkInFlight = false
         liveInFlightBaseline = nil
-        liveReachedWindowStart = false
         liveFieldText = ""
+        liveBackspacePassThroughCount = 0
         liveTypeThroughMode = .composeDefault
         hasAppliedTypeThroughDefaultForCurrentSession = false
         // Spec 015 FR-004: the keyboard-up dock is one row per session start.
@@ -6550,7 +6608,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         markTransientFrameDeliveryInteractionActivity()
-        liveReachedWindowStart = false
         openFreshLiveWindowIfSealed()
         liveWindow.commit(committedText: committedText, hasMarkedText: hasMarkedText)
         // Keep the model's authoritative line mirror in step with the editor
@@ -6564,9 +6621,21 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     /// Delete one grapheme backward from the current Live line (the reused
-    /// ⌫ action button, D1). A backspace at the window start is clamped and
-    /// reported — no delete crosses a seal into previously delivered text
-    /// (FR-011).
+    /// ⌫ action button, D1).
+    ///
+    /// While this window holds graphemes it delivered, the delete is a local
+    /// un-type and the mirror stays truthful — that is spec 009's diff-driven
+    /// reconciliation and it is unchanged.
+    ///
+    /// At the window start it used to do **nothing** (spec 009 FR-011 clamped
+    /// it and set `liveReachedWindowStart`), which is what the founder reported
+    /// on build 11 as "Type mode's backspace doesn't work": the mirror is empty
+    /// on entering Type mode and again after every Return, so in a terminal
+    /// session the key was inert exactly when it was reached for. Spec 035
+    /// FR-006/D1 narrows FR-011 to what it was actually protecting — a
+    /// *diff-driven bulk* delete may not cross a seal — and lets one explicit
+    /// keypress through as one remote `BackSpace`, which is what the identical
+    /// control in Compose mode has always sent.
     public func liveDeleteBackward() {
         guard liveTypeThroughMode.isActive, session?.state == .active else {
             return
@@ -6574,10 +6643,18 @@ public final class NaruRemoteAppModel: ObservableObject {
         markTransientFrameDeliveryInteractionActivity()
         openFreshLiveWindowIfSealed()
         guard !liveFieldText.isEmpty else {
-            liveReachedWindowStart = true
+            // One key, one BackSpace (FR-007) — never the clamped count, which
+            // is the bulk delete FR-011 exists to stop.
+            liveBackspacePassThroughCount += 1
+            emitLiveControlKey(
+                .backspace,
+                repeatCount: 1,
+                streamID: activeFrameStreamID,
+                sessionID: session?.id,
+                profileID: selectedProfileID
+            )
             return
         }
-        liveReachedWindowStart = false
         liveFieldText = String(liveFieldText.dropLast())
         liveWindow.commit(committedText: liveFieldText, hasMarkedText: false)
         dispatchLivePendingWork()
@@ -6592,7 +6669,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         markTransientFrameDeliveryInteractionActivity()
-        liveReachedWindowStart = false
         openFreshLiveWindowIfSealed()
         liveWindow.commit(committedText: liveFieldText, hasMarkedText: false)
         liveWindow.newline()
@@ -10033,6 +10109,13 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private func handlePiPWatchLifecycleEvent(_ event: PiPWatchLifecycleEvent) {
         guard var watchSession = pipWatchSession else {
+            // A window the app did not ask for — the system started it because
+            // the app left the foreground (spec 036 FR-004). Dropping the event
+            // here is what would leave it frozen: every frame after this is
+            // gated on a `pipWatchSession` existing.
+            if case .started = event {
+                adoptAutomaticallyStartedPiPWatch()
+            }
             return
         }
 
@@ -10051,6 +10134,55 @@ public final class NaruRemoteAppModel: ObservableObject {
         }
 
         pipWatchSession = watchSession
+    }
+
+    /// Builds the session record for a PiP window the *system* opened
+    /// (spec 036 FR-004), so it is a first-class watch session: frames keep
+    /// flowing through `updatePiPWatchFrameIfNeeded`, the framing mode applies,
+    /// and closing the window from the system chrome still lands on
+    /// `PiPWatchSession.stop()`.
+    private func adoptAutomaticallyStartedPiPWatch() {
+        guard let session, let latestFramebuffer else {
+            return
+        }
+
+        var watchSession = PiPWatchSession(sessionID: session.id)
+        watchSession.prepare(
+            from: session,
+            profileAllowsPiPWatch: selectedProfile?.allowsPiPWatch ?? true,
+            at: Date()
+        )
+        guard watchSession.state == .preparing else {
+            return
+        }
+
+        watchSession.markWatching(
+            frame: PiPFrameSnapshot(
+                width: latestFramebuffer.width,
+                height: latestFramebuffer.height,
+                capturedAt: session.lastFrameAt ?? Date(),
+                changeActivity: .moderate
+            )
+        )
+        pipWatchSession = watchSession
+
+        // Same framing the tapped entry would have taken — automatic entry is
+        // not a second, plainer kind of PiP (spec 034 applies as written).
+        pipAutoFramingState.reset()
+        switch appSettings.pipFramingMode {
+        case .currentView:
+            break
+        case .chosenRegion:
+            if let pipChosenRegion {
+                applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
+            }
+        case .followActivity:
+            pipAutoFramingState.adopt(
+                Self.framingTarget(for: pipLayerHost.currentViewport),
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
+        forwardFrameToLayerHost(latestFramebuffer)
     }
     #endif
 }

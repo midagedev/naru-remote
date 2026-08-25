@@ -292,4 +292,30 @@ final class PiPAutoFramingPolicyTests: XCTestCase {
         let legacy = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         XCTAssertEqual(legacy.pipFramingMode, .currentView)
     }
+
+    // MARK: - Automatic entry (spec 036 FR-005)
+
+    /// Default on, because an app cannot send itself to the background: the
+    /// gesture that backgrounds it is the only place PiP entry can live
+    /// without a button that half-works.
+    func testLeavingTheAppEntersPiPByDefault() throws {
+        XCTAssertTrue(AppSettings().pipEntersOnLeavingApp)
+        XCTAssertTrue(
+            try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+                .pipEntersOnLeavingApp,
+            "An empty settings file is the product default, not off"
+        )
+    }
+
+    func testAutomaticEntryCanBeTurnedOffAndSurvivesARoundTrip() throws {
+        var settings = AppSettings()
+        settings.pipEntersOnLeavingApp = false
+
+        let encoded = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: encoded)
+        XCTAssertFalse(
+            decoded.pipEntersOnLeavingApp,
+            "Off has to persist — a PiP window keeps streaming in the background, and that costs cellular data"
+        )
+    }
 }

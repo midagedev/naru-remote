@@ -174,6 +174,22 @@ public struct NaruRemoteAppShell: View {
                 ? AnyView(sessionHealthAffordance(presentation: .collapsed))
                 : nil
         )
+        // Spec 036 FR-002/FR-004: the PiP controller is built while the
+        // session is live, not at the moment of the tap, because a controller
+        // that does not exist yet cannot be started — by a tap without a
+        // delay, or by the system when the app leaves the foreground. The task
+        // re-runs when the session's liveness or the preference changes; the
+        // preparation itself is idempotent per layer host (spec 032 FR-001).
+        .task(id: pipAutomaticEntryToken) {
+            model.refreshPiPAutomaticEntry()
+        }
+    }
+
+    /// Changes when either input to automatic entry does, and nothing else —
+    /// a token rather than the whole snapshot so a frame does not re-arm PiP.
+    private var pipAutomaticEntryToken: String {
+        let state = model.snapshot.session.map { "\($0.state)" } ?? "none"
+        return "\(state)|\(model.pipEntersOnLeavingApp ? 1 : 0)"
     }
 
     /// The render-ready health summary — typed session state, coarse quality,
@@ -884,7 +900,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     /// Is the locked delivery tier one that loses something (clipboard
     /// overwrite / ASCII-only)? Spec 009 FR-014 must always show those;
     /// spec 015 FR-006 lets the compact dock stay quiet otherwise.
-    var liveTransportIsDegraded: Bool
+    var liveTransportBadgeLabel: String?
     /// Is the per-window status one the user can act on or be misled by
     /// (failed, unconfirmed, ASCII last resort, window start)?
     var liveStatusIsActionable: Bool
@@ -924,7 +940,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
         // unchanged at standard width, which is where they were affordable all
         // along; these two flags are what lets the compact dock keep only the
         // lines a user can act on or be misled by.
-        self.liveTransportIsDegraded = snapshot.liveDegradedTransportDisclosureText != nil
+        self.liveTransportBadgeLabel = snapshot.liveTransportBadgeLabel
         self.liveStatusIsActionable = snapshot.liveActionableStatusText != nil
         self.statusText = isLiveSession ? "" : snapshot.inputStatusText
         self.helperStatusText = isLiveSession ? nil : snapshot.inputHelperStatusText
@@ -1125,7 +1141,7 @@ private struct RemoteInputDockEquatableHost: View, Equatable {
             liveTypeThroughActive: state.liveTypeThroughMode.isActive,
             liveTransportDisclosureText: state.liveTransportDisclosureText,
             liveStatusText: state.liveStatusText,
-            liveTransportIsDegraded: state.liveTransportIsDegraded,
+            liveTransportBadgeLabel: state.liveTransportBadgeLabel,
             liveStatusIsActionable: state.liveStatusIsActionable,
             onToggleDirectMode: onToggleDirectMode,
             onSelectMode: onSelectMode,
@@ -1195,6 +1211,8 @@ private struct SessionViewportFrameBridge: View {
                 model.setPiPChosenRegion(region)
                 model.setPiPFramingMode(.chosenRegion)
             },
+            pipEntersOnLeavingApp: model.pipEntersOnLeavingApp,
+            onSetPiPEntersOnLeavingApp: { model.setPiPEntersOnLeavingApp($0) },
             isChoosingPiPRegion: isChoosingPiPRegion,
             onOpenDiagnostics: onOpenDiagnostics,
             healthAccessory: healthAccessory,

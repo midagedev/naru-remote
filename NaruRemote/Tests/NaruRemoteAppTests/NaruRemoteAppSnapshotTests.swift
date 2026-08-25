@@ -453,6 +453,62 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertNotEqual(snapshot.diagnosticRows[0].id, snapshot.diagnosticRows[1].id)
     }
 
+    // MARK: - The keyboard-up dock's Live disclosure (spec 035 FR-003/FR-004)
+
+    private func liveSnapshot(tier: LiveTypeThroughAdapterTier?, status: LiveDeliveryStatus) -> NaruRemoteAppSnapshot {
+        NaruRemoteAppSnapshot(
+            liveTypeThroughMode: LiveTypeThroughMode(
+                isActive: true,
+                selectedTier: tier,
+                lastStatus: status
+            )
+        )
+    }
+
+    /// The founder's own configuration: no helper, so the tier locks to
+    /// clipboard or ASCII at the first commit. Spec 009 FR-014 still has to
+    /// disclose it — but as one word inside the row, not two sentences above
+    /// the keyboard for the rest of the session.
+    func testADegradedTransportIsStillDisclosedButNoLongerAsASentence() {
+        let clipboard = liveSnapshot(tier: .clipboardChunk, status: .unconfirmedClipboard)
+        XCTAssertEqual(clipboard.liveTransportBadgeLabel, "Clipboard")
+        XCTAssertNotNil(
+            clipboard.liveDegradedTransportDisclosureText,
+            "The full sentence stays available — the health surface and the export carry it"
+        )
+        XCTAssertNil(
+            clipboard.liveActionableStatusText,
+            "'Sent via clipboard, confirmation unavailable' is a property of the transport, and the badge states it"
+        )
+
+        let ascii = liveSnapshot(tier: .keyEvent, status: .asciiLastResort)
+        XCTAssertEqual(ascii.liveTransportBadgeLabel, "ASCII")
+        XCTAssertNil(ascii.liveActionableStatusText)
+    }
+
+    func testANominalTransportDisclosesNothing() {
+        let helper = liveSnapshot(tier: .helperNativeInsert, status: .deliveredObserved)
+        XCTAssertNil(helper.liveTransportBadgeLabel)
+        XCTAssertNil(helper.liveDegradedTransportDisclosureText)
+        XCTAssertNil(helper.liveActionableStatusText)
+
+        let preTier = liveSnapshot(tier: nil, status: .idle)
+        XCTAssertNil(
+            preTier.liveTransportBadgeLabel,
+            "Before a tier is chosen there is no degraded transport to warn about"
+        )
+    }
+
+    /// The one status that still earns a row: text that did not make it and is
+    /// being held locally. A user can act on that.
+    func testARetainedFailureStillEarnsARow() {
+        let failed = liveSnapshot(tier: .clipboardChunk, status: .retainedFailure)
+        XCTAssertEqual(
+            failed.liveActionableStatusText,
+            "Couldn't deliver; your text is kept here to retry."
+        )
+    }
+
     func testPiPWatchStatusWaitsForFirstFrameBeforeSessionIsActive() throws {
         let profile = try ConnectionProfile(displayName: "Studio", host: "studio.tailnet.ts.net")
         let session = RemoteSession(profileID: profile.id, state: .connecting)

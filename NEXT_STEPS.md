@@ -62,6 +62,57 @@ same PR.
    3024 ÷ the app's 4x zoom ceiling) is arithmetic, not a measurement of a real
    PiP window, which no simulator can produce.
 
+00d. **`specs/035` Type mode has to type.** Landed 2026-08-25, from three build-11
+   reports in one sentence. (1) **The keyboard sometimes did not come up.** Two
+   causes, both closed: the commit controller is `@State` on the dock, so a view
+   recreation handed the coordinator a *new* controller while UIKit kept the same
+   `UITextView` — the new controller's weak reference was nil and every `focus()`
+   was a silent no-op (`attachIfNeeded` on every `updateUIView`); and gaining
+   focus itself flips the shell's placement, which recreated the view out from
+   under the responder just installed, so raising now goes through the same
+   request-expansion-then-focus path the idle capsule takes. Focus requests are
+   verified and retried (6 attempts, ~50 ms apart) instead of fired once and
+   discarded. Plus FR-001: Type mode's keyboard key now **raises** as well as
+   lowers, because with no visible field there was nothing else to tap.
+   (2) **The panel was taller than its row.** With no helper the Live tier locks
+   to clipboard/ASCII at the first commit, and from then on a two-line transport
+   caption and a status sentence each held a row above the keyboard for the rest
+   of the session. Spec 009 FR-014's guarantee is kept as a one-word badge
+   *inside* the row; only a retained failure still earns a row. (3) **Backspace
+   did nothing.** `liveDeleteBackward` returned early whenever the mirror was
+   empty — which is on entering Type mode and after every Return, i.e. exactly
+   when a terminal user reaches for it. FR-011 is narrowed to what it was
+   protecting (no *bulk* delete crosses a seal); one tap now sends one remote
+   BackSpace, as the identical control in Compose mode always did.
+   **Why no gate caught (2):** `NaruRemoteAppModel(snapshot:)` silently dropped
+   `liveTypeThroughMode` and `liveFieldText`, so no fixture could reach the
+   founder's configuration. It adopts them now, and
+   `KeyboardUpDockHeightUITests` measures the degraded dock. **Open:** founder
+   device pass on build 12.
+
+00e. **`specs/036` PiP opens when you ask, and when you leave.** Landed
+   2026-08-25. The delay on tap was ours: `AVPictureInPictureController`
+   transitions the shared `AVSampleBufferDisplayLayer` into the floating window,
+   and that layer was mounted only while `isPiPWatching` — a state the model
+   assigns *after* `startPictureInPicture()` in the same synchronous pass. The
+   system was asked to fly a layer that was not on screen. It is now mounted for
+   the life of the session, behind an opaque fill. The other half of the report
+   cannot be delivered literally — **an app has no API to send itself to the
+   background** — so `canStartPictureInPictureAutomaticallyFromInline` inverts
+   it: leaving the app opens the window, default on, switchable from the PiP
+   long-press menu. A system-started window is adopted as a real
+   `PiPWatchSession` (it used to be dropped, which would have left the window
+   frozen). **Open:** founder device pass on build 12 — both halves are
+   diff-and-device claims; PiP is unsupported on the simulator.
+
+00f. **Environmental red, not this build: `LiveMacPointerHoverTests`
+   `testServerRepaintsAfterAPointerMove`.** Reproduced twice 2026-08-25 with
+   `changedPixelCount=0` after an eight-step pointer sweep across the Dock band.
+   Same family as 00b: this Mac's `screensharingd` declines to answer, so the
+   test's premise does not hold here rather than the client being wrong. No file
+   in the RFB or update-request path was touched by specs 035/036. Needs the
+   same narrow-skip treatment as 00b, or a second machine.
+
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
    viewport made Apple Screen Sharing answer roughly twenty times slower
