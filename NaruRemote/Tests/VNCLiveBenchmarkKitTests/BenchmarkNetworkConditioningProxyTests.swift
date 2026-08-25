@@ -20,6 +20,54 @@ final class BenchmarkNetworkConditioningProxyTests: XCTestCase {
         XCTAssertEqual(try client.roundTrip(payload, timeout: 2), payload)
     }
 
+    func testAMultiChunkPayloadPaysTheLinkLatencyOnceNotOncePerChunk() throws {
+        // Spec 029. Written to prove a defect that turned out not to exist: the
+        // proxy was read as charging a fresh one-way delay to every 16 KB slice,
+        // which would have meant every conditioned benchmark in this repository
+        // measured a far worse link than it named. Run against that code, this
+        // assertion **passed** in 176 ms — a continuous burst never drains the
+        // pipe, so it already paid the latency once. Kept as a regression pin,
+        // because the rewrite it motivated would have reordered chunks.
+        //
+        // wan-latency is 80 ms one way with 16 KB chunks; this payload is eight
+        // chunks each way, so a per-chunk model would cost ~1.3 s round trip
+        // against the ~160 ms a correct one costs.
+        let echo = try LocalEchoServer.start()
+        defer { echo.stop() }
+        let proxy = try BenchmarkNetworkConditioningProxy.start(
+            upstreamHost: "127.0.0.1",
+            upstreamPort: echo.port,
+            profile: .wanLatency
+        )
+        defer { proxy.stop() }
+
+        let settings = try XCTUnwrap(BenchmarkNetworkConditionProfile.wanLatency.settings)
+        let chunkCount = 8
+        let payload = Data(repeating: 0x5A, count: settings.maxChunkBytes * chunkCount)
+
+        let client = LocalTCPClient(host: "127.0.0.1", port: proxy.localPort)
+        let startedAt = Date()
+        let echoed = try client.roundTrip(payload, timeout: 20)
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(echoed.count, payload.count)
+
+        // Two one-way delays for the round trip, plus generous slack for local
+        // scheduling. The point of the bound is that it must not scale with the
+        // chunk count.
+        let oneWay = Double(settings.oneWayDelayMilliseconds) / 1_000
+        XCTAssertLessThan(
+            elapsed,
+            oneWay * 2 + 1.0,
+            "latency must be paid per delay line, not per chunk"
+        )
+        XCTAssertLessThan(
+            elapsed,
+            oneWay * Double(chunkCount),
+            "a per-chunk latency model would land at or above this"
+        )
+    }
+
     func testNoneProfileDoesNotStartProxy() {
         XCTAssertThrowsError(
             try BenchmarkNetworkConditioningProxy.start(

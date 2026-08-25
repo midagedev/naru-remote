@@ -2324,6 +2324,15 @@ private struct BenchmarkOptions: Equatable {
     var streamShapeFirstFrameVisibleGlanceScale: Double = BenchmarkStreamShapeRequestRegion
         .defaultFirstFrameVisibleGlanceScale
     var networkConditionProfile: BenchmarkNetworkConditionProfile = .none
+    /// Spec 029. Whether `--network-condition` was passed on the command line.
+    ///
+    /// Gate presets set the network condition themselves, and they used to do it
+    /// unconditionally — so a run given both a preset and an explicit
+    /// `--network-condition` measured the preset's link while the operator
+    /// believed they had chosen a different one. The only thing that revealed it
+    /// was the report echoing back `constrained-cellular` when
+    /// `tailnet-mobile-median` had been asked for. An explicit flag now wins.
+    var hasExplicitNetworkConditionProfile = false
     var timeout: TimeInterval = 5
     var idleTimeout: TimeInterval = 0.75
     var askPassword = false
@@ -2400,6 +2409,7 @@ private struct BenchmarkOptions: Equatable {
                     )
                 }
                 options.networkConditionProfile = profile
+                options.hasExplicitNetworkConditionProfile = true
                 index = arguments.index(index, offsetBy: 2)
             case "--attempts":
                 let value = try nextValue(after: index, in: arguments, option: argument)
@@ -2669,6 +2679,16 @@ private struct BenchmarkOptions: Equatable {
     }
 
     private mutating func applyStreamShapeGatePreset() throws {
+        // Spec 029: a preset supplies a default link, never an override of one
+        // the operator named explicitly.
+        let explicitNetworkConditionProfile = hasExplicitNetworkConditionProfile
+            ? networkConditionProfile
+            : nil
+        defer {
+            if let explicitNetworkConditionProfile {
+                networkConditionProfile = explicitNetworkConditionProfile
+            }
+        }
         switch streamShapeGatePreset {
         case .none:
             return

@@ -314,6 +314,9 @@ private final class BenchmarkConditionedPipe: @unchecked Sendable {
         sendNext()
     }
 
+    /// Spec 029. Counts bursts so the jitter generator is replayable per run.
+    private var burstSequence = 0
+
     private func sendNext() {
         guard !isStopped else {
             return
@@ -324,10 +327,24 @@ private final class BenchmarkConditionedPipe: @unchecked Sendable {
         }
         isSending = true
         let chunk = pendingChunks.removeFirst()
+        // Spec 029 FR-002. Jitter is applied per burst, inside the existing
+        // chained send, so chunk order is preserved by construction.
+        //
+        // An earlier attempt scheduled every chunk independently on an absolute
+        // timeline. That is a better queueing model on paper and it was wrong
+        // here for two reasons: the defect it was written to fix does not exist
+        // (measured — a multi-chunk payload already paid the link latency once,
+        // not once per chunk), and independent scheduling with per-chunk jitter
+        // lets a later chunk overtake an earlier one, which would corrupt the
+        // RFB stream rather than merely slow it down.
         let delay = settings.delaySeconds(
             forChunkByteCount: chunk.data.count,
-            startsBurst: chunk.startsBurst
+            startsBurst: chunk.startsBurst,
+            sequence: burstSequence
         )
+        if chunk.startsBurst {
+            burstSequence += 1
+        }
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !isStopped else {
                 return

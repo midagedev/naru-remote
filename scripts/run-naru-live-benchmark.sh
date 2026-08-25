@@ -54,6 +54,7 @@ Modes:
   screen-recording-watch Request helper Screen Recording, open Settings, and poll safe capability.
   screen-recording-watch-self-test Fast regression for screen-recording-watch labels.
   request-pipeline-sweep   Short VNC-only constrained-cellular depth 1/2/3 sweep.
+  request-pipeline-latency-sweep Depth 1/2/3 on the measured mobile tailnet link (uncapped throughput).
   request-pipeline-sweep-diagnosis Summarize depth 1/2/3 as a fixed pipeline usefulness gate.
   request-pipeline-sweep-diagnosis-self-test Fast regression for request pipeline diagnosis labels.
   request-pipeline-stability Longer depth 1 vs 3 VNC pipeline stability gate.
@@ -11411,6 +11412,44 @@ run_request_pipeline_sweep_reports() {
   printf '\n]\n'
 }
 
+# Spec 029. The same depth sweep, but on a link that models the founder's
+# measured mobile tailnet instead of a bandwidth-capped cellular profile.
+#
+# `request-pipeline-sweep` runs under constrained-cellular, which caps throughput
+# at 1 Mbps. Measured 2026-08-25 in release, that arm reported 0.55 content fps
+# at every depth: the link was bandwidth-saturated, so extra requests in flight
+# only queued and the depth axis was confounded to the point of being unreadable.
+# The profile used here leaves throughput uncapped on purpose, so what it varies
+# is round-trip time and only round-trip time.
+#
+# The duration is longer than the sweep's 3 s for the same reason: at a 184 ms
+# round trip, 3 seconds is about sixteen round trips, which is too few samples to
+# separate the arms.
+run_request_pipeline_latency_sweep_reports() {
+  printf '[\n'
+  local first_report=1
+  local depth
+  for depth in 1 2 3; do
+    if ((first_report)); then
+      first_report=0
+    else
+      printf ',\n'
+    fi
+    run_benchmark_with_extra \
+      --stream-shape-gate-preset sustained-v2-constrained-cellular-app-low-traffic \
+      --network-condition tailnet-mobile-median \
+      --visual-transport vnc \
+      --first-frame-profiles none \
+      --full-refresh-samples 0 \
+      --continuous-update-samples 0 \
+      --stream-shape-samples 2 \
+      --stream-shape-duration-seconds 12 \
+      --stream-shape-request-pipeline-depth "$depth" \
+      --json
+  done
+  printf '\n]\n'
+}
+
 run_request_pipeline_stability_reports() {
   printf '[\n'
   local first_report=1
@@ -12215,6 +12254,12 @@ case "$mode" in
     reject_extra_flag --stream-shape-request-pipeline-depth
     cd "$repo_root"
     run_request_pipeline_sweep_reports
+    ;;
+  request-pipeline-latency-sweep)
+    import_live_env
+    reject_extra_flag --stream-shape-request-pipeline-depth
+    cd "$repo_root"
+    run_request_pipeline_latency_sweep_reports
     ;;
   request-pipeline-sweep-diagnosis)
     import_live_env
