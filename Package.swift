@@ -34,14 +34,22 @@ let package = Package(
             targets: ["NaruHelper"]
         )
     ],
+    dependencies: [
+        // The four touchscreen-input state machines, shared with gadak's phone
+        // client through golden vectors rather than through a binary. These
+        // types were lifted from this repository; depending on them here is
+        // what makes "one Swift implementation" true rather than aspirational.
+        .package(url: "https://github.com/midagedev/glasskeys.git", from: "0.2.2")
+    ],
     targets: [
         .target(
             name: "NaruRemoteCore",
+            dependencies: [.product(name: "Glasskeys", package: "glasskeys")],
             path: "NaruRemote/Sources/NaruRemoteCore"
         ),
         .target(
             name: "NaruRemoteApp",
-            dependencies: ["NaruRemoteCore"],
+            dependencies: ["NaruRemoteCore", .product(name: "Glasskeys", package: "glasskeys")],
             path: "NaruRemote/App"
         ),
         .target(
@@ -86,10 +94,7 @@ let package = Package(
         .testTarget(
             name: "NaruRemoteCoreTests",
             dependencies: ["NaruRemoteCore"],
-            path: "NaruRemote/Tests/NaruRemoteCoreTests",
-            resources: [
-                .copy("vectors")
-            ]
+            path: "NaruRemote/Tests/NaruRemoteCoreTests"
         ),
         .testTarget(
             name: "NaruRemoteAppTests",

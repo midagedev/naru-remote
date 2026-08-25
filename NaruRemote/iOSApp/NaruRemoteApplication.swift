@@ -676,7 +676,7 @@ struct NaruRemoteApplication: App {
     /// Honour the `NARU_TEST_PRELOCK_MODIFIERS` launch environment
     /// variable so the screenshot harness can land on the locked
     /// visual deterministically.  The variable is a comma-list of
-    /// `StickyModifierState.Modifier` raw values
+    /// `DirectKeystrokeModifier` raw values
     /// (e.g. `"control"` or `"control,shift"`).  No-op in production
     /// because the variable is never set.
     @MainActor
@@ -689,7 +689,7 @@ struct NaruRemoteApplication: App {
 
         let modifiers = raw.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .compactMap(StickyModifierState.Modifier.init(rawValue:))
+            .compactMap(DirectKeystrokeModifier.init(rawValue:))
 
         applyStickyModifierPrelock(modifiers, to: model)
 
@@ -720,7 +720,7 @@ struct NaruRemoteApplication: App {
 
     @MainActor
     private static func applyStickyModifierPrelock(
-        _ modifiers: [StickyModifierState.Modifier],
+        _ modifiers: [DirectKeystrokeModifier],
         to model: NaruRemoteAppModel
     ) {
         // Spec 011: the sticky modifiers render on the shared accessory

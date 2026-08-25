@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Glasskeys
 import NaruRemoteCore
 
 public enum SessionStreamThermalState: String, Equatable, Sendable {
@@ -1070,7 +1071,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// pattern — pure value type carried on the snapshot so views
     /// render off the snapshot, not by reaching back into the
     /// `@MainActor` model directly.
-    public var stickyModifierState: StickyModifierState
+    public var stickyModifierState: StickyModifiers
     /// Is the compact dock's accessory key panel revealed (spec 015 FR-004)?
     /// The keyboard-up dock is one row; modifiers, terminal keys, `Fn`, remote
     /// ⌫/↵ and the Mac window controls live behind its `⋯` toggle. Carried on
@@ -1114,7 +1115,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
         liveTypeThroughMode: LiveTypeThroughMode = LiveTypeThroughMode(),
         liveFieldText: String = "",
-        stickyModifierState: StickyModifierState = StickyModifierState(),
+        stickyModifierState: StickyModifiers = StickyModifiers(),
         isRemoteInputAccessoryPanelExpanded: Bool = false,
         lastDiagnosticVerdict: [ConnectionProfile.ID: DiagnosticVerdict] = [:]
     ) {

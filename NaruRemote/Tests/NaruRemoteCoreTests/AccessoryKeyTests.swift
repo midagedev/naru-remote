@@ -26,10 +26,10 @@ final class AccessoryKeyTests: XCTestCase {
     /// the row fits Esc/Tab/⌃C at iPhone width. Latin words regress it.
     func testStickyModifierStripLabelsAreMacGlyphs() {
         XCTAssertEqual(
-            StickyModifierState.Modifier.stripOrder.map(\.stripLabel),
+            DirectKeystrokeModifier.stripOrder.map(\.stripLabel),
             ["⌃", "⌥", "⌘", "⇧"]
         )
-        for modifier in StickyModifierState.Modifier.stripOrder {
+        for modifier in DirectKeystrokeModifier.stripOrder {
             XCTAssertEqual(
                 modifier.stripLabel.count,
                 1,

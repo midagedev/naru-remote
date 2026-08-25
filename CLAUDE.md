@@ -42,6 +42,8 @@ Three layers, with module boundaries enforced by the SwiftPM target graph in `Pa
 
 Dependency rule: `iOSApp → NaruRemoteApp → NaruRemoteCore`. Core has no upward dependencies, which is what makes it fast to test under `swift test`.
 
+Core's one external dependency is [`glasskeys`](https://github.com/midagedev/glasskeys) — sticky modifiers, hold-to-repeat, the composition gate and the flush barrier, the machines this repository wrote and then shared with gadak's phone client. `GlasskeysAdoption.swift` names them in naru's vocabulary; the encoder (`AccessoryKey.keysym`, the RFB `KeyEvent` pairs) stays here, because that is the half that cannot be shared. Behaviour changes to those four machines belong upstream, with a golden vector, not in a local patch — the package's CI runs the vectors against both languages.
+
 ### VNC/RFB boundaries
 
 The RFB layer is intentionally split into capability protocols in `Sources/NaruRemoteCore/VNC/RFBClientBoundary.swift` (`RFBFirstFrameConnecting`, `RFBAuthenticatedFirstFrameConnecting`, `RFBNoAuthSessionConnecting`, `RFBAuthenticatedSessionConnecting`, `RFBFramebufferUpdating`, `RFBDamageTrackingFramebufferUpdating`, `RemoteClipboardTextClient`, and the composite `RFBStreamingClient`). `NaruRemoteAppModel` takes a `connectorFactory` injection and downcasts to the most capable protocol available — this is how production (`RFBNetworkClient`) and tests (the `FakeRFBServer` fixtures + `FakeRFBServerKit`) share the same app-model code path. When adding RFB features, extend a boundary protocol rather than calling `RFBNetworkClient` concretely.

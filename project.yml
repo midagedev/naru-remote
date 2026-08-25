@@ -9,6 +9,12 @@ settings:
     MARKETING_VERSION: 1.0.0
     SWIFT_VERSION: 6.0
     TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+  # The shared touchscreen-input machines. Same version SwiftPM resolves for
+  # `swift test`; the app bundle must not drift from the inner loop.
+  Glasskeys:
+    url: https://github.com/midagedev/glasskeys.git
+    from: 0.2.2
 targets:
   NaruRemoteCore:
     type: framework
@@ -21,6 +27,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.core
         SKIP_INSTALL: YES
+    dependencies:
+      - package: Glasskeys
   NaruRemoteApp:
     type: framework
     platform: iOS
@@ -29,6 +37,7 @@ targets:
       - path: NaruRemote/App
     dependencies:
       - target: NaruRemoteCore
+      - package: Glasskeys
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -43,6 +52,7 @@ targets:
     dependencies:
       - target: NaruRemoteApp
       - target: NaruRemoteCore
+      - package: Glasskeys
     info:
       path: NaruRemote/iOSApp/Info.plist
       properties:
@@ -101,6 +111,7 @@ targets:
     dependencies:
       - target: NaruRemoteApp
       - target: NaruRemoteCore
+      - package: Glasskeys
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

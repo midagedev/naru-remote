@@ -1,0 +1,15 @@
+{
+  "originHash" : "ec7eb72fce6bb687c69f4c3b6c01b322949f4152ab38e78215ab0dd480026cb6",
+  "pins" : [
+    {
+      "identity" : "glasskeys",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/midagedev/glasskeys.git",
+      "state" : {
+        "revision" : "6a5d975eb77c735ee5b77fd22a5bbdedf8d65a4f",
+        "version" : "0.2.2"
+      }
+    }
+  ],
+  "version" : 3
+}

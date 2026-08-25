@@ -78,7 +78,7 @@ public enum DirectKeystrokeInputSurface: String, Sendable, Equatable, Codable, C
 /// `NaruRemoteAppModel.tapDirectKey(_:)`.
 ///
 /// - `.character`/`.named` emit a wire `KeyEvent` (wrapped by any
-///   armed-or-locked modifiers from `StickyModifierState`).
+///   armed-or-locked modifiers from `StickyModifiers`).
 /// - `.pageToggle` swaps QWERTY ↔ special-keys page; never emits.
 /// - `.modifier(_)` taps a sticky-modifier slot
 ///   (idle → armed → locked transitions); never emits a wire
@@ -90,6 +90,6 @@ public enum DirectKey: Sendable, Equatable {
     case character(Character)
     case named(KeysymMapping.NamedKey)
     case pageToggle
-    case modifier(StickyModifierState.Modifier)
+    case modifier(DirectKeystrokeModifier)
     case clearModifiers
 }

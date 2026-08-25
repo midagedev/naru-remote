@@ -9,7 +9,7 @@ import XCTest
 /// exists since `6bc3b0d2` — red for a reason no one needed to act on, which is
 /// worse than no test.
 ///
-/// The behaviour they were protecting *did* survive: `StickyModifierState` and
+/// The behaviour they were protecting *did* survive: `StickyModifiers` and
 /// the modifier buttons moved onto the shared accessory strip. So the coverage
 /// moves with it, and it is stated as behaviour rather than as a screenshot —
 /// the button's accessibility identifier carries the slot

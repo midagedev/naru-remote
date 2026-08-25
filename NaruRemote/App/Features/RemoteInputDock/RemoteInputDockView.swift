@@ -1,4 +1,5 @@
 import SwiftUI
+import Glasskeys
 import NaruRemoteCore
 
 #if os(iOS) && canImport(UIKit)
@@ -77,7 +78,7 @@ public struct RemoteInputDockView: View {
     private let onTextChange: (String) -> Void
     private let onComposeSendPreparation: (ComposeSendPreparationReport) -> Void
     private let directKeystrokeMode: DirectKeystrokeMode
-    private let stickyModifierState: StickyModifierState
+    private let stickyModifierState: StickyModifiers
     private let layoutStyle: RemoteInputDockLayoutStyle
     private let showsCompactStatusText: Bool
     private let showsMacSessionControls: Bool
@@ -142,7 +143,7 @@ public struct RemoteInputDockView: View {
         onTextChange: @escaping (String) -> Void = { _ in },
         onComposeSendPreparation: @escaping (ComposeSendPreparationReport) -> Void = { _ in },
         directKeystrokeMode: DirectKeystrokeMode = DirectKeystrokeMode(),
-        stickyModifierState: StickyModifierState = StickyModifierState(),
+        stickyModifierState: StickyModifiers = StickyModifiers(),
         layoutStyle: RemoteInputDockLayoutStyle = .standard,
         showsCompactStatusText: Bool = false,
         showsMacSessionControls: Bool = false,
@@ -1224,7 +1225,7 @@ public struct RemoteInputDockView: View {
     /// Sticky modifiers, glyph-labelled (spec 012 US2-3): the 36pt keys are
     /// what fit Esc/Tab/⌃C inside an iPhone-width strip.
     private var accessoryModifierKeys: some View {
-        ForEach(StickyModifierState.Modifier.stripOrder, id: \.self) { modifier in
+        ForEach(DirectKeystrokeModifier.stripOrder, id: \.self) { modifier in
             ModifierKeyButton(
                 label: modifier.stripLabel,
                 modifier: modifier,

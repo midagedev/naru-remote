@@ -3,9 +3,9 @@ import Foundation
 /// Accessory-strip presentation metadata for sticky modifiers
 /// (spec 011 US2). The strip renders ⌃ ⌥ ⌘ ⇧ before the named keys,
 /// matching a physical Mac keyboard's bottom row.
-public extension StickyModifierState.Modifier {
+public extension DirectKeystrokeModifier {
     /// Left-to-right strip order.
-    static let stripOrder: [StickyModifierState.Modifier] = [
+    static let stripOrder: [DirectKeystrokeModifier] = [
         .control, .alt, .meta, .shift,
     ]
 
@@ -32,7 +32,7 @@ public extension StickyModifierState.Modifier {
 ///
 /// Strip keys emit through the same `KeystrokeEmitter` path as the
 /// retired Direct soft keyboard and the Compose quick keys: an X11
-/// keysym wrapped in any active sticky modifiers (`StickyModifierState`).
+/// keysym wrapped in any active sticky modifiers (`StickyModifiers`).
 /// They never modify the Compose draft and never emit while no session
 /// is active.
 public enum AccessoryKey: String, Sendable, Equatable, CaseIterable, Codable {

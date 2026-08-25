@@ -55,7 +55,7 @@ public final class KeystrokeEmitter: Sendable {
     /// about the modifier-set source:
     ///
     /// - `emit(keysym:modifiers:)` is called from on-screen taps.
-    ///   The caller (model) consumes `StickyModifierState.armed`
+    ///   The caller (model) consumes `StickyModifiers.armed`
     ///   slots after the call returns.
     /// - `emitHardware(keysym:modifiers:)` is the wrapping variant
     ///   for callers that synthesize a logical "press + release"
@@ -134,15 +134,9 @@ public final class KeystrokeEmitter: Sendable {
     }
 }
 
-/// Sticky-modifier kinds.  Used by both the on-screen path
-/// (sourced from `StickyModifierState.activeModifiers`) and the
-/// hardware-keyboard path (sourced from `UIKey.modifierFlags`).
-/// `StickyModifierState.Modifier` is an alias to this same type so
-/// the contract surface in `contracts/keystroke-emitter.md` and
-/// the implementation share one enum without a translation layer.
-public enum DirectKeystrokeModifier: String, Sendable, Equatable, CaseIterable, Codable {
-    case control
-    case shift
-    case alt
-    case meta
-}
+// `DirectKeystrokeModifier` used to be declared here. It is now an alias for
+// `Glasskeys.Modifier` (see `GlasskeysAdoption.swift`) — the same four cases,
+// shared with the phone client that runs the same sticky-modifier machine.
+// Both paths still feed it: the on-screen strip through
+// `StickyModifiers.activeModifiers`, the hardware keyboard through
+// `UIKey.modifierFlags`.

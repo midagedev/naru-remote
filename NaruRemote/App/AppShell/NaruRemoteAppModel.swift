@@ -275,11 +275,11 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     /// Sticky-modifier state for the Direct Keystroke special-keys
     /// page (Ctrl / Shift / Alt / Cmd).  Each slot is independently
-    /// `idle | armed | locked` per `StickyModifierState`.
+    /// `idle | armed | locked` per `StickyModifiers`.
     /// Resets in lockstep with `directKeystrokeMode` — disconnect,
     /// fresh connect, profile change, and `toggleDirectKeystrokeMode`
     /// off all clear the state (FR-012).
-    @Published public private(set) var stickyModifierState: StickyModifierState = .init()
+    @Published public private(set) var stickyModifierState: StickyModifiers = .init()
 
     /// Live type-through mode state (spec 009 / spec 011). Peer to
     /// `directKeystrokeMode`; resets on every fresh session (FR-016)
@@ -7144,7 +7144,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     ///   successful (or attempted) emission, armed modifiers are
     ///   consumed; locked modifiers stay locked (FR-005).
     /// - `.modifier(_)` taps a sticky-modifier slot through the
-    ///   `StickyModifierState` state machine.  No `KeyEvent` is
+    ///   `StickyModifiers` state machine.  No `KeyEvent` is
     ///   emitted; the slot transitions
     ///   idle → armed → locked → idle per the 400 ms double-tap
     ///   window.
@@ -7191,7 +7191,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             else {
                 return
             }
-            let modifiers = stickyModifierState.activeModifiers
+            let modifiers = Set(stickyModifierState.activeModifiers)
             enqueueKeyEventEmission(
                 emitter: emitter,
                 streamID: activeFrameStreamID,
@@ -7200,7 +7200,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             ) {
                 try await emitter.emit(keysym: keysym, modifiers: modifiers)
             }
-            stickyModifierState.consumeAfterNonModifierEmission()
+            stickyModifierState.consume()
 
         case .named(let namedKey):
             guard directKeystrokeMode.isActive,
@@ -7209,7 +7209,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                 return
             }
             let keysym = KeysymMapping.keysym(for: namedKey)
-            let modifiers = stickyModifierState.activeModifiers
+            let modifiers = Set(stickyModifierState.activeModifiers)
             enqueueKeyEventEmission(
                 emitter: emitter,
                 streamID: activeFrameStreamID,
@@ -7218,7 +7218,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             ) {
                 try await emitter.emit(keysym: keysym, modifiers: modifiers)
             }
-            stickyModifierState.consumeAfterNonModifierEmission()
+            stickyModifierState.consume()
         }
     }
 
@@ -7236,7 +7236,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// four discrete calls — Ctrl down → c down → c up → Ctrl up
     /// — which is byte-identical to the on-screen Ctrl-c envelope
     /// emitted by `tapDirectKey(.character("c"))` while
-    /// `StickyModifierState[.control] == .armed` (SC-005).
+    /// `StickyModifiers[.control] == .armed` (SC-005).
     ///
     /// Drops silently when:
     /// - Direct mode is not active (FR-007 — hardware path only
@@ -7244,7 +7244,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// - There is no active session (`keystrokeEmitter` is `nil`
     ///   outside an active stream — `spec.md` IN-003 fallback).
     ///
-    /// **Sticky state is not touched** — `consumeAfterNonModifierEmission()`
+    /// **Sticky state is not touched** — `consume()`
     /// is the soft-keyboard "tap once → arm → consume" UX.  The
     /// hardware path's modifiers come from `UIKey.modifierFlags` and
     /// are already physically held by the user; consuming sticky
@@ -7315,7 +7315,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         let flushed = await flushPendingLiveInsertBeforeControl()
-        guard AccessoryControlFlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
+        guard FlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
               let emitter = keystrokeEmitter
         else {
             return
@@ -7353,13 +7353,13 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
         let flushed = await flushPendingLiveInsertBeforeControl()
-        guard AccessoryControlFlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
+        guard FlushBarrier.shouldEmitAfterFlush(succeeded: flushed),
               let emitter = keystrokeEmitter
         else {
             return
         }
         markTransientFrameDeliveryInteractionActivity()
-        let modifiers = stickyModifierState.activeModifiers
+        let modifiers = Set(stickyModifierState.activeModifiers)
         enqueueKeyEventEmission(
             emitter: emitter,
             streamID: activeFrameStreamID,
@@ -7368,7 +7368,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         ) {
             try await emitter.emit(keysym: key.keysym, modifiers: modifiers)
         }
-        stickyModifierState.consumeAfterNonModifierEmission()
+        stickyModifierState.consume()
     }
 
     /// Spec 012 US2-3 model layer: wait for an in-flight helper/clipboard

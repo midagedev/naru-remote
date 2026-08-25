@@ -16,7 +16,7 @@ import NaruRemoteCore
 ///
 /// Why identity holds even though the call sites differ:
 ///
-/// On-screen Ctrl-c (StickyModifierState reports `[.control]` armed,
+/// On-screen Ctrl-c (StickyModifiers reports `[.control]` armed,
 /// then the user taps `c`):
 ///   1. Control_L down (0xFFE3)
 ///   2. c             down (0x0063)

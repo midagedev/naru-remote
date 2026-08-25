@@ -1,7 +1,7 @@
 import XCTest
 @testable import NaruRemoteCore
 
-/// Phase 4 (US-2) — `StickyModifierState` is the small state machine
+/// Phase 4 (US-2) — `StickyModifiers` is the small state machine
 /// that drives the on-screen modifier UX (idle → armed → locked) and
 /// is the single source of truth for both the visual state of each
 /// modifier key and the `Set<Modifier>` the `KeystrokeEmitter` wraps
@@ -10,13 +10,13 @@ import XCTest
 /// All time-sensitive transitions are exercised through an injected
 /// `ContinuousClock.Instant` — never `Task.sleep` — so the tests are
 /// deterministic and run in milliseconds.
-final class StickyModifierStateTests: XCTestCase {
+final class StickyModifiersTests: XCTestCase {
 
     // MARK: - Initial state
 
     func testFreshStateAllSlotsIdle() {
-        let state = StickyModifierState()
-        for m in StickyModifierState.Modifier.allCases {
+        let state = StickyModifiers()
+        for m in DirectKeystrokeModifier.allCases {
             XCTAssertEqual(state.slot(for: m), .idle, "\(m) should start idle")
         }
         XCTAssertTrue(state.activeModifiers.isEmpty)
@@ -25,7 +25,7 @@ final class StickyModifierStateTests: XCTestCase {
     // MARK: - Single-tap arming
 
     func testSingleTapArmsModifier() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let now = ContinuousClock.now
 
         state.tap(.control, at: now)
@@ -38,7 +38,7 @@ final class StickyModifierStateTests: XCTestCase {
     }
 
     func testEachSlotTransitionsIndependently() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let now = ContinuousClock.now
 
         state.tap(.shift, at: now)
@@ -48,13 +48,13 @@ final class StickyModifierStateTests: XCTestCase {
         XCTAssertEqual(state.slot(for: .shift), .armed)
         XCTAssertEqual(state.slot(for: .alt), .armed)
         XCTAssertEqual(state.slot(for: .meta), .idle)
-        XCTAssertEqual(state.activeModifiers, [.shift, .alt])
+        XCTAssertEqual(state.activeModifiers, [.alt, .shift], "canonical order, not tap order")
     }
 
     // MARK: - Double-tap locking (within 400 ms)
 
     func testDoubleTapWithin400MillisLocks() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.shift, at: t0)
@@ -70,7 +70,7 @@ final class StickyModifierStateTests: XCTestCase {
 
     func testDoubleTapAtExactly400MillisLocks() {
         // Boundary: ≤ 400 ms is "lock". 400 ms exactly is locking.
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.control, at: t0)
@@ -83,7 +83,7 @@ final class StickyModifierStateTests: XCTestCase {
     // MARK: - Re-tap outside the window stays armed (fresh single-tap)
 
     func testReTapAfter401MillisStaysArmedAndUpdatesTimestamp() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.alt, at: t0)
@@ -108,7 +108,7 @@ final class StickyModifierStateTests: XCTestCase {
     // MARK: - Locked → idle on tap
 
     func testTapLockedModifierReturnsToIdle() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.meta, at: t0)
@@ -121,10 +121,10 @@ final class StickyModifierStateTests: XCTestCase {
         XCTAssertTrue(state.activeModifiers.isEmpty)
     }
 
-    // MARK: - consumeAfterNonModifierEmission
+    // MARK: - consume()
 
     func testConsumeReleasesArmedSlotsOnly() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         // Control: armed (single tap)
@@ -139,7 +139,7 @@ final class StickyModifierStateTests: XCTestCase {
         XCTAssertEqual(state.slot(for: .alt), .idle)
         XCTAssertEqual(state.activeModifiers, [.control, .shift])
 
-        state.consumeAfterNonModifierEmission()
+        state.consume()
 
         XCTAssertEqual(state.slot(for: .control), .idle,
                        "armed control should release after a non-modifier emission")
@@ -150,15 +150,15 @@ final class StickyModifierStateTests: XCTestCase {
     }
 
     func testConsumeIsNoOpWhenAllSlotsIdle() {
-        var state = StickyModifierState()
-        state.consumeAfterNonModifierEmission()
+        var state = StickyModifiers()
+        state.consume()
         XCTAssertTrue(state.activeModifiers.isEmpty)
     }
 
     func testLockedModifierAppliesToManySequentialEmissions() {
         // The "double-tap Shift, type three letters all held"
         // scenario from spec.md US-2 acceptance #4.
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.shift, at: t0)
@@ -167,7 +167,7 @@ final class StickyModifierStateTests: XCTestCase {
 
         for _ in 0..<3 {
             XCTAssertEqual(state.activeModifiers, [.shift])
-            state.consumeAfterNonModifierEmission()
+            state.consume()
             XCTAssertEqual(state.slot(for: .shift), .locked)
         }
 
@@ -175,14 +175,14 @@ final class StickyModifierStateTests: XCTestCase {
         state.tap(.shift, at: t0.advanced(by: .seconds(10)))
         XCTAssertEqual(state.slot(for: .shift), .idle)
 
-        state.consumeAfterNonModifierEmission()
+        state.consume()
         XCTAssertTrue(state.activeModifiers.isEmpty)
     }
 
     // MARK: - clear()
 
     func testClearResetsAllSlotsToIdle() {
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.control, at: t0)
@@ -196,7 +196,7 @@ final class StickyModifierStateTests: XCTestCase {
 
         state.clear()
 
-        for m in StickyModifierState.Modifier.allCases {
+        for m in DirectKeystrokeModifier.allCases {
             XCTAssertEqual(state.slot(for: m), .idle, "\(m) should be idle after clear()")
         }
         XCTAssertTrue(state.activeModifiers.isEmpty)
@@ -207,14 +207,14 @@ final class StickyModifierStateTests: XCTestCase {
     func testStackedArmedModifiersBothApplyAndBothReleaseOnEmission() {
         // spec.md US-2 acceptance #3 — Ctrl-Shift-Tab is reachable
         // by tapping Ctrl then Shift then a non-modifier key.
-        var state = StickyModifierState()
+        var state = StickyModifiers()
         let t0 = ContinuousClock.now
 
         state.tap(.control, at: t0)
         state.tap(.shift, at: t0.advanced(by: .milliseconds(10)))
         XCTAssertEqual(state.activeModifiers, [.control, .shift])
 
-        state.consumeAfterNonModifierEmission()
+        state.consume()
         XCTAssertEqual(state.activeModifiers, [])
     }
 }

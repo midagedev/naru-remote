@@ -115,7 +115,14 @@ Three layers, enforced by the SwiftPM target graph in `Package.swift`
   `RemoteInputDock` (compose draft, `TextInjectionAdapter`, Live
   type-through window/ladder, Direct keystroke), `SessionViewer`
   (`RemoteSession` state machine), `PiPWatchMode`, `VNC` (RFB boundary),
-  `AppleRemoteDesktop`.
+  `AppleRemoteDesktop`. One external dependency:
+  [`glasskeys`](https://github.com/midagedev/glasskeys) supplies sticky
+  modifiers, hold-to-repeat, the composition gate and the flush barrier —
+  machines written here, then shared with gadak's phone client.
+  `RemoteInputDock/GlasskeysAdoption.swift` names them in naru's vocabulary;
+  the encoder (`AccessoryKey.keysym`, RFB `KeyEvent` pairs) stays here. A
+  behaviour change to those four belongs upstream with a golden vector, not
+  in a local patch.
 - **`NaruRemoteApp`** (`NaruRemote/App/`) — SwiftUI shell.
   `AppShell/NaruRemoteAppModel` is a `@MainActor` `ObservableObject` owning
   session lifecycle, frame streaming, PiP wiring, persistence, and text

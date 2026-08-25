@@ -35,8 +35,8 @@ import NaruRemoteCore
 struct ModifierKeyButton: View {
 
     let label: String
-    let modifier: StickyModifierState.Modifier
-    let slot: StickyModifierState.SlotState
+    let modifier: DirectKeystrokeModifier
+    let slot: StickyModifiers.SlotState
     let widthUnits: CGFloat
     let unitWidth: CGFloat
     /// Explicit render height. The accessory strip proposes 36pt to

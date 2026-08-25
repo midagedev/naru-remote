@@ -904,7 +904,7 @@ struct RemoteInputDockRenderState: Equatable, Sendable {
     /// Is the per-window status one the user can act on or be misled by
     /// (failed, unconfirmed, ASCII last resort, window start)?
     var liveStatusIsActionable: Bool
-    var stickyModifierState: StickyModifierState
+    var stickyModifierState: StickyModifiers
     var layoutStyle: RemoteInputDockLayoutStyle
     var showsCompactStatusText: Bool
     var showsMacSessionControls: Bool

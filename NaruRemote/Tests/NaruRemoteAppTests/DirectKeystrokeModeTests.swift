@@ -754,7 +754,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
 
     func testTapModifierThenCharacterConsumesArmedSlot() async {
         // Without an active emitter, the .character branch drops
-        // before reaching consumeAfterNonModifierEmission().
+        // before reaching consume().
         // We assert the model state pre-emission and document
         // the consumption rule via the locked-modifier test
         // below (which exercises the post-emission state path).
@@ -866,7 +866,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
         XCTAssertEqual(model.composeDraft?.text, "hello")
     }
 
-    func testToggleOutOfDirectModeClearsStickyModifierState() async {
+    func testToggleOutOfDirectModeClearsStickyModifiers() async {
         // FR-012 — toggling out of Direct mode clears all sticky
         // modifier state, so a phantom-armed or phantom-locked
         // slot cannot survive a mode bounce and silently apply
@@ -880,7 +880,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
         model.toggleDirectKeystrokeMode()  // exit Direct
 
         XCTAssertFalse(model.directKeystrokeMode.isActive)
-        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertEqual(model.stickyModifierState, StickyModifiers())
         XCTAssertEqual(model.stickyModifierState.slot(for: .control), .idle)
         XCTAssertTrue(model.stickyModifierState.activeModifiers.isEmpty)
     }
@@ -892,12 +892,12 @@ final class DirectKeystrokeModeTests: XCTestCase {
         // accidentally calling `clear()` followed by `tap()`)
         // surfaces here.
         let model = NaruRemoteAppModel()
-        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertEqual(model.stickyModifierState, StickyModifiers())
 
         model.toggleDirectKeystrokeMode()
 
         XCTAssertTrue(model.directKeystrokeMode.isActive)
-        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertEqual(model.stickyModifierState, StickyModifiers())
     }
 
     // MARK: - Hardware-keyboard path (Phase 5 / US-3 / T033 / T034)
@@ -915,7 +915,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
         await model.handleHardwareKey(keysym: 0x0063, modifiers: [], isDown: false)
 
         // No state perturbation; sticky state untouched.
-        XCTAssertEqual(model.stickyModifierState, StickyModifierState())
+        XCTAssertEqual(model.stickyModifierState, StickyModifiers())
         XCTAssertFalse(model.directKeystrokeMode.isActive)
     }
 
@@ -934,7 +934,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
 
     func testHandleHardwareKeyDoesNotConsumeStickyArmedState() async {
         // The hardware path's modifier set comes from
-        // `UIKey.modifierFlags`, NOT `StickyModifierState`.
+        // `UIKey.modifierFlags`, NOT `StickyModifiers`.
         // Calling `handleHardwareKey` while Ctrl is armed via the
         // soft keyboard MUST NOT consume the armed slot — the
         // user expected the on-screen Ctrl to stay armed for
@@ -977,7 +977,7 @@ final class DirectKeystrokeModeTests: XCTestCase {
     }
 
     func testToggleOutClearsLastTapTimestampSoNextEntryStartsFresh() async {
-        // FR-012 (transient state) — `StickyModifierState`'s
+        // FR-012 (transient state) — `StickyModifiers`'s
         // internal `lastTapAt` map is reset when the struct is
         // re-initialized.  Observable proof: after toggle-out,
         // toggling back in and tapping Ctrl ONCE should land in
