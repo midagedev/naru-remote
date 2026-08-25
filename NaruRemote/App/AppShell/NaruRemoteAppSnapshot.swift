@@ -494,6 +494,12 @@ public struct SessionStreamStats: Equatable, Sendable {
             rendererPartialUploadPermille: rendererPartialUploadPermille,
             rendererFullUploadPermille: rendererFullUploadPermille,
             rendererUploadRegionCountMax: rendererUploadRegionCountMax,
+            framePresentationPublishedCount: framePresentationLedger.publishedCount,
+            framePresentationPresentedCount: framePresentationLedger.count(.presented),
+            framePresentationPresentedPermille: framePresentationPresentedPermille,
+            framePresentationHeldReason: FramePresentationHeldReasonCatalog
+                .label(for: framePresentationLedger.dominantWithholdingReason),
+            framePresentationWatchdogReleaseCount: framePresentationLedger.watchdogReleaseCount,
             rendererUploadTimingSampleCount: rendererUploadTimingSampleCount,
             averageRendererUploadTimingBucket: DiagnosticTimingBucket
                 .bucket(milliseconds: averageRendererUploadMilliseconds).rawValue,
@@ -715,6 +721,20 @@ public struct SessionStreamStats: Equatable, Sendable {
         mainActorResponsivenessDelayMillisecondsMax = max(
             mainActorResponsivenessDelayMillisecondsMax,
             milliseconds
+        )
+    }
+
+    /// Spec 028. What share of published frames actually reached the screen.
+    /// Permille rather than a raw pair so the export stays a ratio, and nil when
+    /// nothing has been published yet rather than a misleading zero.
+    public var framePresentationPresentedPermille: Int? {
+        let published = framePresentationLedger.publishedCount
+        guard published > 0 else {
+            return nil
+        }
+        return Int(
+            (Double(framePresentationLedger.count(.presented)) / Double(published) * 1_000)
+                .rounded()
         )
     }
 

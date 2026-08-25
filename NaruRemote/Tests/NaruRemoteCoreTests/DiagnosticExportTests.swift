@@ -1812,6 +1812,142 @@ final class DiagnosticExportTests: XCTestCase {
         )
     }
 
+    // MARK: - Frame presentation ledger (spec 028)
+
+    /// The export's required identity fields, so the ledger tests below can name
+    /// only what they are actually asserting.
+    private func makeLedgerReport(
+        published: Int = 0,
+        presented: Int = 0,
+        presentedPermille: Int? = nil,
+        heldReason: String = FramePresentationHeldReasonCatalog.none,
+        watchdogReleases: Int = 0
+    ) -> DiagnosticStreamPerformanceReport {
+        DiagnosticStreamPerformanceReport(
+            observedDurationBucket: DiagnosticTimingBucket.notMeasured.rawValue,
+            deliveredFramesPerSecondBucket: DiagnosticFrameRateBucket.notMeasured.rawValue,
+            deliveredFrameCount: 0,
+            contentFrameCount: 0,
+            emptyUpdateCount: 0,
+            transportIdleTimeoutCount: 0,
+            dirtyRectangleSampleCount: 0,
+            dirtyRectangleCountMax: 0,
+            dirtyAreaPermilleMax: 0,
+            changedPixelsPermilleMax: 0,
+            framePresentationPublishedCount: published,
+            framePresentationPresentedCount: presented,
+            framePresentationPresentedPermille: presentedPermille,
+            framePresentationHeldReason: heldReason,
+            framePresentationWatchdogReleaseCount: watchdogReleases,
+            thermalState: "nominal"
+        )
+    }
+
+
+    func testFramePresentationFieldsAreWrittenNotJustRead() throws {
+        // Spec 027 shipped summary fields that `init(from:)` read and
+        // `encode(to:)` never wrote, so an archived run showed them absent while
+        // the in-memory value was correct. A frozen session whose export reports
+        // a clean ledger would be the same failure with worse consequences.
+        let report = makeLedgerReport(
+            published: 120,
+            presented: 4,
+            presentedPermille: 33,
+            heldReason: FramePresentationOutcome.heldBySuspension.rawValue,
+            watchdogReleases: 2
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payload = String(decoding: try encoder.encode(report), as: UTF8.self)
+
+        XCTAssertTrue(payload.contains("\"framePresentationPublishedCount\":120"))
+        XCTAssertTrue(payload.contains("\"framePresentationPresentedCount\":4"))
+        XCTAssertTrue(payload.contains("\"framePresentationPresentedPermille\":33"))
+        XCTAssertTrue(payload.contains("\"framePresentationHeldReason\":\"heldBySuspension\""))
+        XCTAssertTrue(payload.contains("\"framePresentationWatchdogReleaseCount\":2"))
+
+        let decoded = try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: Data(payload.utf8)
+        )
+        XCTAssertEqual(decoded.framePresentationPublishedCount, 120)
+        XCTAssertEqual(decoded.framePresentationPresentedCount, 4)
+        XCTAssertEqual(decoded.framePresentationHeldReason, "heldBySuspension")
+        XCTAssertEqual(decoded.framePresentationWatchdogReleaseCount, 2)
+    }
+
+    func testAnOlderExportWithoutTheLedgerDecodesToSafeDefaults() throws {
+        // Built by stripping the ledger keys out of a valid payload rather than
+        // hand-writing a minimal one, so this keeps testing the right thing as
+        // the report's required fields change.
+        let decoded = try decodeLedgerReport(strippingLedgerKeysFrom: makeLedgerReport())
+
+        XCTAssertEqual(decoded.framePresentationPublishedCount, 0)
+        XCTAssertEqual(decoded.framePresentationPresentedCount, 0)
+        XCTAssertNil(decoded.framePresentationPresentedPermille)
+        XCTAssertEqual(decoded.framePresentationHeldReason, "none")
+        XCTAssertEqual(decoded.framePresentationWatchdogReleaseCount, 0)
+    }
+
+    func testTheHeldReasonIsRestrictedToTheSafeCatalog() throws {
+        // Constitution §IV: exports carry fixed vocabulary, never
+        // caller-provided strings. The reason originates from a closed enum, but
+        // it crosses the boundary as a String, so it is re-checked rather than
+        // trusted — on the way in as well as on the way out.
+        XCTAssertEqual(
+            makeLedgerReport(heldReason: "user typed: hunter2").framePresentationHeldReason,
+            "unknown"
+        )
+
+        let decoded = try decodeLedgerReport(
+            replacingHeldReasonWith: "192.168.1.4",
+            in: makeLedgerReport()
+        )
+        XCTAssertEqual(decoded.framePresentationHeldReason, "unknown")
+
+        for outcome in FramePresentationOutcome.allCases {
+            XCTAssertEqual(
+                makeLedgerReport(heldReason: outcome.rawValue).framePresentationHeldReason,
+                outcome.rawValue
+            )
+        }
+    }
+
+    private func ledgerReportObject(
+        _ report: DiagnosticStreamPerformanceReport
+    ) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(report)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+    }
+
+    private func decodeLedgerReport(
+        strippingLedgerKeysFrom report: DiagnosticStreamPerformanceReport
+    ) throws -> DiagnosticStreamPerformanceReport {
+        var object = try ledgerReportObject(report)
+        for key in object.keys where key.hasPrefix("framePresentation") {
+            object.removeValue(forKey: key)
+        }
+        return try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    private func decodeLedgerReport(
+        replacingHeldReasonWith reason: String,
+        in report: DiagnosticStreamPerformanceReport
+    ) throws -> DiagnosticStreamPerformanceReport {
+        var object = try ledgerReportObject(report)
+        object["framePresentationHeldReason"] = reason
+        return try JSONDecoder().decode(
+            DiagnosticStreamPerformanceReport.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
     func testRenderSharePayloadIncludesPlainTextAndCollectionJSON() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let run = ConnectionDiagnosticRun(

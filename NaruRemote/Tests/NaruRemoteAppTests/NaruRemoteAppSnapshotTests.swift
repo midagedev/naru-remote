@@ -605,4 +605,47 @@ final class NaruRemoteAppSnapshotTests: XCTestCase {
         XCTAssertFalse(exportedLabels.joined(separator: " ").contains("helper-video-token"))
         XCTAssertFalse(exportedLabels.joined(separator: " ").contains("tailnet.ts.net"))
     }
+
+    // MARK: - Frame presentation ledger (spec 028)
+
+    func testTheDiagnosticExportCarriesWhatIsWithholdingFrames() throws {
+        // A Release build has no perf HUD, so the export is the only way the
+        // founder's own device can say why the picture stopped updating. This
+        // pins the stats → export mapping; the encode/decode round trip is
+        // pinned in DiagnosticExportTests.
+        var stats = SessionStreamStats()
+        stats.record(
+            frame: RFBFramePumpFrame(
+                sequence: 1,
+                framebuffer: RFBRawFramebuffer(
+                    width: 8,
+                    height: 8,
+                    fill: RFBColor(red: 1, green: 2, blue: 3)
+                ),
+                dirtyRectangles: [RFBFrameDamageRect(x: 0, y: 0, width: 8, height: 8)],
+                changedPixelCount: 64,
+                capturedAt: Date(timeIntervalSince1970: 10),
+                isIncremental: false,
+                encodingMix: RFBFramebufferEncodingMix()
+            ),
+            thermalState: .nominal,
+            appFrameApplyMilliseconds: 3
+        )
+
+        var ledger = FramePresentationLedger()
+        for _ in 0..<50 {
+            ledger.recordPublished()
+            ledger.record(.heldBySuspension)
+        }
+        ledger.record(.presented)
+        ledger.recordWatchdogRelease()
+        stats.recordFramePresentationLedger(ledger)
+
+        let report = try XCTUnwrap(stats.diagnosticStreamPerformanceReport)
+        XCTAssertEqual(report.framePresentationPublishedCount, 50)
+        XCTAssertEqual(report.framePresentationPresentedCount, 1)
+        XCTAssertEqual(report.framePresentationPresentedPermille, 20)
+        XCTAssertEqual(report.framePresentationHeldReason, "heldBySuspension")
+        XCTAssertEqual(report.framePresentationWatchdogReleaseCount, 1)
+    }
 }

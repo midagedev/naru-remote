@@ -396,6 +396,11 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         case rendererPartialUploadPermille
         case rendererFullUploadPermille
         case rendererUploadRegionCountMax
+        case framePresentationPublishedCount
+        case framePresentationPresentedCount
+        case framePresentationPresentedPermille
+        case framePresentationHeldReason
+        case framePresentationWatchdogReleaseCount
         case rendererUploadTimingSampleCount
         case averageRendererUploadTimingBucket
         case maxRendererUploadTimingBucket
@@ -476,6 +481,18 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
     public let rendererPartialUploadPermille: Int?
     public let rendererFullUploadPermille: Int?
     public let rendererUploadRegionCountMax: Int
+    /// Spec 028. How many content frames the session frame store published, and
+    /// how many of those reached the texture. A large gap with a named reason is
+    /// the signature of a frozen picture on a live stream — the state that
+    /// looked healthy in every earlier export because only pump-side counts were
+    /// carried.
+    public let framePresentationPublishedCount: Int
+    public let framePresentationPresentedCount: Int
+    public let framePresentationPresentedPermille: Int?
+    /// Fixed label from `FramePresentationOutcome` (or `none`). Closed
+    /// vocabulary, per the safe-detail catalog rule.
+    public let framePresentationHeldReason: String
+    public let framePresentationWatchdogReleaseCount: Int
     public let rendererUploadTimingSampleCount: Int
     public let averageRendererUploadTimingBucket: String
     public let maxRendererUploadTimingBucket: String
@@ -556,6 +573,11 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         rendererPartialUploadPermille: Int? = nil,
         rendererFullUploadPermille: Int? = nil,
         rendererUploadRegionCountMax: Int = 0,
+        framePresentationPublishedCount: Int = 0,
+        framePresentationPresentedCount: Int = 0,
+        framePresentationPresentedPermille: Int? = nil,
+        framePresentationHeldReason: String = FramePresentationHeldReasonCatalog.none,
+        framePresentationWatchdogReleaseCount: Int = 0,
         rendererUploadTimingSampleCount: Int = 0,
         averageRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
         maxRendererUploadTimingBucket: String = DiagnosticTimingBucket.notMeasured.rawValue,
@@ -647,6 +669,12 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
         self.rendererPartialUploadPermille = Self.clampPermille(rendererPartialUploadPermille)
         self.rendererFullUploadPermille = Self.clampPermille(rendererFullUploadPermille)
         self.rendererUploadRegionCountMax = max(rendererUploadRegionCountMax, 0)
+        self.framePresentationPublishedCount = max(framePresentationPublishedCount, 0)
+        self.framePresentationPresentedCount = max(framePresentationPresentedCount, 0)
+        self.framePresentationPresentedPermille = framePresentationPresentedPermille.map { max($0, 0) }
+        self.framePresentationHeldReason = FramePresentationHeldReasonCatalog
+            .sanitized(framePresentationHeldReason)
+        self.framePresentationWatchdogReleaseCount = max(framePresentationWatchdogReleaseCount, 0)
         let rendererUploadTimingSampleCount = max(rendererUploadTimingSampleCount, 0)
         self.rendererUploadTimingSampleCount = rendererUploadTimingSampleCount
         if rendererUploadTimingSampleCount == 0 {
@@ -904,6 +932,26 @@ public struct DiagnosticStreamPerformanceReport: Codable, Equatable, Sendable {
             rendererUploadRegionCountMax: try container.decodeIfPresent(
                 Int.self,
                 forKey: .rendererUploadRegionCountMax
+            ) ?? 0,
+            framePresentationPublishedCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .framePresentationPublishedCount
+            ) ?? 0,
+            framePresentationPresentedCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .framePresentationPresentedCount
+            ) ?? 0,
+            framePresentationPresentedPermille: try container.decodeIfPresent(
+                Int.self,
+                forKey: .framePresentationPresentedPermille
+            ),
+            framePresentationHeldReason: try container.decodeIfPresent(
+                String.self,
+                forKey: .framePresentationHeldReason
+            ) ?? FramePresentationHeldReasonCatalog.none,
+            framePresentationWatchdogReleaseCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .framePresentationWatchdogReleaseCount
             ) ?? 0,
             rendererUploadTimingSampleCount: try container.decodeIfPresent(
                 Int.self,
