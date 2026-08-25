@@ -1,19 +1,19 @@
 import XCTest
 @testable import NaruRemoteCore
 
-/// Runs the vendored `touch-remote-input` golden vectors against naru's own
+/// Runs the vendored `glasskeys` golden vectors against naru's own
 /// types. The JSON is the specification; this file is only the harness.
 ///
 /// A suite this harness cannot run fails the contract test, except for the
 /// one named skip SWIFT.md allows: `composition` (naru has no
 /// `CompositionGate` type). Silently dropping a suite is the failure this
 /// arrangement exists to prevent.
-final class TouchRemoteInputConformanceTests: XCTestCase {
+final class GlasskeysConformanceTests: XCTestCase {
 
     private static let runnerSuites: Set<String> = ["sticky", "cadence", "flush"]
     private static let namedSkipSuites: [String: String] = [
         "composition":
-            "naru-remote has no CompositionGate type (touch-remote-input/conformance/SWIFT.md). Inventing a test-only copy of the TypeScript machine would not prove naru agrees. LiveTypeThroughWindow is the remote-caret / committed-snapshot machine the vectors deliberately do not drive.",
+            "naru-remote has no CompositionGate type (glasskeys/conformance/SWIFT.md). Inventing a test-only copy of the TypeScript machine would not prove naru agrees. LiveTypeThroughWindow is the remote-caret / committed-snapshot machine the vectors deliberately do not drive.",
     ]
     /// Vector `active` / `mods` order (`control`, `alt`, `shift`, `meta`).
     /// Not `DirectKeystrokeModifier.allCases` (`control`, `shift`, `alt`, `meta`).
@@ -64,15 +64,67 @@ final class TouchRemoteInputConformanceTests: XCTestCase {
         }
     }
 
+    /// The vendored copy is the whole set, not most of it.
+    ///
+    /// `testHarnessFailsOnASuiteItCannotRun` catches a suite with no runner.
+    /// It does not catch a *vector* that went missing — a bad merge, a
+    /// half-finished re-vendor — because a missing vector only makes the run
+    /// smaller, and a smaller green run reads exactly like a complete one.
+    /// Measured before this test existed: deleting one sticky vector left 19
+    /// loaded and zero failures.
+    ///
+    /// What this does not catch is staleness. This manifest and these vectors
+    /// are consistent with each other whether or not they are current;
+    /// `ORIGIN.txt`'s commit is the only answer to that, and checking it means
+    /// looking at upstream.
+    func testVendoredVectorsAreTheWholeSetTheManifestNames() throws {
+        let data = try Data(contentsOf: try vectorRootFile("MANIFEST.json"))
+        guard let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let expected = manifest["vectors"] as? [String],
+              let count = Self.jsonInt(manifest["count"])
+        else {
+            return XCTFail("vectors/MANIFEST.json is unreadable")
+        }
+
+        let loaded = try Self.loadVectors().map { "\($0.suite)/\($0.id)" }.sorted()
+        XCTAssertEqual(
+            loaded,
+            expected,
+            "vendored vectors/ is not the set MANIFEST.json names — re-vendor from the commit in ORIGIN.txt"
+        )
+        XCTAssertEqual(loaded.count, count)
+
+        if let suites = manifest["suites"] as? [String: Any] {
+            var counted: [String: Int] = [:]
+            for vector in try Self.loadVectors() {
+                counted[vector.suite, default: 0] += 1
+            }
+            for (suite, value) in suites {
+                XCTAssertEqual(counted[suite] ?? 0, Self.jsonInt(value), "suite \(suite)")
+            }
+        }
+    }
+
+    private func vectorRootFile(_ name: String) throws -> URL {
+        if let url = Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "vectors") {
+            return url
+        }
+        let candidate = try Self.vectorRoot().appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: candidate.path) else {
+            throw VectorError.unreadable("vectors/\(name)")
+        }
+        return candidate
+    }
+
     func testOriginFilePinsSourceRepoAndCommit() throws {
         let origin = try Self.originURL()
         let text = try String(contentsOf: origin, encoding: .utf8)
         XCTAssertTrue(
-            text.contains("https://github.com/midagedev/touch-remote-input"),
+            text.contains("https://github.com/midagedev/glasskeys"),
             "ORIGIN.txt must name the source repo"
         )
         XCTAssertTrue(
-            text.contains("commit: 47afca257dd3257c9292391cc3b7f0180e6efc6a"),
+            text.contains("commit: 9a930b065e56507b93299914325cbbf485fd8cc8"),
             "ORIGIN.txt must pin the commit verified with rev-parse HEAD"
         )
     }
@@ -404,7 +456,7 @@ final class TouchRemoteInputConformanceTests: XCTestCase {
         let expect: [String: Any]
 
         var mods: [String] {
-            TouchRemoteInputConformanceTests.jsonStringArray(input["mods"]) ?? []
+            GlasskeysConformanceTests.jsonStringArray(input["mods"]) ?? []
         }
 
         func string(_ key: String) throws -> String {
@@ -422,7 +474,7 @@ final class TouchRemoteInputConformanceTests: XCTestCase {
 
         func stringArray(_ key: String, fromExpect: Bool) throws -> [String] {
             let object = fromExpect ? expect : input
-            guard let value = TouchRemoteInputConformanceTests.jsonStringArray(object[key]) else {
+            guard let value = GlasskeysConformanceTests.jsonStringArray(object[key]) else {
                 throw VectorError.badValue("\(fromExpect ? "expect" : "in").\(key) missing")
             }
             return value

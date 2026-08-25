@@ -4,7 +4,8 @@
   "source": {
     "repo": "naru-remote",
     "file": "NaruRemote/Tests/NaruRemoteCoreTests/AccessoryKeyRepeatCadenceTests.swift",
-    "tests": []
+    "composed": true,
+    "note": "Composed, not lifted: naru measured the cadence (this file) and the sticky slots (StickyModifierStateTests.swift) separately. This vector pins that every repeat carries the modifiers, which is the join neither suite asserted on its own."
   },
   "steps": [
     {

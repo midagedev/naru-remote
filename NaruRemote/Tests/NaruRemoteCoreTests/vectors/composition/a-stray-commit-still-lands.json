@@ -5,7 +5,8 @@
     "repo": "gadak",
     "file": "mobile/src/lib/terminal/ime.test.ts",
     "tests": [
-      "stray compositionend"
+      "compositionend with no preceding start does not throw and does not stick composing",
+      "a stray commit still lands and an update does not latch (a-stray-commit-still-lands)"
     ]
   },
   "steps": [

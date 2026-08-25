@@ -5,7 +5,8 @@
     "repo": "gadak",
     "file": "mobile/src/lib/terminal/ime.test.ts",
     "tests": [
-      "compose-end with empty text"
+      "compositionend with empty data emits nothing (dismissed candidate)",
+      "a dismissed candidate yields no intents, not a withhold (a-dismissed-candidate-emits-nothing)"
     ]
   },
   "steps": [

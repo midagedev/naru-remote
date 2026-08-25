@@ -1,7 +1,11 @@
 Vendored golden vectors for NaruRemoteCoreTests.
 
-source-repo: https://github.com/midagedev/touch-remote-input
+source-repo: https://github.com/midagedev/glasskeys
 source-tree: vectors/
-commit: 47afca257dd3257c9292391cc3b7f0180e6efc6a
+commit: 9a930b065e56507b93299914325cbbf485fd8cc8
 verified-with: git -C <local clone> rev-parse HEAD
 verified-on: 2026-08-26
+
+The package was called touch-remote-input until 2026-08-26; the repository
+redirects. MANIFEST.json travels with the vectors so a partial copy is a
+failure here rather than a smaller green run.
