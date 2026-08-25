@@ -10,6 +10,44 @@ same PR.
 
 ## Now — ship blockers (P0)
 
+00. **`specs/032` PiP Watch survives a second entry — a crash.** Landed
+   2026-08-25. Entering PiP twice in one session terminated the app on the
+   founder's device. **The simulator cannot reproduce it**:
+   `AVPictureInPictureController.isPictureInPictureSupported()` is false on the
+   iPhone 17 Pro simulator (iOS 26.2), so the re-entry UITest skips there. Three
+   hazards are closed together because none can be ruled out from here — a
+   second controller over the same sample-buffer layer, an unguarded
+   `startPictureInPicture()`, and a finite `Int64.max` playback duration — plus
+   the delegate that was an empty conformance, which is why app state and system
+   state could diverge silently. The decisions now live in
+   `PiPWatchControllerLifecycle` (Core, 14 tests under `swift test`) and the
+   counts reach the diagnostic export. **Open:** founder device pass on build
+   11 — PiP twice, then close from the system chrome and enter again.
+
+00a. **`specs/033` session chrome recomposition.** Landed 2026-08-25. PiP moved
+   out of the auto-hiding `⋯` menu into the session control bar as a state-aware
+   toggle; the two-pill `Type` / `Compose` dock entry became one capsule with
+   the switch inside it; the health capsule collapses to a 28-point icon in the
+   bar while the session is healthy and only stands alone over the remote screen
+   when it has something to say. Captures for both the healthy and the new
+   degraded fixture are recorded in the spec. **Open:** founder device pass on
+   build 11.
+
+00b. **Gate quality: `testWrongPassword_showsActionableAuthDiagnostic` cannot
+   produce its outcome against this Mac.** Measured 2026-08-25 with a raw
+   socket probe, no app involved: this Mac's `screensharingd` offers VNC auth,
+   issues a challenge, and then **never sends a SecurityResult** for a wrong
+   password — the connection simply goes quiet (10 s and 15 s timeouts, twice,
+   30 s apart). The control arm with the correct password returns
+   `SecurityResult 0` immediately, so the server is healthy; it just does not
+   say "rejected". The app therefore reports a timeout rather than an
+   authentication rejection, which is correct, and the test's assertion is
+   unproducible. It is the same defect class the suite already recorded once
+   ("a default that cannot produce the outcome under test is worse than no
+   default"). Fix by making the test skip explicitly when the server withholds
+   the result, rather than failing — but the skip has to be narrow enough that a
+   genuine misclassification still fails. Not attempted in this round.
+
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
    viewport made Apple Screen Sharing answer roughly twenty times slower

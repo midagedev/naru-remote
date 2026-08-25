@@ -153,13 +153,46 @@ public struct NaruRemoteAppShell: View {
     @ViewBuilder
     private func sessionViewport(fillsAvailableHeight: Bool) -> some View {
         let snapshot = model.snapshot
-        SessionViewportFrameBridge(
+        let showsInlineHealth = Self.showsInlineHealthAccessory(
+            sessionState: snapshot.session?.state,
+            prefersCollapsedPresentation: sessionHealthState.prefersCollapsedPresentation
+        )
+        return SessionViewportFrameBridge(
             model: model,
             snapshot: snapshot,
             frameStore: model.frameStore,
             trackpadCursorStore: model.trackpadCursorStore,
             fillsAvailableHeight: fillsAvailableHeight,
-            onReturnToConnections: returnToConnections
+            onReturnToConnections: returnToConnections,
+            onOpenDiagnostics: { showsDiagnosticDetail = true },
+            healthAccessory: showsInlineHealth
+                ? AnyView(sessionHealthAffordance(presentation: .collapsed))
+                : nil
+        )
+    }
+
+    /// The render-ready health summary — typed session state, coarse quality,
+    /// and fixed-catalog rows only. Both placements read the same value, so
+    /// they cannot disagree about whether the session is healthy.
+    private var sessionHealthState: SessionDiagnosticCornerState {
+        SessionDiagnosticCornerState(
+            session: model.snapshot.session,
+            connectionQuality: model.connectionQuality,
+            rows: model.snapshot.diagnosticRows
+        )
+    }
+
+    private func sessionHealthAffordance(
+        presentation: SessionDiagnosticCornerView.Presentation
+    ) -> some View {
+        SessionDiagnosticCornerView(
+            state: sessionHealthState,
+            presentation: presentation,
+            isDetailPresented: $showsDiagnosticDetail,
+            shareTextProvider: { [buildVersion] in
+                model.makeDiagnosticExport()
+                    .renderSharePayload(buildVersion: buildVersion)
+            }
         )
     }
 
@@ -358,6 +391,29 @@ public struct NaruRemoteAppShell: View {
         sessionWarrantsInputDock(sessionState)
     }
 
+    /// Does the health affordance render as a **standalone** chip over the
+    /// remote screen? (spec 033 FR-004.)
+    ///
+    /// Only when it has something to say. A healthy session's affordance moves
+    /// into the session control bar instead, so a good connection costs an icon
+    /// rather than a permanent 248-point capsule. A warning cannot live only in
+    /// the bar, because the bar auto-hides after 2.4 s — so exactly one of the
+    /// two placements is used at a time, and this decides which.
+    nonisolated static func showsStandaloneHealthChip(
+        sessionState: RemoteSessionState?,
+        prefersCollapsedPresentation: Bool
+    ) -> Bool {
+        showsDiagnosticCapsule(sessionState: sessionState) && !prefersCollapsedPresentation
+    }
+
+    /// The complement: the affordance rides inside the control bar.
+    nonisolated static func showsInlineHealthAccessory(
+        sessionState: RemoteSessionState?,
+        prefersCollapsedPresentation: Bool
+    ) -> Bool {
+        showsDiagnosticCapsule(sessionState: sessionState) && prefersCollapsedPresentation
+    }
+
     nonisolated static func shouldShowConnectionGrid(
         isEmptyHome: Bool,
         showsRemoteControlSurface: Bool
@@ -440,23 +496,19 @@ public struct NaruRemoteAppShell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
+            // Only a warning stands alone over the remote screen (spec 033
+            // FR-004); a healthy session's affordance is inside the control
+            // bar, which `healthAccessory` supplies to the viewport.
             if !isEmptyHome && !showsConnectionGrid
-                && Self.showsDiagnosticCapsule(sessionState: snapshot.session?.state) {
-                SessionDiagnosticCornerView(
-                    session: snapshot.session,
-                    connectionQuality: model.connectionQuality,
-                    rows: snapshot.diagnosticRows,
-                    isDetailPresented: $showsDiagnosticDetail,
-                    shareTextProvider: { [buildVersion] in
-                        model.makeDiagnosticExport()
-                            .renderSharePayload(buildVersion: buildVersion)
-                    }
-                )
-                // The immersive action bar occupies the first row. Keeping
-                // health just beneath it prevents overlap while remaining a
-                // stable top-trailing landmark after the action bar hides.
-                .padding(.top, 66)
-                .padding(.trailing, 10)
+                && Self.showsStandaloneHealthChip(
+                    sessionState: snapshot.session?.state,
+                    prefersCollapsedPresentation: sessionHealthState.prefersCollapsedPresentation
+                ) {
+                sessionHealthAffordance(presentation: .labelled)
+                    // The immersive action bar occupies the first row; a
+                    // warning sits just beneath it rather than under it.
+                    .padding(.top, 66)
+                    .padding(.trailing, 10)
             }
         }
         .overlay(alignment: .bottom) {
@@ -1096,6 +1148,11 @@ private struct SessionViewportFrameBridge: View {
     @ObservedObject var trackpadCursorStore: TrackpadCursorStore
     let fillsAvailableHeight: Bool
     let onReturnToConnections: () -> Void
+    let onOpenDiagnostics: () -> Void
+    /// Supplied by the shell rather than built here: the diagnostic rows and
+    /// the share payload belong to the shell, and this bridge exists to watch
+    /// frames (spec 033 FR-003).
+    let healthAccessory: AnyView?
 
     var body: some View {
         let frameState = frameStore.state
@@ -1122,6 +1179,9 @@ private struct SessionViewportFrameBridge: View {
             onDisconnect: snapshot.selectedProfile == nil ? nil : onReturnToConnections,
             onReturnToConnections: onReturnToConnections,
             onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
+            onStopPiPWatch: { model.stopPiPWatch() },
+            onOpenDiagnostics: onOpenDiagnostics,
+            healthAccessory: healthAccessory,
             onFramebufferTap: { point, size in
                 model.sendTapAt(viewPoint: point, viewSize: size)
             },

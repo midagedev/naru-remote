@@ -421,43 +421,7 @@ public struct RemoteInputDockView: View {
             .accessibilityHidden(true)
             #endif
 
-            Button {
-                onSelectMode(.live)
-                onRequestComposeExpansion(true)
-            } label: {
-                // Primary action of the idle live HUD: tap to type.
-                Label("Type", systemImage: "keyboard")
-                    .font(.subheadline.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                    .padding(.horizontal, 14)
-                    .frame(height: 38)
-            }
-            .buttonStyle(.borderedProminent)
-            .clipShape(Capsule())
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Type")
-            .accessibilityIdentifier("naru.input.type-reveal")
-
-            Button {
-                onSelectMode(.compose)
-                onRequestComposeExpansion(true)
-            } label: {
-                // `text.cursor` renders as a localized letterform ("가|") on
-                // Korean devices — same defect the dock's mode toggle fixed
-                // in spec 015; spec 016 FR-006 closes it here too.
-                Label("Compose", systemImage: "square.and.pencil")
-                    .font(.subheadline.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                    .padding(.horizontal, 14)
-                    .frame(height: 38)
-            }
-            .buttonStyle(.bordered)
-            .clipShape(Capsule())
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Compose")
-            .accessibilityIdentifier("naru.input.compose-reveal")
+            modeEntryCapsule
 
             if showsMacSessionControls {
                 compactMacControlMenu
@@ -473,6 +437,83 @@ public struct RemoteInputDockView: View {
         )
         .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 4)
         .padding(.bottom, 8)
+    }
+
+    /// One control where there were two (spec 033 FR-002).
+    ///
+    /// `Type` and `Compose` sat side by side as if they were destinations, but
+    /// one of them is always the mode you are already in — so the second pill
+    /// was a mode switch wearing a destination's clothes, on the row where an
+    /// iPhone can least afford it. The capsule now shows the *current* mode and
+    /// carries the switch inside itself: the label opens that mode's dock, the
+    /// trailing segment picks the other one.
+    ///
+    /// The label keeps the mode-specific identifier rather than taking a
+    /// generic one, because it genuinely is the Type button while Type is the
+    /// mode — which is also what keeps the dock-raising UITests honest.
+    private var modeEntryCapsule: some View {
+        let mode = currentDockMode
+        let isType = mode == .live
+        return HStack(spacing: 0) {
+            Button {
+                onSelectMode(mode)
+                onRequestComposeExpansion(true)
+            } label: {
+                // `square.and.pencil`, not `text.cursor`: the latter renders as
+                // a localized letterform ("가|") on Korean devices (spec 016
+                // FR-006).
+                Label(
+                    isType ? "Type" : "Compose",
+                    systemImage: isType ? "keyboard" : "square.and.pencil"
+                )
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .padding(.leading, 15)
+                .padding(.trailing, 11)
+                .frame(height: 38)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(isType ? "Type" : "Compose")
+            .accessibilityIdentifier(
+                isType ? "naru.input.type-reveal" : "naru.input.compose-reveal"
+            )
+
+            Rectangle()
+                .fill(Color.white.opacity(0.32))
+                .frame(width: 1, height: 20)
+                .accessibilityHidden(true)
+
+            Menu {
+                Button {
+                    onSelectMode(.live)
+                    onRequestComposeExpansion(true)
+                } label: {
+                    Label("Type", systemImage: "keyboard")
+                }
+                .accessibilityIdentifier("naru.input.mode-select.type")
+
+                Button {
+                    onSelectMode(.compose)
+                    onRequestComposeExpansion(true)
+                } label: {
+                    Label("Compose", systemImage: "square.and.pencil")
+                }
+                .accessibilityIdentifier("naru.input.mode-select.compose")
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 34, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(isType ? "Switch to Compose" : "Switch to Type")
+            .accessibilityIdentifier("naru.input.mode-switch")
+        }
+        .foregroundStyle(.white)
+        .background(Color.accentColor)
+        .clipShape(Capsule())
     }
 
     /// The single row (spec 015 FR-002): `⋯` · field · mode · Send.

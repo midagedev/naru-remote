@@ -322,6 +322,18 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         try runPiPWatchDisabled(mode: .dark, deviceTag: "iphone")
     }
 
+    /// Rewritten 2026-08-25 for spec 033 FR-001, which deliberately reverses
+    /// half of what this asserted. "PiP Watch must stay behind the Session
+    /// tools menu" was the shipped contract, and it made the control two taps
+    /// behind a `⋯` that itself auto-hides after 2.4 s — the founder's report
+    /// is that being hidden there is the defect. PiP is now a control in the
+    /// session bar.
+    ///
+    /// What this test protects is the half that still holds and is the reason
+    /// the old contract existed (UX punch-list #103): with no session there is
+    /// nothing to watch, so the control must be **absent**, not a dead chip on
+    /// the pre-connect screen. That is a stronger assertion than the old one,
+    /// which only required it not be "primary".
     private func runPiPWatchDisabled(mode: ColorMode, deviceTag: String) throws {
         let app = launchAppWithSampleProfile(mode: mode)
         openFirstConnectionCardIfPresent(app: app)
@@ -332,7 +344,11 @@ final class UXAuditScreenshotsUITests: XCTestCase {
                 identifier: "naru.session.tools.menu",
                 timeout: 8
             ).exists,
-            "PiP Watch must stay behind the Session tools menu before a session is active"
+            "The session tools menu is the pre-connect landmark this state is captured from"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.pipWatch"].exists,
+            "With no session there is nothing to watch, so PiP must not render at all"
         )
         XCTAssertFalse(
             app.buttons["PiP Watch"].exists,
@@ -537,16 +553,13 @@ final class UXAuditScreenshotsUITests: XCTestCase {
             suppressDirectWarning: true
         )
 
-        let typeReveal = waitForStableElement(
-            in: app,
-            identifier: "naru.input.type-reveal",
-            timeout: 8
-        )
+        // Spec 033 collapsed the idle strip's two pills into one capsule, so
+        // the mode-specific identifier exists only while that mode is the
+        // resting one; `raiseInputDock` takes the switch when it is not.
         XCTAssertTrue(
-            typeReveal.exists,
-            "The active-session floating strip must offer one-tap Type."
+            app.raiseInputDock(in: .type),
+            "The active-session floating strip must offer Type in one or two taps."
         )
-        typeReveal.tap()
 
         let compactEditor = waitForRemoteInputEditor(in: app, timeout: 4)
         XCTAssertTrue(
@@ -902,9 +915,10 @@ final class UXAuditScreenshotsUITests: XCTestCase {
         // expanded over a live remote screen.
         let app = launchStoreApp(.storeSessionActive, mode: mode, suppressDirectWarning: true)
 
-        let typeReveal = waitForStableElement(in: app, identifier: "naru.input.type-reveal", timeout: 8)
-        XCTAssertTrue(typeReveal.exists, "Store function-row capture needs one-tap Type")
-        typeReveal.tap()
+        XCTAssertTrue(
+            app.raiseInputDock(in: .type),
+            "Store function-row capture needs to reach Type"
+        )
 
         XCTAssertTrue(
             waitForRemoteInputEditor(in: app, timeout: 4).exists,

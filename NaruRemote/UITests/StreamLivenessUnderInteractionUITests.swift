@@ -140,9 +140,7 @@ final class StreamLivenessUnderInteractionUITests: XCTestCase {
 
         // 3. Open the input dock: the visible area shrinks, which changes the
         //    requested region again while zoomed.
-        let dockToggle = app.buttons["naru.input.type-reveal"].firstMatch
-        if dockToggle.waitForExistence(timeout: 3) {
-            dockToggle.tap()
+        if app.raiseInputDock(in: .type, timeout: 3) {
         let dockProgress = waitForPresentationToFollowThePump(
                 presented: counter,
                 pump: pumpCounter,

@@ -37,6 +37,10 @@ enum UXAuditFixtureToken: String {
     /// "first Korean syllable, then live session starts, keyboard freezes"
     /// transition without a real socket.
     case sessionConnectingDelayedFirstFrame = "session-connecting-delayed-first-frame"
+    /// A session in the degraded state, so the health affordance renders its
+    /// warning form. Spec 033 FR-004 makes the healthy form silent, and a
+    /// screenshot gate that can only reach the silent one proves half a rule.
+    case sessionDegraded = "session-degraded"
     /// Active session in trackpad mode with a server-provided cursor
     /// shape so screenshots cover the "real remote cursor" overlay path.
     case sessionActiveTrackpadCursor = "session-active-trackpad-cursor"
@@ -89,6 +93,8 @@ enum UXAuditFixtures {
             return sessionActiveComposeConfirmationUnavailableSnapshot()
         case .sessionConnectingDelayedFirstFrame:
             return sessionConnectingDelayedFirstFrameSnapshot()
+        case .sessionDegraded:
+            return sessionDegradedSnapshot()
         case .sessionActiveTrackpadCursor:
             return sessionActiveWidescreenSnapshot(serverCursor: serverCursorArrow())
         case .storeConnectionGrid:
@@ -190,6 +196,10 @@ enum UXAuditFixtures {
             model.seedConnectionQualityForTesting(.good)
         case .sessionConnectingDelayedFirstFrame:
             model.seedConnectionQualityForTesting(.good)
+        case .sessionDegraded:
+            // A measured-but-poor link, which is the tone the warning form
+            // exists for.
+            model.seedConnectionQualityForTesting(.poor)
         case .sessionActiveTrackpadCursor:
             // Same active-session surface, but start in trackpad mode so
             // the cursor overlay uses the server cursor shape seeded on
@@ -606,6 +616,21 @@ enum UXAuditFixtures {
             session: session,
             latestFramebuffer: framebuffer,
             latestServerCursor: serverCursor
+        )
+    }
+
+    private static func sessionDegradedSnapshot() -> NaruRemoteAppSnapshot {
+        let profile = sampleProfile()
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .degraded,
+            lastFrameAt: fixedDate(offsetSeconds: 5)
+        )
+        return NaruRemoteAppSnapshot(
+            profiles: [profile],
+            selectedProfileID: profile.id,
+            session: session,
+            latestFramebuffer: activeSessionDesktopFramebuffer()
         )
     }
 

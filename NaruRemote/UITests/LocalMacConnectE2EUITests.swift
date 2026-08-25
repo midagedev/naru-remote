@@ -175,17 +175,17 @@ final class LocalMacConnectE2EUITests: XCTestCase {
             // trait (2026-07-12 finding: `.accessibilityElement(children:
             // .ignore)` without `.accessibilityAddTraits(.isButton)`), which
             // is a VoiceOver defect. Surface it as a test finding.
-            var reveal = app.buttons["naru.input.compose-reveal"].firstMatch
-            if !reveal.waitForExistence(timeout: 5) {
-                reveal = app.descendants(matching: .any)["naru.input.compose-reveal"].firstMatch
-                if reveal.exists {
-                    XCTContext.runActivity(
-                        named: "FINDING: compose reveal lost its .isButton trait (VoiceOver defect)"
-                    ) { _ in }
-                }
+            let composeIsResting = app.buttons["naru.input.compose-reveal"]
+                .firstMatch.waitForExistence(timeout: 5)
+            if !composeIsResting,
+               app.descendants(matching: .any)["naru.input.compose-reveal"].firstMatch.exists {
+                XCTContext.runActivity(
+                    named: "FINDING: compose reveal lost its .isButton trait (VoiceOver defect)"
+                ) { _ in }
             }
-            guard reveal.exists else { break }
-            reveal.tap()
+            // Spec 033: on a live session Type is the resting mode, so Compose
+            // is reached through the capsule's switch.
+            guard app.raiseInputDock(in: .compose, timeout: 5) else { break }
             revealTapsNeeded = attempt
             editor = app.textViews["Remote input text"]
             if editor.waitForExistence(timeout: 3) { break }
@@ -257,12 +257,9 @@ final class LocalMacConnectE2EUITests: XCTestCase {
         // from the floating strip (spec 011 US1 — the activation
         // promotion already selected Type mode).
         sleep(3)
-        let typeReveal = app.buttons["naru.input.type-reveal"].firstMatch
         var revealed = false
         for _ in 1...3 where !revealed {
-            if typeReveal.waitForExistence(timeout: 4) {
-                typeReveal.tap()
-            }
+            _ = app.raiseInputDock(in: .type, timeout: 4)
             revealed = app.textViews["Remote input text"].waitForExistence(timeout: 3)
                 || app.descendants(matching: .any)["naru.input.editor"].waitForExistence(timeout: 1)
         }

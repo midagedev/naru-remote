@@ -93,6 +93,68 @@ final class NaruRemoteAppShellNavigationTests: XCTestCase {
         XCTAssertFalse(NaruRemoteAppShell.showsDiagnosticCapsule(sessionState: nil))
     }
 
+    /// Spec 033 FR-003 / FR-004. FAIL-first against the shipped chrome, where
+    /// the health capsule stood alone over the remote screen in every state
+    /// this returns true or false for — including a healthy one, where it said
+    /// "Connected · Good" across 248 points permanently.
+    func testAHealthySessionShowsNoStandaloneHealthChip() {
+        XCTAssertFalse(
+            NaruRemoteAppShell.showsStandaloneHealthChip(
+                sessionState: .active,
+                prefersCollapsedPresentation: true
+            ),
+            "A good connection is not news; it belongs in the control bar."
+        )
+        XCTAssertTrue(
+            NaruRemoteAppShell.showsInlineHealthAccessory(
+                sessionState: .active,
+                prefersCollapsedPresentation: true
+            )
+        )
+    }
+
+    func testAnythingOtherThanHealthyStandsAloneAndLeavesTheBar() {
+        for state in [
+            RemoteSessionState.connecting,
+            .authenticating,
+            .active,
+            .degraded,
+            .reconnecting(attempt: 1, of: 3)
+        ] {
+            XCTAssertTrue(
+                NaruRemoteAppShell.showsStandaloneHealthChip(
+                    sessionState: state,
+                    prefersCollapsedPresentation: false
+                ),
+                "A warning must not hide with the auto-hiding control bar."
+            )
+            XCTAssertFalse(
+                NaruRemoteAppShell.showsInlineHealthAccessory(
+                    sessionState: state,
+                    prefersCollapsedPresentation: false
+                ),
+                "Exactly one placement carries the identifier at a time."
+            )
+        }
+    }
+
+    func testNeitherPlacementRendersWithoutASession() {
+        for collapsed in [true, false] {
+            XCTAssertFalse(
+                NaruRemoteAppShell.showsStandaloneHealthChip(
+                    sessionState: nil,
+                    prefersCollapsedPresentation: collapsed
+                )
+            )
+            XCTAssertFalse(
+                NaruRemoteAppShell.showsInlineHealthAccessory(
+                    sessionState: nil,
+                    prefersCollapsedPresentation: collapsed
+                )
+            )
+        }
+    }
+
     func testOnlyAdvancedPublicCardsRequireConfirmationBeforeOperation() {
         XCTAssertTrue(
             NaruRemoteAppShell.requiresPublicConnectionConfirmation(

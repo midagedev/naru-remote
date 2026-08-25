@@ -76,10 +76,8 @@ final class LiveTypeThroughStormUITests: XCTestCase {
     private func focusedLiveEditor(in app: XCUIApplication) -> XCUIElement {
         // Reveal the compact editor if the idle accessory is showing
         // (spec 011: the reveal control enters/keeps Type mode).
-        let reveal = app.buttons["naru.input.type-reveal"].firstMatch
-        if reveal.waitForExistence(timeout: 2) {
-            reveal.tap()
-        }
+        // Spec 033: one capsule; Type may be behind its switch.
+        _ = app.raiseInputDock(in: .type, timeout: 2)
         return composeEditor(in: app)
     }
 

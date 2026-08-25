@@ -15,6 +15,19 @@ import XCTest
 @MainActor
 final class KeyboardUpDockHeightUITests: XCTestCase {
 
+    /// These tests measure dock rows against the keyboard, and the store
+    /// captures leave the simulator in landscape — where the software keyboard
+    /// never rose and every row count read zero. The class used to skip
+    /// whenever its reveal button was missing, which hid that entirely; with
+    /// the skip gone (spec 033) the run order became visible as three
+    /// failures that passed in isolation. Orientation is now pinned rather
+    /// than inherited.
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = true
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// A row's controls are 40pt; with the surface's 8pt top and bottom
     /// padding a single-row dock spans ~56pt. 72pt leaves room for a taller
     /// control without admitting a second row (which costs ≥44pt more).
@@ -28,7 +41,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
     /// visibly growing it would rebuild the field the founder asked removed.
     func testTypeModeIsOneRowOfSoftKeysWithNoTextField() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.type-reveal")
+        try raiseKeyboard(in: app, mode: .type)
 
         XCTAssertTrue(
             app.descendants(matching: .any)["naru.input.accessory.strip"]
@@ -81,7 +94,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
 
     func testComposeModeKeepsItsChromeToOneRow() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.compose-reveal")
+        try raiseKeyboard(in: app, mode: .compose)
         try skipUnlessCompactDock(app, requirement: "FR-001's one-row budget")
 
         let measurement = try measureChrome(in: app, mode: "compose")
@@ -104,7 +117,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
     /// contract is Compose's.)
     func testRegularWidthKeepsTheKeysWithoutATap() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.compose-reveal")
+        try raiseKeyboard(in: app, mode: .compose)
 
         guard !app.buttons["naru.input.accessory.panel-toggle"].exists else {
             throw XCTSkip("Compact dock — FR-005 is about the regular-width dock")
@@ -128,7 +141,7 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
     /// Compose's row only.
     func testRevealingTheKeyPanelAddsExactlyOneRow() throws {
         let app = launchLiveSession()
-        try raiseKeyboard(in: app, via: "naru.input.compose-reveal")
+        try raiseKeyboard(in: app, mode: .compose)
         try skipUnlessCompactDock(app, requirement: "the ⋯ panel")
         let collapsed = try measureChrome(in: app, mode: "compose-collapsed")
 
@@ -309,12 +322,14 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         }
     }
 
-    private func raiseKeyboard(in app: XCUIApplication, via identifier: String) throws {
-        let reveal = app.buttons[identifier]
-        guard reveal.waitForExistence(timeout: 8) else {
-            throw XCTSkip("\(identifier) is not on screen; the live dock did not mount")
+    /// Spec 033: the idle dock has one capsule, so the mode a test wants may
+    /// be behind its switch. This used to take a raw identifier and skip when
+    /// it was absent — which, after the recomposition, would have silently
+    /// stopped covering Type mode instead of failing.
+    private func raiseKeyboard(in app: XCUIApplication, mode: DockEntryMode) throws {
+        guard app.raiseInputDock(in: mode) else {
+            throw XCTSkip("the live dock did not mount, so there is nothing to raise")
         }
-        reveal.tap()
 
         // `exists` is true for a keyboard parked off-screen, so wait on
         // geometry: the keyboard has to actually intersect the window.

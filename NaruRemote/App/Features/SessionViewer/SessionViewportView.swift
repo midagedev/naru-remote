@@ -47,6 +47,12 @@ public struct SessionViewportView: View {
     private let onDisconnect: (() -> Void)?
     private let onReturnToConnections: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
+    private let onStopPiPWatch: (() -> Void)?
+    private let onOpenDiagnostics: (() -> Void)?
+    /// The session-health affordance, supplied by the shell so this view does
+    /// not need the diagnostic rows (spec 033 FR-003). Type-erased because it
+    /// is one leaf element and the two initialisers here are already wide.
+    private let healthAccessory: AnyView?
     private let onFramebufferTap: SessionFramebufferTapHandler?
     private let onFramebufferRightClick: SessionFramebufferRightClickHandler?
     private let onFramebufferScroll: SessionFramebufferScrollHandler?
@@ -235,6 +241,9 @@ public struct SessionViewportView: View {
         onDisconnect: (() -> Void)? = nil,
         onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
+        onStopPiPWatch: (() -> Void)? = nil,
+        onOpenDiagnostics: (() -> Void)? = nil,
+        healthAccessory: AnyView? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
         onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
@@ -293,6 +302,9 @@ public struct SessionViewportView: View {
         self.onDisconnect = onDisconnect
         self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
+        self.onStopPiPWatch = onStopPiPWatch
+        self.onOpenDiagnostics = onOpenDiagnostics
+        self.healthAccessory = healthAccessory
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
@@ -344,6 +356,9 @@ public struct SessionViewportView: View {
         onDisconnect: (() -> Void)? = nil,
         onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
+        onStopPiPWatch: (() -> Void)? = nil,
+        onOpenDiagnostics: (() -> Void)? = nil,
+        healthAccessory: AnyView? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
         onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
@@ -400,6 +415,9 @@ public struct SessionViewportView: View {
         self.onDisconnect = onDisconnect
         self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
+        self.onStopPiPWatch = onStopPiPWatch
+        self.onOpenDiagnostics = onOpenDiagnostics
+        self.healthAccessory = healthAccessory
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
@@ -590,24 +608,6 @@ public struct SessionViewportView: View {
                     }
             }
         )
-        .overlay(alignment: .topTrailing) {
-            // UX punch-list #103: the "PiP after first frame"
-            // affordance is only meaningful once a session has been
-            // attempted — rendering it on the empty-state home
-            // screen reads as a dead UI chip.  In immersive mode the
-            // PiP affordance moves into the top control strip so the
-            // remote screen keeps every possible point.
-            if !fillsAvailableHeight, showsPiPHudChip {
-                Label(pipWatchStatusText, systemImage: "rectangle.on.rectangle")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 8)
-                    .background(Color.black.opacity(0.32))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(10)
-            }
-        }
         .overlay(alignment: .topLeading) {
             if !fillsAvailableHeight, let badge = reconnectBadgeText {
                 Label(badge, systemImage: "arrow.triangle.2.circlepath")
@@ -642,6 +642,13 @@ public struct SessionViewportView: View {
         HStack(spacing: 8) {
             connectionsButton
 
+            // Health is a landmark, not an action, so it sits with wayfinding
+            // on the leading side. Beside Disconnect it read as the green half
+            // of a pair of traffic lights with a destructive red button.
+            if let healthAccessory {
+                healthAccessory
+            }
+
             Spacer(minLength: 8)
 
             if showsDisconnectButton {
@@ -650,6 +657,7 @@ public struct SessionViewportView: View {
             if showsPointerModeButton {
                 pointerModeButton
             }
+            pipWatchButton
             sessionToolsMenu(includesChecks: true, iconOnly: true)
         }
         .padding(6)
@@ -666,18 +674,75 @@ public struct SessionViewportView: View {
         .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
     }
 
+    /// PiP, as a control rather than a menu entry (spec 033 FR-001).
+    ///
+    /// It was two taps behind `⋯`, and `⋯` itself hides after 2.4 s — the
+    /// least reachable control on the screen belonged to one of the reasons
+    /// this product exists on a phone. The glyph is the state: `pip.enter`
+    /// when there is no window, `pip.exit` when there is, so the same button
+    /// is also how a session leaves PiP.
+    @ViewBuilder
+    private var pipWatchButton: some View {
+        if showsPiPWatchButton {
+            Button {
+                if isPiPWatching {
+                    onStopPiPWatch?()
+                } else {
+                    onStartPiPWatch?()
+                }
+            } label: {
+                Label(
+                    isPiPWatching ? "Leave PiP Watch" : "PiP Watch",
+                    systemImage: isPiPWatching ? "pip.exit" : "pip.enter"
+                )
+                .labelStyle(.iconOnly)
+                .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isPiPWatching ? onStopPiPWatch == nil : !canStartPiPWatch)
+            .help(pipWatchStatusText)
+            .accessibilityLabel(isPiPWatching ? "Leave PiP Watch" : "PiP Watch")
+            .accessibilityValue(pipWatchStatusText)
+            .accessibilityIdentifier("naru.session.pipWatch")
+        }
+    }
+
+    /// Present when it can act, and not before.
+    ///
+    /// `session != nil` was the first attempt and the rewritten
+    /// `testPiPWatchDisabled` caught it: the pre-connect detail surface holds a
+    /// session object, so PiP rendered as a permanently disabled button on a
+    /// screen with nothing to watch — the dead-chip failure of UX punch-list
+    /// #103 in a new costume. Availability already means "this profile allows
+    /// PiP, this device supports it, and a frame has arrived", which is exactly
+    /// when the control is worth its space.
+    private var showsPiPWatchButton: Bool {
+        canStartPiPWatch || isPiPWatching
+    }
+
     private var connectionsButton: some View {
         Button {
             onReturnToConnections?()
         } label: {
-            Label("Connections", systemImage: "square.grid.2x2")
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minHeight: 24)
+            // Icon-only on a phone (spec 033): the recomposed bar carries
+            // health, PiP, pointer, disconnect and tools, and a 120-point
+            // "Connections" label pushed the row past the screen edge — the
+            // trailing tools button was clipped in the first capture of it.
+            if horizontalSizeClass == .compact {
+                Label("Connections", systemImage: "square.grid.2x2")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 24, height: 24)
+            } else {
+                Label("Connections", systemImage: "square.grid.2x2")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minHeight: 24)
+            }
         }
         .buttonStyle(.bordered)
         .disabled(onReturnToConnections == nil)
         .help("End or cancel this connection and return to saved computers")
+        .accessibilityLabel("Connections")
         .accessibilityIdentifier("naru.operation.connections")
     }
 
@@ -698,13 +763,17 @@ public struct SessionViewportView: View {
                 .accessibilityIdentifier("naru.session.tools.checks")
             }
 
+            // PiP left this menu for the control bar (spec 033 FR-001).
+            // Diagnostics takes its place: with the health affordance collapsed
+            // to an icon while everything is fine, the sheet keeps a labelled
+            // path that does not depend on recognising a dot (FR-005).
             Button {
-                onStartPiPWatch?()
+                onOpenDiagnostics?()
             } label: {
-                Label("PiP Watch", systemImage: "rectangle.on.rectangle")
+                Label("Diagnostics", systemImage: "stethoscope")
             }
-            .disabled(!canStartPiPWatch)
-            .accessibilityIdentifier("naru.session.tools.pipWatch")
+            .disabled(onOpenDiagnostics == nil)
+            .accessibilityIdentifier("naru.session.tools.diagnostics")
 
             Menu {
                 Button {
@@ -836,9 +905,11 @@ public struct SessionViewportView: View {
                 if showsPointerModeButton {
                     pointerModeButton
                 }
+                pipWatchButton
                 sessionToolsMenu(includesChecks: false, iconOnly: false)
-                qualityChip
-                statusBadge
+                if let healthAccessory {
+                    healthAccessory
+                }
             }
         }
     }
@@ -866,9 +937,11 @@ public struct SessionViewportView: View {
                     if showsPointerModeButton {
                         pointerModeButton
                     }
+                    pipWatchButton
                     sessionToolsMenu(includesChecks: false, iconOnly: true)
-                    qualityChip
-                    statusBadge
+                    if let healthAccessory {
+                        healthAccessory
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1064,43 +1137,11 @@ public struct SessionViewportView: View {
         }
     }
 
-    /// Compact latency-derived connection-quality indicator (spec 003
-    /// US4).  Shown only while the session is streaming (`.active`) and a
-    /// bucket has been established (`!= .unknown`) so it never reads as a
-    /// dead chip during connect or after disconnect.  Mirrors the GRD
-    /// signal-strength affordance the latency estimator was wired for.
-    @ViewBuilder
-    private var qualityChip: some View {
-        if session?.state == .active, connectionQuality != .unknown {
-            Label(qualityText, systemImage: "wifi")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(qualityColor)
-                .labelStyle(.titleAndIcon)
-                .fixedSize(horizontal: true, vertical: false)
-                .help("Connection quality")
-                .accessibilityLabel("Connection quality: \(qualityText)")
-                .accessibilityIdentifier("naru.session.quality")
-        }
-    }
-
-    private var qualityText: String {
-        switch connectionQuality {
-        case .good: return "Good"
-        case .fair: return "Fair"
-        case .poor: return "Poor"
-        case .unknown: return ""
-        }
-    }
-
-    private var qualityColor: Color {
-        // Palette tokens, not raw system colors (spec 016 FR-009).
-        switch connectionQuality {
-        case .good: return NaruColors.reachable
-        case .fair: return NaruColors.warning
-        case .poor: return NaruColors.coral
-        case .unknown: return .secondary
-        }
-    }
+    // The quality chip and the status badge were retired by spec 033: the
+    // session health affordance renders both, collapsed to an icon while the
+    // session is healthy and labelled when it is not. `connectionQuality` is
+    // still an input because the shell builds that affordance from the same
+    // value and the viewport's own gates read the session state beside it.
 
     /// Transparent, full-bleed gesture layer used only in trackpad mode.
     /// A one-finger drag emits `dragChanged`/`dragEnded` (relative remote
@@ -1431,15 +1472,6 @@ public struct SessionViewportView: View {
         }
         .allowsHitTesting(false)
         .accessibilityIdentifier("naru.session.serverCursor")
-    }
-
-    private var statusBadge: some View {
-        Label(statusText, systemImage: statusSymbolName)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(statusColor)
-            .labelStyle(.titleAndIcon)
-            .fixedSize(horizontal: true, vertical: false)
-            .help("Connection state")
     }
 
     @ViewBuilder
@@ -2264,32 +2296,6 @@ public struct SessionViewportView: View {
         }
     }
 
-    private var statusText: String {
-        // "Not connected" reads clearer than the terse "None" the badge
-        // used to show, while still staying short enough that it doesn't
-        // wrap mid-glyph on compact width (UX punch-list #005).  The icon
-        // next to it already carries the "this is the session-state slot"
-        // semantics.
-        guard let state = session?.state else {
-            return "Not connected"
-        }
-        if case let .reconnecting(attempt, total) = state {
-            return "Reconnecting (\(attempt)/\(total))…"
-        }
-        return state.identifier.capitalized
-    }
-
-    /// PiP HUD chip is gated on session presence so the dead-UI chip
-    /// never renders on the empty-state home screen (UX punch-list
-    /// #103).  `latestFramebuffer != nil` would also work but `session
-    /// != nil` is strictly broader — the chip can appear during the
-    /// connect handshake's "PiP after first frame" wait — and matches
-    /// the action-row's own gating (Connect button enabled iff a
-    /// profile is selected, which implies a session can exist).
-    private var showsPiPHudChip: Bool {
-        session != nil || framebuffer != nil
-    }
-
     /// HUD badge text for `RemoteSessionState.reconnecting`.  Nil
     /// when the session is not in the reconnect window so the
     /// overlay collapses entirely.  No retry button is exposed
@@ -2352,37 +2358,6 @@ public struct SessionViewportView: View {
         }
 
         return session.hudMessage ?? "Waiting for first frame"
-    }
-
-    private var statusSymbolName: String {
-        switch session?.state {
-        case .active:
-            return "checkmark.circle.fill"
-        case .failed:
-            return "xmark.octagon.fill"
-        case .reconnecting, .connecting, .authenticating:
-            return "arrow.triangle.2.circlepath"
-        case .degraded:
-            return "exclamationmark.triangle.fill"
-        case .closed, nil:
-            return "circle"
-        }
-    }
-
-    private var statusColor: Color {
-        // Palette tokens, not raw system colors (spec 016 FR-009).
-        switch session?.state {
-        case .active:
-            return NaruColors.reachable
-        case .failed:
-            return NaruColors.coral
-        case .degraded:
-            return NaruColors.warning
-        case .connecting, .authenticating, .reconnecting:
-            return NaruColors.signalBlue
-        case .closed, nil:
-            return .secondary
-        }
     }
 
     /// Trackpad-mode input is a remote-control surface, so it stays out

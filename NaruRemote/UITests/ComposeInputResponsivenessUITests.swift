@@ -333,9 +333,8 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         // tests have to make the same one tap a user makes. Without it every
         // active-session case here fails on "Failed to tap Remote input text",
         // which is what they were doing before this reveal step existed.
-        let reveal = app.buttons["naru.input.compose-reveal"].firstMatch
-        if reveal.waitForExistence(timeout: 4), reveal.isHittable {
-            reveal.tap()
+        // Spec 033: one capsule, so Compose may be behind its switch.
+        if app.raiseInputDock(in: .compose, timeout: 4) {
             let editor = app.textViews["Remote input text"]
             _ = editor.waitForExistence(timeout: 4)
             if let mounted = mountedComposeEditor(in: app) {

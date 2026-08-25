@@ -171,6 +171,16 @@ public struct SessionDiagnosticCornerState: Equatable, Sendable {
         }
     }
 
+    /// Does this state deserve words? (spec 033 FR-003 / FR-004.)
+    ///
+    /// A healthy session's capsule said "Connected · Good" across 248 points of
+    /// the remote screen, permanently — the state the user can already see, in
+    /// the space the controls needed. Healthy collapses to the icon; everything
+    /// else keeps its label, because everything else is news.
+    public var prefersCollapsedPresentation: Bool {
+        tone == .healthy
+    }
+
     private static func qualityText(_ quality: ConnectionQuality) -> String? {
         switch quality {
         case .unknown: return nil
@@ -210,8 +220,20 @@ public struct SessionDiagnosticCornerState: Equatable, Sendable {
 public struct SessionDiagnosticCornerView: View {
     nonisolated static let minimumHitDimension: CGFloat = 44
     nonisolated static let maximumCompactWidth: CGFloat = 248
+    /// Matches the control bar's other icon frames (spec 016 FR-005).
+    nonisolated static let collapsedDimension: CGFloat = 28
+
+    /// How much of itself the affordance shows.  `.automatic` follows the
+    /// state's own `prefersCollapsedPresentation`, which is what the session
+    /// chrome uses; the explicit cases exist for captures and tests.
+    public enum Presentation: Equatable, Sendable {
+        case automatic
+        case collapsed
+        case labelled
+    }
 
     private let state: SessionDiagnosticCornerState
+    private let presentation: Presentation
     private let shareTextProvider: (() -> String)?
     private let externalDetailPresentation: Binding<Bool>?
 
@@ -223,6 +245,7 @@ public struct SessionDiagnosticCornerView: View {
         session: RemoteSession?,
         connectionQuality: ConnectionQuality,
         rows: [DiagnosticSummaryRow],
+        presentation: Presentation = .automatic,
         isDetailPresented: Binding<Bool>? = nil,
         shareTextProvider: (() -> String)? = nil
     ) {
@@ -232,6 +255,7 @@ public struct SessionDiagnosticCornerView: View {
                 connectionQuality: connectionQuality,
                 rows: rows
             ),
+            presentation: presentation,
             isDetailPresented: isDetailPresented,
             shareTextProvider: shareTextProvider
         )
@@ -239,43 +263,34 @@ public struct SessionDiagnosticCornerView: View {
 
     public init(
         state: SessionDiagnosticCornerState,
+        presentation: Presentation = .automatic,
         isDetailPresented: Binding<Bool>? = nil,
         shareTextProvider: (() -> String)? = nil
     ) {
         self.state = state
+        self.presentation = presentation
         self.externalDetailPresentation = isDetailPresented
         self.shareTextProvider = shareTextProvider
+    }
+
+    /// Icon only, or icon plus the sentence?
+    var isCollapsed: Bool {
+        switch presentation {
+        case .automatic: return state.prefersCollapsedPresentation
+        case .collapsed: return true
+        case .labelled: return false
+        }
     }
 
     public var body: some View {
         Button {
             detailPresentation.wrappedValue = true
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: state.systemImage)
-                    .foregroundStyle(toneColor)
-
-                Text(state.primaryText)
-                    .fontWeight(.semibold)
-
-                if let secondaryText = state.secondaryText {
-                    Text("·")
-                        .foregroundStyle(NaruColors.mutedInk)
-                    Text(secondaryText)
-                        .foregroundStyle(NaruColors.mutedInk)
-                }
-
-                Image(systemName: "chevron.up")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(NaruColors.mutedInk)
+            if isCollapsed {
+                collapsedLabel
+            } else {
+                labelledLabel
             }
-            .font(.subheadline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-            .padding(.horizontal, 12)
-            .frame(minHeight: Self.minimumHitDimension)
-            .frame(maxWidth: Self.maximumCompactWidth)
-            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .foregroundStyle(NaruColors.ink)
@@ -300,6 +315,46 @@ public struct SessionDiagnosticCornerView: View {
             )
             .diagnosticsSheetPresentation()
         }
+    }
+
+    /// Inside the session control bar: the tone glyph and nothing else. It
+    /// matches the icon frames beside it, and the bar's row height plus
+    /// `contentShape` keep the tap target honest.
+    private var collapsedLabel: some View {
+        Image(systemName: state.systemImage)
+            .font(.subheadline)
+            .foregroundStyle(toneColor)
+            .frame(width: Self.collapsedDimension, height: Self.collapsedDimension)
+            .contentShape(Capsule())
+    }
+
+    /// Standalone over the remote screen, when there is something to say.
+    private var labelledLabel: some View {
+        HStack(spacing: 7) {
+            Image(systemName: state.systemImage)
+                .foregroundStyle(toneColor)
+
+            Text(state.primaryText)
+                .fontWeight(.semibold)
+
+            if let secondaryText = state.secondaryText {
+                Text("·")
+                    .foregroundStyle(NaruColors.mutedInk)
+                Text(secondaryText)
+                    .foregroundStyle(NaruColors.mutedInk)
+            }
+
+            Image(systemName: "chevron.up")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NaruColors.mutedInk)
+        }
+        .font(.subheadline)
+        .lineLimit(1)
+        .minimumScaleFactor(0.82)
+        .padding(.horizontal, 12)
+        .frame(minHeight: Self.minimumHitDimension)
+        .frame(maxWidth: Self.maximumCompactWidth)
+        .contentShape(Capsule())
     }
 
     private var detailPresentation: Binding<Bool> {

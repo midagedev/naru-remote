@@ -186,3 +186,41 @@ final class SessionDiagnosticCornerStateTests: XCTestCase {
         XCTAssertEqual(state.rows, rows, file: file, line: line)
     }
 }
+
+/// Spec 033 FR-003: which states deserve words.
+extension SessionDiagnosticCornerStateTests {
+    func testOnlyAHealthyStateCollapses() {
+        XCTAssertTrue(
+            state(sessionState: .active, quality: .good).prefersCollapsedPresentation,
+            "Active and good is the state the user can already see."
+        )
+
+        for probe in [
+            (RemoteSessionState.active, ConnectionQuality.unknown),
+            (.active, .fair),
+            (.active, .poor),
+            (.connecting, .unknown),
+            (.authenticating, .unknown),
+            (.degraded, .good),
+            (.reconnecting(attempt: 1, of: 3), .good),
+            (.failed, .unknown),
+            (.closed, .unknown)
+        ] {
+            XCTAssertFalse(
+                state(sessionState: probe.0, quality: probe.1).prefersCollapsedPresentation,
+                "\(probe.0) at \(probe.1) has something to say."
+            )
+        }
+    }
+
+    private func state(
+        sessionState: RemoteSessionState?,
+        quality: ConnectionQuality
+    ) -> SessionDiagnosticCornerState {
+        SessionDiagnosticCornerState(
+            session: sessionState.map { RemoteSession(profileID: UUID(), state: $0) },
+            connectionQuality: quality,
+            rows: []
+        )
+    }
+}
