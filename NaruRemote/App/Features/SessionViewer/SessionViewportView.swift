@@ -69,6 +69,8 @@ public struct SessionViewportView: View {
     private let onFramebufferTap: SessionFramebufferTapHandler?
     private let onFramebufferRightClick: SessionFramebufferRightClickHandler?
     private let onFramebufferScroll: SessionFramebufferScrollHandler?
+    /// Spec 037: the gesture ended, so drop the sub-notch remainder.
+    private let onFramebufferScrollEnded: (@MainActor @Sendable () -> Void)?
     private let onFramebufferPointerDown: SessionFramebufferPointerDownHandler?
     private let onFramebufferPointerMove: SessionFramebufferPointerMoveHandler?
     private let onFramebufferPointerUp: SessionFramebufferPointerUpHandler?
@@ -267,6 +269,7 @@ public struct SessionViewportView: View {
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
         onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
+        onFramebufferScrollEnded: (@MainActor @Sendable () -> Void)? = nil,
         onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
@@ -335,6 +338,7 @@ public struct SessionViewportView: View {
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
+        self.onFramebufferScrollEnded = onFramebufferScrollEnded
         self.onFramebufferPointerDown = onFramebufferPointerDown
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
@@ -396,6 +400,7 @@ public struct SessionViewportView: View {
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
         onFramebufferRightClick: SessionFramebufferRightClickHandler? = nil,
         onFramebufferScroll: SessionFramebufferScrollHandler? = nil,
+        onFramebufferScrollEnded: (@MainActor @Sendable () -> Void)? = nil,
         onFramebufferPointerDown: SessionFramebufferPointerDownHandler? = nil,
         onFramebufferPointerMove: SessionFramebufferPointerMoveHandler? = nil,
         onFramebufferPointerUp: SessionFramebufferPointerUpHandler? = nil,
@@ -462,6 +467,7 @@ public struct SessionViewportView: View {
         self.onFramebufferTap = onFramebufferTap
         self.onFramebufferRightClick = onFramebufferRightClick
         self.onFramebufferScroll = onFramebufferScroll
+        self.onFramebufferScrollEnded = onFramebufferScrollEnded
         self.onFramebufferPointerDown = onFramebufferPointerDown
         self.onFramebufferPointerMove = onFramebufferPointerMove
         self.onFramebufferPointerUp = onFramebufferPointerUp
@@ -1900,6 +1906,7 @@ public struct SessionViewportView: View {
             onTap: feedbackFramebufferTap,
             onRightClick: feedbackFramebufferRightClick,
             onScroll: onFramebufferScroll,
+            onScrollEnded: onFramebufferScrollEnded,
             onPinch: { newScale, anchor, viewSize in
                 applyZoomScale(
                     newScale,
@@ -2073,6 +2080,7 @@ public struct SessionViewportView: View {
                 onTap: feedbackFramebufferTap,
                 onRightClick: feedbackFramebufferRightClick,
                 onScroll: onFramebufferScroll,
+                onScrollEnded: onFramebufferScrollEnded,
                 onPinch: { newScale, anchor, viewSize in
                     // Constitution §I: pinch is a LOCAL view
                     // transform, never an RFB message.

@@ -105,13 +105,35 @@ same PR.
    frozen). **Open:** founder device pass on build 12 — both halves are
    diff-and-device claims; PiP is unsupported on the simulator.
 
-00f. **Environmental red, not this build: `LiveMacPointerHoverTests`
-   `testServerRepaintsAfterAPointerMove`.** Reproduced twice 2026-08-25 with
-   `changedPixelCount=0` after an eight-step pointer sweep across the Dock band.
-   Same family as 00b: this Mac's `screensharingd` declines to answer, so the
-   test's premise does not hold here rather than the client being wrong. No file
-   in the RFB or update-request path was touched by specs 035/036. Needs the
-   same narrow-skip treatment as 00b, or a second machine.
+00f. **Resolved as a screen-state artifact, not a defect:
+   `LiveMacPointerHoverTests.testServerRepaintsAfterAPointerMove`.** It failed
+   twice on 2026-08-25 with `changedPixelCount=0` and **passed** on the
+   2026-08-26 full run, unchanged. What separated the two runs was the display,
+   not the code: the spec 037 probe measures a first-frame dominant-colour ratio
+   (0.202 — an awake desktop with content on it) and drains pending updates
+   before measuring, and on that footing both the hover repaint and the wheel
+   probe answer. Lesson for the next live red: **read the uniformity ratio and
+   drain first** — a live-Mac zero can be a sleeping screen or an uncollected
+   repaint, and neither is the client's fault. Unlike 00b, nothing needs a
+   narrow skip here.
+
+00g. **`specs/037` scroll that scrolls.** Landed 2026-08-26. The founder asked
+   for a two-finger-drag scroll gesture; it already existed end to end, and the
+   defect was arithmetic. `sendScrollAt` applied its 24-point notch threshold as
+   `floor(|delta| / 24)` on **one callback's delta**, while the recognizer zeroes
+   its translation every callback — so at 60–120 Hz a comfortable drag delivered
+   a few points at a time, `floor(4/24)` was zero, and the motion was discarded.
+   A notch only fired when a single callback carried the whole 24 points, i.e. a
+   hard flick. `sendScrollAt`'s own doc comment said the caller was expected to
+   accumulate; no caller did, and the test that claimed to cover it summed the
+   deltas itself. The remainder now lives in `ScrollTickAccumulator` (Core, 9
+   tests) next to the threshold that needs it, with a reversal dropping the
+   abandoned remainder and the gesture end clearing it. The server was ruled out
+   first by measurement, not reading: `LiveMacScrollWheelTests` (new, permanent)
+   sent ten RFB wheel notches and read **ten** scroll events out of this Mac's
+   CoreGraphics counter. **Open:** founder device pass on build 12 — does a
+   two-finger drag scroll, and does 24 points per notch feel right? No runner
+   here can drive a real two-finger touch pair.
 
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible

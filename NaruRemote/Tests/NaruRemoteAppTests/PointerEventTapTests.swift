@@ -513,24 +513,75 @@ final class PointerEventTapTests: XCTestCase {
         XCTAssertEqual(leftConnector.connector.recordedPointerEvents.first?.mask, 0x20)
     }
 
-    func testSubThresholdScrollAccumulatesViaHelper() {
-        // Sub-threshold values: 10 + 15 = 25 (one tick for the
-        // accumulated delta).  The helper is the unit underneath the
-        // accumulator a UI gesture uses across multiple .changed
-        // callbacks.
-        let oneShot = NaruRemoteAppModel.scrollTicks(
-            forDelta: (x: 0, y: 10),
-            threshold: 24
-        )
-        XCTAssertTrue(oneShot.isEmpty)
+    /// Rewritten 2026-08-26 for spec 037.
+    ///
+    /// This test used to hand `scrollTicks` a pre-summed 25-point delta and
+    /// call it accumulation — "the unit underneath the accumulator a UI gesture
+    /// uses across multiple `.changed` callbacks". There was no such
+    /// accumulator. The test passed for years while a comfortable two-finger
+    /// drag scrolled nothing, because it summed the deltas itself and the
+    /// product never did. So it now drives the real entry point with the
+    /// deltas a gesture recognizer actually delivers.
+    func testASlowDragOfSubThresholdDeltasStillScrolls() async throws {
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connector.model
+        let recorder = connector.connector
 
-        let accumulated = NaruRemoteAppModel.scrollTicks(
-            forDelta: (x: 0, y: 25),
-            threshold: 24
+        // Eight callbacks of 4 points: 32 points of travel, which is one notch
+        // and change. Every one of these is sub-threshold on its own, which is
+        // what a 60Hz drag looks like.
+        for _ in 0..<8 {
+            model.sendScrollAt(
+                viewPoint: CGPoint(x: 50, y: 50),
+                viewSize: CGSize(width: 100, height: 100),
+                deltaX: 0,
+                deltaY: -4
+            )
+        }
+        try await waitForPointerEvents(recorder, count: 2)
+
+        let events = recorder.recordedPointerEvents
+        XCTAssertEqual(
+            events.map(\.mask),
+            [0x10, 0x00],
+            """
+            Eight 4-point callbacks are 32 points of downward travel and must \
+            produce exactly one wheel-down notch. Before spec 037 each callback \
+            was floored independently — floor(4/24) = 0, eight times — and the \
+            remote received nothing at all.
+            """
         )
-        XCTAssertEqual(accumulated.count, 1)
-        XCTAssertEqual(accumulated[0].mask, 0x08)
-        XCTAssertEqual(accumulated[0].count, 1)
+    }
+
+    /// FR-004: the leftover does not follow the finger that lifted.
+    func testEndingTheGestureDropsTheRemainder() async throws {
+        let connector = try await PointerEventTapTests.connectedModelAndConnector()
+        let model = connector.model
+        let recorder = connector.connector
+
+        // 20 points — most of a notch, but not one.
+        model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 0,
+            deltaY: -20
+        )
+        model.endScrollGesture()
+
+        // A fresh gesture of the same size must still not be a notch.
+        model.sendScrollAt(
+            viewPoint: CGPoint(x: 50, y: 50),
+            viewSize: CGSize(width: 100, height: 100),
+            deltaX: 0,
+            deltaY: -20
+        )
+        try await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertEqual(
+            recorder.recordedPointerEvents.count,
+            0,
+            "Two separate 20-point gestures are not one 40-point gesture"
+        )
     }
 
     func testScrollDoesNotChangeDiagnosticExportSafeCatalog() async throws {

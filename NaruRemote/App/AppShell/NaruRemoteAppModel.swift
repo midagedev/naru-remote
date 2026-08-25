@@ -9480,6 +9480,18 @@ public final class NaruRemoteAppModel: ObservableObject {
     ///
     /// Constitution §IV: the `(x, y)` coordinates and the per-axis
     /// deltas are NOT logged anywhere persistent.
+    /// Sub-notch motion carried between callbacks (spec 037). Lives on the
+    /// model rather than in each gesture recognizer so every scroll source
+    /// behaves the same way.
+    private var scrollTickAccumulator = ScrollTickAccumulator()
+
+    /// Ends the current scroll gesture: the leftover under one notch is
+    /// dropped so the next gesture starts from zero instead of inheriting
+    /// credit from the last one.
+    public func endScrollGesture() {
+        scrollTickAccumulator.reset()
+    }
+
     public func sendScrollAt(
         viewPoint: CGPoint,
         viewSize: CGSize,
@@ -9503,11 +9515,25 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        let verticalMask: UInt8 = deltaY >= 0 ? 0x08 : 0x10
-        let horizontalMask: UInt8 = deltaX >= 0 ? 0x40 : 0x20
+        // Accumulate across callbacks before applying the threshold (spec 037).
+        // A gesture recognizer zeroes its translation every callback, so the
+        // per-callback delta is a few points and `floor(delta / 24)` was zero
+        // forever: the founder's "scrolling doesn't work". The remainder lives
+        // in `ScrollTickAccumulator`, next to the threshold that needs it.
+        let emitted = scrollTickAccumulator.accumulate(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            threshold: threshold
+        )
+        guard emitted.x != 0 || emitted.y != 0 else {
+            return
+        }
+
+        let verticalMask: UInt8 = emitted.y >= 0 ? 0x08 : 0x10
+        let horizontalMask: UInt8 = emitted.x >= 0 ? 0x40 : 0x20
 
         let ticks = Self.scrollTicks(
-            forDelta: (x: deltaX, y: deltaY),
+            forDelta: (x: emitted.x, y: emitted.y),
             threshold: threshold,
             verticalMask: verticalMask,
             horizontalMask: horizontalMask

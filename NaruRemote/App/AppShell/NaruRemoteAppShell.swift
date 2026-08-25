@@ -1230,6 +1230,7 @@ private struct SessionViewportFrameBridge: View {
                     deltaY: delta.height
                 )
             },
+            onFramebufferScrollEnded: { model.endScrollGesture() },
             onFramebufferPointerDown: { point, size in
                 Task { await model.sendPointerDownAt(viewPoint: point, viewSize: size) }
             },

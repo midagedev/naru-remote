@@ -43,6 +43,11 @@ public typealias MetalFramebufferRightClickHandler = @MainActor @Sendable (CGPoi
 /// model accumulates these into discrete RFB scroll-wheel ticks.
 public typealias MetalFramebufferScrollHandler = @MainActor @Sendable (_ point: CGPoint, _ viewSize: CGSize, _ delta: CGSize) -> Void
 
+/// Called when a scroll gesture ends, so the sub-notch remainder the model is
+/// carrying (`ScrollTickAccumulator`, spec 037) is dropped rather than credited
+/// to the next gesture.
+public typealias MetalFramebufferScrollEndHandler = @MainActor @Sendable () -> Void
+
 /// Closure invoked while the user is pinching the rendered
 /// framebuffer.  `scale` is the new (clamped) local view scale —
 /// `anchor` is the pinch midpoint in host-view coordinates. Pinch is
@@ -122,6 +127,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
     private let onTap: MetalFramebufferTapHandler?
     private let onRightClick: MetalFramebufferRightClickHandler?
     private let onScroll: MetalFramebufferScrollHandler?
+    private let onScrollEnded: MetalFramebufferScrollEndHandler?
     private let onPinch: MetalFramebufferPinchHandler?
     private let onPointerDown: MetalFramebufferPointerDownHandler?
     private let onPointerMove: MetalFramebufferPointerMoveHandler?
@@ -164,6 +170,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         onTap: MetalFramebufferTapHandler? = nil,
         onRightClick: MetalFramebufferRightClickHandler? = nil,
         onScroll: MetalFramebufferScrollHandler? = nil,
+        onScrollEnded: MetalFramebufferScrollEndHandler? = nil,
         onPinch: MetalFramebufferPinchHandler? = nil,
         onPointerDown: MetalFramebufferPointerDownHandler? = nil,
         onPointerMove: MetalFramebufferPointerMoveHandler? = nil,
@@ -193,6 +200,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         self.onTap = onTap
         self.onRightClick = onRightClick
         self.onScroll = onScroll
+        self.onScrollEnded = onScrollEnded
         self.onPinch = onPinch
         self.onPointerDown = onPointerDown
         self.onPointerMove = onPointerMove
@@ -228,6 +236,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         host.tapHandler = onTap
         host.rightClickHandler = onRightClick
         host.scrollHandler = onScroll
+        host.scrollEndHandler = onScrollEnded
         host.pinchHandler = onPinch
         host.pointerDownHandler = onPointerDown
         host.pointerMoveHandler = onPointerMove
@@ -273,6 +282,7 @@ public struct MetalFramebufferView: UIViewRepresentable {
         uiView.tapHandler = onTap
         uiView.rightClickHandler = onRightClick
         uiView.scrollHandler = onScroll
+        uiView.scrollEndHandler = onScrollEnded
         uiView.pinchHandler = onPinch
         uiView.pointerDownHandler = onPointerDown
         uiView.pointerMoveHandler = onPointerMove
@@ -457,6 +467,7 @@ public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
     private let onTap: MetalFramebufferTapHandler?
     private let onRightClick: MetalFramebufferRightClickHandler?
     private let onScroll: MetalFramebufferScrollHandler?
+    private let onScrollEnded: MetalFramebufferScrollEndHandler?
     private let onPinch: MetalFramebufferPinchHandler?
     private let onPointerDown: MetalFramebufferPointerDownHandler?
     private let onPointerMove: MetalFramebufferPointerMoveHandler?
@@ -484,6 +495,7 @@ public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
         onTap: MetalFramebufferTapHandler? = nil,
         onRightClick: MetalFramebufferRightClickHandler? = nil,
         onScroll: MetalFramebufferScrollHandler? = nil,
+        onScrollEnded: MetalFramebufferScrollEndHandler? = nil,
         onPinch: MetalFramebufferPinchHandler? = nil,
         onPointerDown: MetalFramebufferPointerDownHandler? = nil,
         onPointerMove: MetalFramebufferPointerMoveHandler? = nil,
@@ -507,6 +519,7 @@ public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
         self.onTap = onTap
         self.onRightClick = onRightClick
         self.onScroll = onScroll
+        self.onScrollEnded = onScrollEnded
         self.onPinch = onPinch
         self.onPointerDown = onPointerDown
         self.onPointerMove = onPointerMove
@@ -544,6 +557,7 @@ public struct MetalFramebufferInputOverlayView: UIViewRepresentable {
         host.tapHandler = onTap
         host.rightClickHandler = onRightClick
         host.scrollHandler = onScroll
+        host.scrollEndHandler = onScrollEnded
         host.pinchHandler = onPinch
         host.pointerDownHandler = onPointerDown
         host.pointerMoveHandler = onPointerMove
@@ -619,6 +633,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     /// per-callback translation; the model accumulates ticks across
     /// calls.
     public var scrollHandler: MetalFramebufferScrollHandler?
+    public var scrollEndHandler: MetalFramebufferScrollEndHandler?
 
     /// Closure invoked while the user pinches.  Receives the new
     /// (clamped) local view scale and pinch midpoint.  Pinch is LOCAL
@@ -1409,20 +1424,28 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             // zoom, must not also scroll the remote.
             let isFingerPair = recognizer.numberOfTouches == 2
             if isFingerPair, intent != .scroll {
-                if recognizer.state == .ended { resetTwoFingerIntent() }
+                if recognizer.state == .ended {
+                    resetTwoFingerIntent()
+                    scrollEndHandler?()
+                }
                 return
             }
             guard translation != .zero else {
-                if recognizer.state == .ended { resetTwoFingerIntent() }
+                if recognizer.state == .ended {
+                    resetTwoFingerIntent()
+                    scrollEndHandler?()
+                }
                 return
             }
             let location = recognizer.location(in: self)
             handler(location, bounds.size, delta)
             if recognizer.state == .ended {
                 resetTwoFingerIntent()
+                scrollEndHandler?()
             }
         case .cancelled, .failed:
             resetTwoFingerIntent()
+            scrollEndHandler?()
         default:
             break
         }
