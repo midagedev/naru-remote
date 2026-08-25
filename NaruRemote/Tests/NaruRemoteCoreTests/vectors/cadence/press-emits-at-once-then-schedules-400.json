@@ -1,0 +1,35 @@
+{
+  "suite": "cadence",
+  "id": "press-emits-at-once-then-schedules-400",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/AccessoryKeyRepeatCadenceTests.swift",
+    "tests": [
+      "testPressEmitsImmediatelyAndSchedulesFirstRepeatAt400ms"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "press",
+        "key": "arrowLeft"
+      },
+      "expect": {
+        "intents": [
+          {
+            "op": "emit-key",
+            "key": "arrowLeft",
+            "mods": []
+          },
+          {
+            "op": "schedule-tick",
+            "atMs": 400
+          }
+        ],
+        "held": "arrowLeft"
+      }
+    }
+  ],
+  "note": "The first press emits before anything is known about a hold. Waiting to see whether a hold develops is the latency people call 'laggy'."
+}

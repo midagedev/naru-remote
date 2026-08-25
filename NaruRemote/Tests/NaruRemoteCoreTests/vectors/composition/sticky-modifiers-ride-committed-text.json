@@ -1,0 +1,36 @@
+{
+  "suite": "composition",
+  "id": "sticky-modifiers-ride-committed-text",
+  "source": {
+    "repo": "gadak",
+    "file": "mobile/src/lib/terminal/keys.test.ts",
+    "tests": [
+      "bytesForText applies sticky ctrl"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "plain",
+        "text": "c",
+        "mods": [
+          "control"
+        ]
+      },
+      "expect": {
+        "composing": false,
+        "intents": [
+          {
+            "op": "emit-text",
+            "text": "c",
+            "mods": [
+              "control"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "On a shell, an armed Ctrl followed by a typed letter is how a person sends Ctrl-C from a touchscreen. The encoder decides what that becomes; the gate only has to carry the modifiers through."
+}

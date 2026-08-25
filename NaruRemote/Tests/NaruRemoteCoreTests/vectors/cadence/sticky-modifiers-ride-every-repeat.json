@@ -1,0 +1,61 @@
+{
+  "suite": "cadence",
+  "id": "sticky-modifiers-ride-every-repeat",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/AccessoryKeyRepeatCadenceTests.swift",
+    "tests": []
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "press",
+        "key": "arrowUp",
+        "mods": [
+          "control"
+        ]
+      },
+      "expect": {
+        "intents": [
+          {
+            "op": "emit-key",
+            "key": "arrowUp",
+            "mods": [
+              "control"
+            ]
+          },
+          {
+            "op": "schedule-tick",
+            "atMs": 400
+          }
+        ]
+      }
+    },
+    {
+      "t": 400,
+      "in": {
+        "op": "tick",
+        "mods": [
+          "control"
+        ]
+      },
+      "expect": {
+        "intents": [
+          {
+            "op": "emit-key",
+            "key": "arrowUp",
+            "mods": [
+              "control"
+            ]
+          },
+          {
+            "op": "schedule-tick",
+            "atMs": 445
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Not lifted from an existing test: naru merges modifiers at its call site. Pinned here because a repeat that silently drops the modifier after the first emission is the obvious way to get this wrong."
+}

@@ -1,0 +1,7 @@
+Vendored golden vectors for NaruRemoteCoreTests.
+
+source-repo: https://github.com/midagedev/touch-remote-input
+source-tree: vectors/
+commit: 47afca257dd3257c9292391cc3b7f0180e6efc6a
+verified-with: git -C <local clone> rev-parse HEAD
+verified-on: 2026-08-26

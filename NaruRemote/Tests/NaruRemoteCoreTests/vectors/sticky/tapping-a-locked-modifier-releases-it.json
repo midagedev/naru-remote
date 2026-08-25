@@ -1,0 +1,50 @@
+{
+  "suite": "sticky",
+  "id": "tapping-a-locked-modifier-releases-it",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/StickyModifierStateTests.swift",
+    "tests": [
+      "testTapLockedModifierReturnsToIdle"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "tap",
+        "mod": "meta"
+      },
+      "expect": {
+        "slots": {
+          "meta": "armed"
+        }
+      }
+    },
+    {
+      "t": 100,
+      "in": {
+        "op": "tap",
+        "mod": "meta"
+      },
+      "expect": {
+        "slots": {
+          "meta": "locked"
+        }
+      }
+    },
+    {
+      "t": 5100,
+      "in": {
+        "op": "tap",
+        "mod": "meta"
+      },
+      "expect": {
+        "slots": {
+          "meta": "idle"
+        },
+        "active": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "suite": "composition",
+  "id": "a-dismissed-candidate-emits-nothing",
+  "source": {
+    "repo": "gadak",
+    "file": "mobile/src/lib/terminal/ime.test.ts",
+    "tests": [
+      "compose-end with empty text"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "compose-start"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 10,
+      "in": {
+        "op": "compose-update",
+        "text": "ㄱ"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 20,
+      "in": {
+        "op": "compose-end",
+        "text": ""
+      },
+      "expect": {
+        "composing": false,
+        "intents": []
+      },
+      "note": "an empty commit is a dismissed candidate, not an empty insert — it clears the gate and emits nothing"
+    }
+  ]
+}

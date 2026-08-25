@@ -1,0 +1,57 @@
+{
+  "suite": "cadence",
+  "id": "a-non-repeatable-key-is-one-shot",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/AccessoryKeyRepeatCadenceTests.swift",
+    "tests": [
+      "testStopMatchesReleaseAndNonRepeatableKeysDoNotSchedule"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "press",
+        "key": "escape"
+      },
+      "expect": {
+        "intents": [
+          {
+            "op": "emit-key",
+            "key": "escape",
+            "mods": []
+          }
+        ],
+        "held": null
+      }
+    },
+    {
+      "t": 1000,
+      "in": {
+        "op": "tick"
+      },
+      "expect": {
+        "intents": []
+      }
+    },
+    {
+      "t": 1100,
+      "in": {
+        "op": "press",
+        "key": "tab"
+      },
+      "expect": {
+        "intents": [
+          {
+            "op": "emit-key",
+            "key": "tab",
+            "mods": []
+          }
+        ],
+        "held": null
+      }
+    }
+  ],
+  "note": "Holding Esc or Tab is destructive rather than useful, so only the arrows and Delete repeat. The set is catalog/keys.json, not the machine."
+}

@@ -1,0 +1,38 @@
+{
+  "suite": "sticky",
+  "id": "lock-boundary-is-inclusive-at-400",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/StickyModifierStateTests.swift",
+    "tests": [
+      "testDoubleTapAtExactly400MillisLocks"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "tap",
+        "mod": "control"
+      },
+      "expect": {
+        "slots": {
+          "control": "armed"
+        }
+      }
+    },
+    {
+      "t": 400,
+      "in": {
+        "op": "tap",
+        "mod": "control"
+      },
+      "expect": {
+        "slots": {
+          "control": "locked"
+        }
+      }
+    }
+  ],
+  "note": "400 exactly locks. An implementation using < instead of <= fails only here."
+}

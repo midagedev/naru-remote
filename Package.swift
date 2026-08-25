@@ -86,7 +86,10 @@ let package = Package(
         .testTarget(
             name: "NaruRemoteCoreTests",
             dependencies: ["NaruRemoteCore"],
-            path: "NaruRemote/Tests/NaruRemoteCoreTests"
+            path: "NaruRemote/Tests/NaruRemoteCoreTests",
+            resources: [
+                .copy("vectors")
+            ]
         ),
         .testTarget(
             name: "NaruRemoteAppTests",

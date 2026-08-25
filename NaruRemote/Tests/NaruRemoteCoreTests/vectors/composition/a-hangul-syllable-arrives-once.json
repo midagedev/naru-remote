@@ -1,0 +1,76 @@
+{
+  "suite": "composition",
+  "id": "a-hangul-syllable-arrives-once",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/LiveEditingWindowTests.swift",
+    "tests": [
+      "testMarkedTextYieldsNoOperations",
+      "testCommitAfterMarkEmitsOnlyCommittedUnit"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "compose-start"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 10,
+      "in": {
+        "op": "compose-update",
+        "text": "ㅇ"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 20,
+      "in": {
+        "op": "compose-update",
+        "text": "아"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 30,
+      "in": {
+        "op": "compose-end",
+        "text": "안"
+      },
+      "expect": {
+        "composing": false,
+        "intents": [
+          {
+            "op": "emit-text",
+            "text": "안",
+            "mods": []
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Forward the candidates and the far end receives the word three times over, each time wrong."
+}

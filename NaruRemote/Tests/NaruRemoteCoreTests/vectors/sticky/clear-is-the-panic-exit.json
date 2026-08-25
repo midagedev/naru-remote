@@ -1,0 +1,77 @@
+{
+  "suite": "sticky",
+  "id": "clear-is-the-panic-exit",
+  "source": {
+    "repo": "naru-remote",
+    "file": "NaruRemote/Tests/NaruRemoteCoreTests/StickyModifierStateTests.swift",
+    "tests": [
+      "testClearResetsAllSlotsToIdle"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "tap",
+        "mod": "control"
+      },
+      "expect": {
+        "slots": {
+          "control": "armed"
+        }
+      }
+    },
+    {
+      "t": 0,
+      "in": {
+        "op": "tap",
+        "mod": "shift"
+      },
+      "expect": {
+        "slots": {
+          "shift": "armed"
+        }
+      }
+    },
+    {
+      "t": 50,
+      "in": {
+        "op": "tap",
+        "mod": "shift"
+      },
+      "expect": {
+        "slots": {
+          "shift": "locked"
+        }
+      }
+    },
+    {
+      "t": 50,
+      "in": {
+        "op": "tap",
+        "mod": "alt"
+      },
+      "expect": {
+        "slots": {
+          "alt": "armed"
+        }
+      }
+    },
+    {
+      "t": 60,
+      "in": {
+        "op": "clear"
+      },
+      "expect": {
+        "slots": {
+          "control": "idle",
+          "shift": "idle",
+          "alt": "idle",
+          "meta": "idle"
+        },
+        "active": []
+      }
+    }
+  ],
+  "note": "A locked modifier the user forgot about is the worst state this machine can be in; on a shell it turns typing into control codes. Any UI offering lock must offer this."
+}

@@ -1,0 +1,59 @@
+{
+  "suite": "composition",
+  "id": "a-plain-insert-during-composition-is-withheld",
+  "source": {
+    "repo": "gadak",
+    "file": "mobile/src/lib/terminal/ime.test.ts",
+    "tests": [
+      "input during composition"
+    ]
+  },
+  "steps": [
+    {
+      "t": 0,
+      "in": {
+        "op": "compose-start"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 10,
+      "in": {
+        "op": "plain",
+        "text": "ㅏ"
+      },
+      "expect": {
+        "composing": true,
+        "intents": [
+          {
+            "op": "withhold"
+          }
+        ]
+      }
+    },
+    {
+      "t": 20,
+      "in": {
+        "op": "compose-end",
+        "text": "가"
+      },
+      "expect": {
+        "composing": false,
+        "intents": [
+          {
+            "op": "emit-text",
+            "text": "가",
+            "mods": []
+          }
+        ]
+      }
+    }
+  ]
+}
