@@ -20,6 +20,10 @@ public struct NaruRemoteAppShell: View {
     private let pinsRemoteControlSurfaceForTesting: Bool
     @State private var pendingPublicConnection: ConnectionProfile?
     @State private var showsDiagnosticDetail = false
+    /// While the PiP region picker is up, the input dock steps aside — its
+    /// floating capsule sat over the picker's confirm buttons in the first
+    /// capture of it (spec 034 FR-005).
+    @State private var isChoosingPiPRegion = false
     @State private var showsGridDiagnosticDetail = false
     /// When non-nil, an "Edit Profile" sheet is presented for this
     /// profile.  Using `Identifiable` here means SwiftUI will tear
@@ -165,6 +169,7 @@ public struct NaruRemoteAppShell: View {
             fillsAvailableHeight: fillsAvailableHeight,
             onReturnToConnections: returnToConnections,
             onOpenDiagnostics: { showsDiagnosticDetail = true },
+            isChoosingPiPRegion: $isChoosingPiPRegion,
             healthAccessory: showsInlineHealth
                 ? AnyView(sessionHealthAffordance(presentation: .collapsed))
                 : nil
@@ -512,7 +517,8 @@ public struct NaruRemoteAppShell: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot) {
+            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot),
+               !isChoosingPiPRegion {
                 let accessoryChrome = RemoteInputAccessoryChromeState(
                     snapshot: snapshot,
                     incomingClipboardReview: model.pendingIncomingClipboard,
@@ -540,7 +546,8 @@ public struct NaruRemoteAppShell: View {
             // the user has added a computer is exactly the
             // pre-announcement of capabilities the empty-home CTA
             // is meant to remove.
-            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot) {
+            if !isEmptyHome && !showsConnectionGrid && Self.showsInputDock(for: snapshot),
+               !isChoosingPiPRegion {
                 let accessoryChrome = RemoteInputAccessoryChromeState(
                     snapshot: snapshot,
                     incomingClipboardReview: model.pendingIncomingClipboard,
@@ -1149,6 +1156,7 @@ private struct SessionViewportFrameBridge: View {
     let fillsAvailableHeight: Bool
     let onReturnToConnections: () -> Void
     let onOpenDiagnostics: () -> Void
+    let isChoosingPiPRegion: Binding<Bool>
     /// Supplied by the shell rather than built here: the diagnostic rows and
     /// the share payload belong to the shell, and this bridge exists to watch
     /// frames (spec 033 FR-003).
@@ -1180,6 +1188,14 @@ private struct SessionViewportFrameBridge: View {
             onReturnToConnections: onReturnToConnections,
             onStartPiPWatch: model.canStartPiPWatch ? { model.startPiPWatch() } : nil,
             onStopPiPWatch: { model.stopPiPWatch() },
+            pipFramingMode: model.effectivePiPFramingMode,
+            pipChosenRegion: model.pipChosenRegion,
+            onSelectPiPFramingMode: { model.setPiPFramingMode($0) },
+            onChoosePiPRegion: { region in
+                model.setPiPChosenRegion(region)
+                model.setPiPFramingMode(.chosenRegion)
+            },
+            isChoosingPiPRegion: isChoosingPiPRegion,
             onOpenDiagnostics: onOpenDiagnostics,
             healthAccessory: healthAccessory,
             onFramebufferTap: { point, size in

@@ -48,6 +48,20 @@ same PR.
    the result, rather than failing — but the skip has to be narrow enough that a
    genuine misclassification still fails. Not attempted in this round.
 
+00c. **`specs/034` what PiP watches.** Landed 2026-08-25. A tap enters PiP
+   framed on the current view; a long press opens the framing choices —
+   **Current view**, **Follow activity** (automatic, from the damage rectangles
+   the RFB layer already decodes), and a region the user draws. The automatic
+   policy is a pure Core value type (`PiPAutoFramingPolicy`, 14 tests): area-
+   weighted centring, a legible crop band, a dead zone and a cooldown so the
+   window holds still, and idle holds the last framing. The mode persists; the
+   drawn region is session-scoped, and `effectivePiPFramingMode` reports what
+   PiP will actually do when the two disagree. **Open:** founder device pass on
+   build 11 — is the window readable, and does Follow activity land on the
+   terminal that is printing. The legible band (≈750 px of crop width, from
+   3024 ÷ the app's 4x zoom ceiling) is arithmetic, not a measurement of a real
+   PiP window, which no simulator can produce.
+
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
    viewport made Apple Screen Sharing answer roughly twenty times slower

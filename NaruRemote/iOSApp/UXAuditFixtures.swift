@@ -176,6 +176,13 @@ enum UXAuditFixtures {
     /// constructed.  No-op when the env var is unset.
     @MainActor
     static func applyFixturePostInitMutations(to model: NaruRemoteAppModel) {
+        // Independent of the fixture token: PiP is unsupported on the
+        // simulator, so the control and its framing menu are unreachable there
+        // without this (spec 034's screenshot and UITest rows).
+        if ProcessInfo.processInfo.environment.isTruthy("NARU_TEST_FORCE_PIP_AVAILABLE") {
+            model.setForcesPiPWatchAvailabilityForTesting(true)
+        }
+
         guard let token = UXAuditFixtureToken.current() else {
             return
         }

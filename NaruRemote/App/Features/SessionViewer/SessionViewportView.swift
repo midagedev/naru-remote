@@ -48,6 +48,15 @@ public struct SessionViewportView: View {
     private let onReturnToConnections: (() -> Void)?
     private let onStartPiPWatch: (() -> Void)?
     private let onStopPiPWatch: (() -> Void)?
+    /// What PiP frames on, and the two ways to change it (spec 034).
+    private let pipFramingMode: PiPFramingMode
+    private let pipChosenRegion: PiPFramingTarget?
+    private let onSelectPiPFramingMode: ((PiPFramingMode) -> Void)?
+    private let onChoosePiPRegion: ((PiPFramingTarget) -> Void)?
+    /// Owned by the shell: while the picker is up the shell also steps the
+    /// input dock aside, which it can only do if it knows (spec 034 FR-005).
+    /// The first capture had `Cancel` and `Watch this region` behind the dock.
+    private let isChoosingPiPRegion: Binding<Bool>?
     private let onOpenDiagnostics: (() -> Void)?
     /// The session-health affordance, supplied by the shell so this view does
     /// not need the diagnostic rows (spec 033 FR-003). Type-erased because it
@@ -242,6 +251,11 @@ public struct SessionViewportView: View {
         onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onStopPiPWatch: (() -> Void)? = nil,
+        pipFramingMode: PiPFramingMode = .currentView,
+        pipChosenRegion: PiPFramingTarget? = nil,
+        onSelectPiPFramingMode: ((PiPFramingMode) -> Void)? = nil,
+        onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
+        isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
@@ -303,6 +317,11 @@ public struct SessionViewportView: View {
         self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
         self.onStopPiPWatch = onStopPiPWatch
+        self.pipFramingMode = pipFramingMode
+        self.pipChosenRegion = pipChosenRegion
+        self.onSelectPiPFramingMode = onSelectPiPFramingMode
+        self.onChoosePiPRegion = onChoosePiPRegion
+        self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
         self.onFramebufferTap = onFramebufferTap
@@ -357,6 +376,11 @@ public struct SessionViewportView: View {
         onReturnToConnections: (() -> Void)? = nil,
         onStartPiPWatch: (() -> Void)? = nil,
         onStopPiPWatch: (() -> Void)? = nil,
+        pipFramingMode: PiPFramingMode = .currentView,
+        pipChosenRegion: PiPFramingTarget? = nil,
+        onSelectPiPFramingMode: ((PiPFramingMode) -> Void)? = nil,
+        onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
+        isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
         onFramebufferTap: SessionFramebufferTapHandler? = nil,
@@ -416,6 +440,11 @@ public struct SessionViewportView: View {
         self.onReturnToConnections = onReturnToConnections
         self.onStartPiPWatch = onStartPiPWatch
         self.onStopPiPWatch = onStopPiPWatch
+        self.pipFramingMode = pipFramingMode
+        self.pipChosenRegion = pipChosenRegion
+        self.onSelectPiPFramingMode = onSelectPiPFramingMode
+        self.onChoosePiPRegion = onChoosePiPRegion
+        self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
         self.onFramebufferTap = onFramebufferTap
@@ -486,6 +515,7 @@ public struct SessionViewportView: View {
             }
 
             viewportSurface
+                .overlay { pipRegionPicker }
             // Screen-first (spec 003 FR-001): the session container adopts
             // the server's TRUE aspect ratio once a frame exists, so a
             // 16:9 / 16:10 desktop fills the width instead of being
@@ -510,6 +540,7 @@ public struct SessionViewportView: View {
         ZStack(alignment: .top) {
             viewportSurface
                 .modifier(ViewportSizing(fill: true, aspectRatio: containerAspectRatio))
+                .overlay { pipRegionPicker }
 
             Group {
                 if showsImmersiveControlBar {
@@ -704,7 +735,116 @@ public struct SessionViewportView: View {
             .accessibilityLabel(isPiPWatching ? "Leave PiP Watch" : "PiP Watch")
             .accessibilityValue(pipWatchStatusText)
             .accessibilityIdentifier("naru.session.pipWatch")
+            // Long press, not a second button: the tap has to stay a tap
+            // (spec 034 FR-002). A context menu is the platform's own
+            // long-press affordance, so nothing here reinvents the gesture.
+            .contextMenu { pipFramingMenu }
         }
+    }
+
+    /// The region picker (spec 034 FR-005).
+    ///
+    /// Hosted here rather than inside `viewportSurface` for a measured reason:
+    /// that view sets `.accessibilityIdentifier("naru.session.viewport")`, and
+    /// SwiftUI applies the outermost identifier to everything beneath it — the
+    /// picker's own buttons came back identified as the viewport, which the
+    /// first run of `PiPFramingUITests` caught. The geometry is the same: the
+    /// container carries the framebuffer's aspect ratio once a frame exists, and
+    /// fills the screen in the immersive layout.
+    @ViewBuilder
+    private var pipRegionPicker: some View {
+        if isChoosingPiPRegion?.wrappedValue == true, let framebuffer {
+            GeometryReader { proxy in
+                PiPRegionPickerOverlay(
+                    aspectRatio: Double(framebuffer.width) / Double(max(framebuffer.height, 1)),
+                    initialZoomScale: 2,
+                    onCancel: { isChoosingPiPRegion?.wrappedValue = false },
+                    onUse: { box in
+                        isChoosingPiPRegion?.wrappedValue = false
+                        if let target = framingTarget(
+                            forViewRect: box,
+                            framebuffer: framebuffer,
+                            viewSize: proxy.size
+                        ) {
+                            onChoosePiPRegion?(target)
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    /// Converts a box drawn in view coordinates into a framing.
+    ///
+    /// The conversion goes through the live `ViewportTransform`, because the
+    /// remote screen under the box may be zoomed and panned — reading the view
+    /// rect as a framebuffer rect would be correct only at zoom 1 with no pan,
+    /// which is not the state a user is in when they choose a region to watch.
+    private func framingTarget(
+        forViewRect rect: CGRect,
+        framebuffer: RFBRawFramebuffer,
+        viewSize: CGSize
+    ) -> PiPFramingTarget? {
+        guard viewSize.width > 0, viewSize.height > 0, framebuffer.width > 0 else {
+            return nil
+        }
+
+        let transform = currentViewportTransform(framebuffer: framebuffer, viewSize: viewSize)
+        guard let leading = transform.framebufferPoint(
+            fromViewPoint: CGPoint(x: rect.minX, y: rect.midY)
+        ),
+              let trailing = transform.framebufferPoint(
+                fromViewPoint: CGPoint(x: rect.maxX, y: rect.midY)
+              ),
+              let center = transform.framebufferPoint(
+                fromViewPoint: CGPoint(x: rect.midX, y: rect.midY)
+              )
+        else {
+            return nil
+        }
+
+        let framebufferWidth = Double(framebuffer.width)
+        let cropWidth = max(Double(trailing.x - leading.x), 1)
+        return PiPFramingTarget(
+            centerX: Double(center.x) / framebufferWidth,
+            centerY: Double(center.y) / Double(max(framebuffer.height, 1)),
+            zoomScale: framebufferWidth / cropWidth
+        )
+    }
+
+    /// The framing choices, behind the PiP control's long press.
+    @ViewBuilder
+    private var pipFramingMenu: some View {
+        Section("PiP shows") {
+            pipFramingModeButton(.currentView, title: "Current view", symbol: "rectangle.dashed")
+            pipFramingModeButton(.followActivity, title: "Follow activity", symbol: "waveform")
+            if pipChosenRegion != nil {
+                pipFramingModeButton(.chosenRegion, title: "Chosen region", symbol: "crop")
+            }
+        }
+
+        Button {
+            isChoosingPiPRegion?.wrappedValue = true
+        } label: {
+            Label("Choose region…", systemImage: "crop")
+        }
+        .disabled(onChoosePiPRegion == nil || framebuffer == nil || isChoosingPiPRegion == nil)
+        .accessibilityIdentifier("naru.session.pip.chooseRegion")
+    }
+
+    @ViewBuilder
+    private func pipFramingModeButton(
+        _ mode: PiPFramingMode,
+        title: String,
+        symbol: String
+    ) -> some View {
+        Button {
+            onSelectPiPFramingMode?(mode)
+        } label: {
+            Label(title, systemImage: pipFramingMode == mode ? "checkmark" : symbol)
+        }
+        .disabled(onSelectPiPFramingMode == nil)
+        .accessibilityIdentifier("naru.session.pip.framing.\(mode.rawValue)")
     }
 
     /// Present when it can act, and not before.
@@ -2149,6 +2289,13 @@ public struct SessionViewportView: View {
               viewSize.height > 0,
               let pipLayerHost
         else {
+            return
+        }
+
+        // While a window is up under Follow activity or a chosen region, the
+        // framing belongs to that mode — mirroring the app's viewport here
+        // would fight it every frame (spec 034).
+        guard !(isPiPWatching && pipFramingMode != .currentView) else {
             return
         }
 

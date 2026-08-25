@@ -5280,6 +5280,49 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.pipWatchStatusText, "PiP Watch ready")
     }
 
+    /// Spec 034 FR-006: the mode is persisted and the region is not, so the
+    /// pair can be inconsistent on relaunch. What the menu shows has to be what
+    /// PiP will do.
+    func testChosenRegionWithNoRegionDrawnBehavesAsCurrentView() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id
+            )
+        )
+        model.setPiPFramingMode(.chosenRegion)
+
+        XCTAssertEqual(model.pipFramingMode, .chosenRegion, "The stored preference is untouched")
+        XCTAssertEqual(
+            model.effectivePiPFramingMode,
+            .currentView,
+            "With nothing drawn there is no region to frame"
+        )
+
+        model.setPiPChosenRegion(PiPFramingTarget(centerX: 0.3, centerY: 0.7, zoomScale: 3))
+
+        XCTAssertEqual(model.effectivePiPFramingMode, .chosenRegion)
+    }
+
+    func testSelectingAFramingModePersistsIt() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id
+            )
+        )
+
+        XCTAssertEqual(model.pipFramingMode, .currentView)
+
+        model.setPiPFramingMode(.followActivity)
+
+        XCTAssertEqual(model.pipFramingMode, .followActivity)
+        XCTAssertEqual(model.effectivePiPFramingMode, .followActivity)
+        XCTAssertEqual(model.appSettings.pipFramingMode, .followActivity)
+    }
+
     func testModelSendsComposedTextThroughActiveRFBTextClientAfterConnect() async throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let connector = FakeFirstFrameConnector(

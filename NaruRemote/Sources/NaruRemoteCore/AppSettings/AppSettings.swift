@@ -155,19 +155,24 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var startupPreflightMode: StreamStartupPreflightMode
     public var startupGlanceScaleMode: StreamStartupGlanceScaleMode
     public var composeDelivery: ComposeDeliveryMode
+    /// What PiP Watch frames on (spec 034 FR-006). The mode is a preference;
+    /// the drawn region it can refer to is a session fact and is not stored.
+    public var pipFramingMode: PiPFramingMode
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
         streamEncodingMode: StreamEncodingMode = .standard,
         startupPreflightMode: StreamStartupPreflightMode = .disabled,
         startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
-        composeDelivery: ComposeDeliveryMode = .keystrokeStream
+        composeDelivery: ComposeDeliveryMode = .keystrokeStream,
+        pipFramingMode: PiPFramingMode = .currentView
     ) {
         self.streamPowerMode = streamPowerMode
         self.streamEncodingMode = streamEncodingMode
         self.startupPreflightMode = startupPreflightMode
         self.startupGlanceScaleMode = startupGlanceScaleMode
         self.composeDelivery = composeDelivery
+        self.pipFramingMode = pipFramingMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -192,12 +197,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
             ComposeDeliveryMode.self,
             forKey: .composeDelivery
         ) ?? .keystrokeStream
+        let pipFramingMode = try container.decodeIfPresent(
+            PiPFramingMode.self,
+            forKey: .pipFramingMode
+        ) ?? .currentView
         self.init(
             streamPowerMode: streamPowerMode,
             streamEncodingMode: streamEncodingMode,
             startupPreflightMode: startupPreflightMode,
             startupGlanceScaleMode: startupGlanceScaleMode,
-            composeDelivery: composeDelivery
+            composeDelivery: composeDelivery,
+            pipFramingMode: pipFramingMode
         )
     }
 
@@ -218,6 +228,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if composeDelivery != .keystrokeStream {
             try container.encode(composeDelivery, forKey: .composeDelivery)
         }
+        if pipFramingMode != .currentView {
+            try container.encode(pipFramingMode, forKey: .pipFramingMode)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -226,5 +239,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case startupPreflightMode
         case startupGlanceScaleMode
         case composeDelivery
+        case pipFramingMode
     }
 }
