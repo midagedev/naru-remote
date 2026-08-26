@@ -105,17 +105,34 @@ same PR.
    frozen). **Open:** founder device pass on build 12 — both halves are
    diff-and-device claims; PiP is unsupported on the simulator.
 
-00f. **Resolved as a screen-state artifact, not a defect:
-   `LiveMacPointerHoverTests.testServerRepaintsAfterAPointerMove`.** It failed
-   twice on 2026-08-25 with `changedPixelCount=0` and **passed** on the
-   2026-08-26 full run, unchanged. What separated the two runs was the display,
-   not the code: the spec 037 probe measures a first-frame dominant-colour ratio
-   (0.202 — an awake desktop with content on it) and drains pending updates
-   before measuring, and on that footing both the hover repaint and the wheel
-   probe answer. Lesson for the next live red: **read the uniformity ratio and
-   drain first** — a live-Mac zero can be a sleeping screen or an uncollected
-   repaint, and neither is the client's fault. Unlike 00b, nothing needs a
-   narrow skip here.
+00f. **Closed: the live-Mac probes now skip when the machine cannot be
+   watched.** The symptom was a wandering red — `testServerRepaintsAfterA-
+   PointerMove` failed twice on 2026-08-25, passed unchanged on 2026-08-26, and
+   that evening it and the wheel probe both failed while the same wheel probe
+   had measured ten notches to ten OS scroll events that morning. The last
+   failure came with its cause visible: the display was awake and the session
+   unlocked, but this Mac held an outbound Screen Sharing session to another
+   machine and synthetic pointer moves were not landing. An hour later, quiet,
+   the probe read 10/10 again with pixels changing too.
+
+   Machine state is not a defect and must not read as one: a gate that cries
+   wolf costs an hour of looking for a pointer-lane bug that is not there. One
+   test in that file already knew this — its reference-move guard skipped with
+   "pointer oracle busy" — and the two that went red were exactly the two
+   without it. `LiveMacInputEnvironment` is that guard, shared: display asleep,
+   session locked or off-console, or a pointer that moves while nobody asked
+   it to, and the probe skips before it connects. The wheel probe additionally
+   treats its own setup move as the oracle — if our pointer event does not
+   land, a wheel count of zero means "we could not look", not "Screen Sharing
+   drops wheel buttons".
+
+   `testButtonlessPointerEventMovesTheRealMacPointer` still **asserts**: a
+   pointer move is its subject, and a probe may skip because the machine would
+   not let it look, never because the thing it came to measure is broken.
+
+   Verified both ways on 2026-08-27: guard passing, scroll 10/10 and hover
+   green; guard tripped (stillness tolerance inverted), all four tests skip in
+   under half a second each, before connecting.
 
 00g. **`specs/037` scroll that scrolls.** Landed 2026-08-26. The founder asked
    for a two-finger-drag scroll gesture; it already existed end to end, and the

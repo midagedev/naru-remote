@@ -37,6 +37,7 @@ final class LiveMacPointerHoverTests: XCTestCase {
         guard let host, let password else {
             throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run the live hover probe")
         }
+        try LiveMacInputEnvironment.requireAQuietMac()
 
         let client = RFBNetworkClient()
         defer { client.disconnect() }
@@ -110,6 +111,7 @@ final class LiveMacPointerHoverTests: XCTestCase {
         guard let host, let password else {
             throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run the live hover probe")
         }
+        try LiveMacInputEnvironment.requireAQuietMac()
 
         let client = RFBNetworkClient()
         defer { client.disconnect() }
@@ -165,6 +167,7 @@ final class LiveMacPointerHoverTests: XCTestCase {
         guard let host, let password else {
             throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run the live hover probe")
         }
+        try LiveMacInputEnvironment.requireAQuietMac()
 
         let client = RFBNetworkClient()
         defer { client.disconnect() }

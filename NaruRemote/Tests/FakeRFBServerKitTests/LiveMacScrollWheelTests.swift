@@ -62,6 +62,10 @@ final class LiveMacScrollWheelTests: XCTestCase {
         guard let host, let password else {
             throw XCTSkip("Set NARU_LIVE_MAC_HOST + NARU_LIVE_MAC_PASSWORD to run the live scroll probe")
         }
+        // Before believing a zero, check the machine can be watched at all
+        // (2026-08-26: this probe read 10/10 in the morning and 0/10 in the
+        // evening, unchanged, while somebody was using this Mac).
+        try LiveMacInputEnvironment.requireAQuietMac()
 
         let client = RFBNetworkClient()
         defer { client.disconnect() }
@@ -94,6 +98,20 @@ final class LiveMacScrollWheelTests: XCTestCase {
         let x = UInt16(Double(serverInit.width) * 0.5)
         let y = UInt16(Double(serverInit.height) * 0.5)
         try await client.sendPointerEvent(buttonMask: 0, x: x, y: y)
+
+        // That move is also the oracle. If our own pointer event does not
+        // land, nothing this probe sends afterwards is being observed either,
+        // and a wheel count of zero would mean "we could not look" rather than
+        // "Screen Sharing drops wheel buttons" — the conclusion this probe
+        // exists to reach, and the expensive one to reach wrongly.
+        let pointsPerPixel = CGFloat(CGDisplayBounds(CGMainDisplayID()).width)
+            / CGFloat(max(serverInit.width, 1))
+        try LiveMacInputEnvironment.requirePointerToReach(
+            CGPoint(x: CGFloat(x) * pointsPerPixel, y: CGFloat(y) * pointsPerPixel),
+            tolerance: 6,
+            timeout: 3,
+            because: "the scroll probe cannot measure this Mac"
+        )
 
         // Drain first, or the measurement is meaningless.
         //
