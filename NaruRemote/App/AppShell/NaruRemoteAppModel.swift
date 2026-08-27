@@ -412,6 +412,15 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// sleeping in real time. `nil` keeps production cancellation on
     /// the direct `Task.sleep` path.
     private let streamPacingSleepOverride: (@Sendable (TimeInterval) async throws -> Void)?
+    /// How long a pointer or keystroke keeps frame delivery on the fast path.
+    ///
+    /// Injectable for one reason: it is 150 ms of *wall clock*, and a test that
+    /// asserts what happens inside it has to get through several async
+    /// round-trips first. On the machine those tests were written on that fits;
+    /// on the first CI runner it did not, and the test reported the expired
+    /// window as a wrong pacing interval (2026-08-27). A test that needs the
+    /// window open holds it open rather than racing it.
+    private let transientFrameDeliveryInteractionDuration: Duration
     /// Test seam for frame-application pacing. Production keeps the direct
     /// worker sleep path; tests can gate the sleep to prove input-aware
     /// cadence is applied before a content frame enters MainActor work.
@@ -558,7 +567,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private static let previewPublishMinimumInterval: TimeInterval = 1
     private static let previewSaveMinimumInterval: TimeInterval = 5
     private static let mainActorResponsivenessProbeIntervalSeconds: TimeInterval = 0.25
-    static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
+    public static let transientFrameDeliveryInteractionPriorityDuration: Duration = .milliseconds(150)
     // Wake granularity while a pacing delay is pending. Kept near one
     // display refresh so an input nudge (pointer/keystroke) re-arms the
     // request loop within a frame instead of waiting up to a coarse poll.
@@ -658,6 +667,8 @@ public final class NaruRemoteAppModel: ObservableObject {
             NetworkPathConditionsMonitor.shared.current
         },
         streamPacingSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
+        transientFrameDeliveryInteractionDuration: Duration
+            = NaruRemoteAppModel.transientFrameDeliveryInteractionPriorityDuration,
         frameApplicationSleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
         outboundInputEventTimeout: Duration = .milliseconds(2_500),
         allowsAdaptiveEncodingRenegotiation: Bool = false
@@ -779,6 +790,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.hevcDecodeSupportProvider = hevcDecodeSupportProvider
         self.networkPathConditionsProvider = networkPathConditionsProvider
         self.streamPacingSleepOverride = streamPacingSleep
+        self.transientFrameDeliveryInteractionDuration = transientFrameDeliveryInteractionDuration
         self.frameApplicationSleepOverride = frameApplicationSleep
         self.pointerInputDispatcher = OutboundInputEventDispatcher(
             timeout: outboundInputEventTimeout
@@ -4749,7 +4761,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         streamPacingWakeGeneration &+= 1
         setFrameDeliveryInteractionReason(.transientInteraction, active: true)
         transientFrameDeliveryInteractionExpiresAt =
-            ContinuousClock.now + Self.transientFrameDeliveryInteractionPriorityDuration
+            ContinuousClock.now + transientFrameDeliveryInteractionDuration
         guard transientFrameDeliveryInteractionTask == nil else {
             return
         }

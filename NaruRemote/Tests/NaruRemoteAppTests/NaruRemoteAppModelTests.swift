@@ -4425,7 +4425,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
             helperVideoRendererFactory: { helperRenderer },
             streamPacingSleep: { delay in
                 try await pacingGate.sleep(delay)
-            }
+            },
+            // The subject is what pacing does *while* input is recent, and
+            // reaching that point takes several async round-trips. At the
+            // production 150 ms this test was racing its own setup — green on
+            // the machine it was written on, red on the first CI runner, and
+            // reporting the expired window as a wrong pacing interval. Hold
+            // the window open and assert the behaviour instead of the clock.
+            transientFrameDeliveryInteractionDuration: .seconds(30)
         )
         defer {
             model.disconnect()
@@ -5944,7 +5951,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
+        // Wait for the outcome this test asserts, not for any failed attempt.
+        // A helper probe can fail first with "the remote session changed",
+        // and a wait on `status != .failed` alone returns on that one — after
+        // which every assertion below describes the wrong attempt (measured
+        // on two sibling tests, 2026-08-27).
+        try await settle(while: {
+            model.snapshot.latestInjectionAttempt?.status != .failed
+                || model.snapshot.latestInjectionAttempt?.path != .vncClipboardPaste
+        }, "a failed vncClipboardPaste attempt")
 
         XCTAssertTrue(helper.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6100,7 +6115,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
+        // Wait for the outcome this test asserts, not for any failed attempt.
+        // A helper probe can fail first with "the remote session changed",
+        // and a wait on `status != .failed` alone returns on that one — after
+        // which every assertion below describes the wrong attempt (measured
+        // on two sibling tests, 2026-08-27).
+        try await settle(while: {
+            model.snapshot.latestInjectionAttempt?.status != .failed
+                || model.snapshot.latestInjectionAttempt?.path != .vncClipboardPaste
+        }, "a failed vncClipboardPaste attempt")
 
         XCTAssertTrue(recorder.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6353,7 +6376,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
+        // Wait for the outcome this test asserts, not for any failed attempt.
+        // A helper probe can fail first with "the remote session changed",
+        // and a wait on `status != .failed` alone returns on that one — after
+        // which every assertion below describes the wrong attempt (measured
+        // on two sibling tests, 2026-08-27).
+        try await settle(while: {
+            model.snapshot.latestInjectionAttempt?.status != .failed
+                || model.snapshot.latestInjectionAttempt?.path != .vncClipboardPaste
+        }, "a failed vncClipboardPaste attempt")
 
         XCTAssertTrue(recorder.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6404,7 +6435,15 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
+        // Wait for the outcome this test asserts, not for any failed attempt.
+        // A helper probe can fail first with "the remote session changed",
+        // and a wait on `status != .failed` alone returns on that one — after
+        // which every assertion below describes the wrong attempt (measured
+        // on two sibling tests, 2026-08-27).
+        try await settle(while: {
+            model.snapshot.latestInjectionAttempt?.status != .failed
+                || model.snapshot.latestInjectionAttempt?.path != .helperTextBridge
+        }, "a failed helperTextBridge attempt")
 
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
         XCTAssertTrue(connector.pasteCommands.isEmpty)
