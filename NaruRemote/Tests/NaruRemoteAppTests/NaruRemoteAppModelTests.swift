@@ -8,6 +8,43 @@ import NaruRemoteCore
 
 @MainActor
 final class NaruRemoteAppModelTests: XCTestCase {
+
+    /// Polls until `isPending` stops holding, and **fails** if it never does.
+    ///
+    /// Replaces 76 hand-rolled `for _ in 0..<N where <pending> { sleep }` loops
+    /// that shared one defect: they exhausted their budget and fell through, so
+    /// every assertion after the loop reported "the state never arrived" as
+    /// whatever that assertion happened to be about. Two of them failed on the
+    /// first CI run of this repository — a slower machine than the one they
+    /// were written on — and announced `session state connecting != active`
+    /// followed by eight cascading comparisons, which reads like a broken
+    /// connect path and was a 400 ms budget.
+    ///
+    /// The predicate is the loop's `where` clause verbatim: true while the work
+    /// is still pending. Nothing waits longer when a test passes — this returns
+    /// the instant the condition clears — so the deadline is generous on
+    /// purpose. It only bounds a genuine failure.
+    func settle(
+        while isPending: () -> Bool,
+        _ description: String = "the awaited state",
+        timeout: Duration = .seconds(10),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if !isPending() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        guard !isPending() else {
+            XCTFail(
+                "Timed out after \(timeout) waiting for \(description)",
+                file: file,
+                line: line
+            )
+            return
+        }
+    }
     func testDefaultFrameStreamConfigurationLetsWorkerOwnActiveCadence() {
         let configuration = NaruRemoteAppModel.defaultFrameStreamConfiguration
 
@@ -1655,9 +1692,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectProfile(id: requested.id)
-        for _ in 0..<80 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
 
         XCTAssertEqual(model.snapshot.selectedProfile?.id, requested.id)
         XCTAssertEqual(model.snapshot.session?.profileID, requested.id)
@@ -1684,17 +1719,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         defer { connectGate.release() }
 
         await model.connectSelectedProfile()
-        for _ in 0..<80 where !connectGate.hasEntered {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { !connectGate.hasEntered })
         XCTAssertTrue(connectGate.hasEntered)
 
         let disconnectedSessionID = try XCTUnwrap(model.snapshot.session?.id)
         model.disconnect()
         connectGate.release()
-        for _ in 0..<80 where connector.completedRequestCount == 0 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { connector.completedRequestCount == 0 })
         for _ in 0..<20 { await Task.yield() }
 
         XCTAssertEqual(connector.completedRequestCount, 1)
@@ -1726,17 +1757,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         defer { connectGate.release() }
 
         await model.connectSelectedProfile()
-        for _ in 0..<80 where !connectGate.hasEntered {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { !connectGate.hasEntered })
         XCTAssertTrue(connectGate.hasEntered)
 
         model.selectProfile(id: second.id)
         let switchedSession = try XCTUnwrap(model.snapshot.session)
         connectGate.release()
-        for _ in 0..<80 where connector.completedRequestCount == 0 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { connector.completedRequestCount == 0 })
         for _ in 0..<20 { await Task.yield() }
 
         XCTAssertEqual(connector.completedRequestCount, 1)
@@ -1839,9 +1866,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         // The thumbnail is built on a detached utility task, so a fixed sleep
         // is a race against how expensive that task happens to be — spec 038
         // FR-010's filtering made it lose one. Wait for the thing itself.
-        for _ in 0..<100 where model.snapshot.profilePreviews[profile.id] == nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.profilePreviews[profile.id] == nil })
 
         let preview = try XCTUnwrap(model.snapshot.profilePreviews[profile.id])
         // 640×400 against the 480×300 cap scales by 0.75 (spec 038 FR-011).
@@ -2553,9 +2578,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
 
         await model.connectSelectedProfile()
-        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.sentScaleFactors.isEmpty })
 
         XCTAssertEqual(connector.sentScaleFactors, [0.5])
         try await Task.sleep(for: .milliseconds(250))
@@ -2573,15 +2596,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
 
         await model.connectSelectedProfile()
-        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.sentScaleFactors.isEmpty })
         XCTAssertEqual(connector.sentScaleFactors, [0.5])
 
         model.updateViewportTransform(Self.appleDownscaleZoomedTransform)
-        for _ in 0..<250 where connector.sentScaleFactors.last != 1.0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.sentScaleFactors.last != 1.0 })
 
         XCTAssertEqual(connector.sentScaleFactors.last, 1.0)
         XCTAssertEqual(connector.sentScaleFactors, [0.5, 1.0])
@@ -2598,9 +2617,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
 
         await model.connectSelectedProfile()
-        for _ in 0..<250 where connector.frameUpdateRequests.count < 12 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.frameUpdateRequests.count < 12 })
 
         XCTAssertGreaterThanOrEqual(connector.frameUpdateRequests.count, 11)
         XCTAssertGreaterThan(
@@ -2626,22 +2643,16 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.updateViewportTransform(Self.appleDownscaleLosslessUnzoomedTransform)
 
         await model.connectSelectedProfile()
-        for _ in 0..<250 where connector.sentScaleFactors.isEmpty {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.sentScaleFactors.isEmpty })
         XCTAssertEqual(connector.sentScaleFactors, [0.5])
 
         // Wait for the resized framebuffer (fake's DesktopSize analogue) to
         // reach the model, so the tap below is computed in scaled space.
-        for _ in 0..<250 where model.snapshot.latestFramebuffer?.width != 60 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer?.width != 60 })
         XCTAssertEqual(model.snapshot.latestFramebuffer?.width, 60)
 
         model.sendTapAt(viewPoint: CGPoint(x: 10, y: 10), viewSize: CGSize(width: 20, height: 20))
-        for _ in 0..<250 where connector.recordedPointerEvents.count < 2 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { connector.recordedPointerEvents.count < 2 })
 
         // View center → scaled framebuffer (30, 30) → unscaled wire (60, 60).
         XCTAssertEqual(connector.recordedPointerEvents.map(\.mask), [1, 0])
@@ -3161,9 +3172,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.appSettings.streamPowerMode, .balanced)
         XCTAssertEqual(model.snapshot.sessionStreamStats.contentFrameCount, 4)
         XCTAssertEqual(model.snapshot.sessionStreamStats.adaptiveClientPressurePacingSampleCount, 2)
-        for _ in 0..<40 where model.snapshot.sessionStreamStats.appFrameApplyTimingSampleCount < 2 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.sessionStreamStats.appFrameApplyTimingSampleCount < 2 })
         let performance = try XCTUnwrap(model.makeDiagnosticExport().streamPerformance)
         XCTAssertEqual(performance.adaptiveClientPressurePacingSampleCount, 2)
         XCTAssertEqual(performance.adaptiveClientPressurePacingPermille, 500)
@@ -3333,9 +3342,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         model.setViewportInteractionActive(false)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != thirdFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != thirdFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
         model.disconnect()
@@ -3655,9 +3662,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != framebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffer)
 
         model.selectProfile(id: second.id)
@@ -4461,9 +4466,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
 
         await pacingGate.releaseNext()
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != framebuffers[2] {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers[2] })
 
         delays = await pacingGate.delays
         XCTAssertEqual(delays.count, 2)
@@ -4539,9 +4542,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         await model.connectSelectedProfile()
         try await waitForHelperVideoHealth(model, state: .healthy)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         let fallbackStartedAt = Date()
@@ -4553,9 +4554,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             )
         )
 
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != fallbackFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != fallbackFramebuffer })
 
         XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
         XCTAssertEqual(model.snapshot.latestFramebuffer, fallbackFramebuffer)
@@ -5437,9 +5436,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .controlV)
@@ -5547,9 +5544,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("status")
@@ -5614,9 +5609,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("한글과 English 😊")
@@ -5671,9 +5664,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("한글과 English 😊")
@@ -5772,17 +5763,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("한글과 English 😊")
         model.sendComposedText("한글과 English 😊")
         try await waitForHelperInsertRequests(helper, count: 1)
-        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.composeDraft?.sendState == .sending })
 
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
@@ -5837,17 +5824,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("status")
         model.sendComposedText("status")
         try await waitForHelperInsertRequests(helper, count: 1)
-        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.composeDraft?.sendState == .sending })
 
         XCTAssertNotEqual(
             model.snapshot.latestInjectionAttempt?.safeMessage,
@@ -5887,17 +5870,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("status")
         model.sendComposedText("status")
         try await waitForHelperInsertRequests(helper, count: 1)
-        for _ in 0..<60 where model.snapshot.composeDraft?.sendState == .sending {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.composeDraft?.sendState == .sending })
 
         let attempt = try XCTUnwrap(model.snapshot.latestInjectionAttempt)
         XCTAssertEqual(attempt.path, .helperTextBridge)
@@ -5946,9 +5925,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.updateComposeDraftText("한글과 English 😊")
@@ -5967,9 +5944,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
 
         XCTAssertTrue(helper.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6041,9 +6016,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6123,15 +6096,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
 
         XCTAssertTrue(recorder.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6380,15 +6349,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
 
         XCTAssertTrue(recorder.requests.isEmpty)
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
@@ -6435,15 +6400,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
-        for _ in 0..<60 where model.snapshot.latestInjectionAttempt?.status != .failed {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
 
         XCTAssertTrue(connector.clipboardPayloads.isEmpty)
         XCTAssertTrue(connector.pasteCommands.isEmpty)
@@ -6465,9 +6426,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6526,9 +6485,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6559,9 +6516,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6613,9 +6568,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.disableHelperTextBridge(for: profile.id)
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6682,9 +6635,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.helperTextBridgeState[profile.id]?.lastFailureCode, .revoked)
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
@@ -6725,18 +6676,14 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("한글과 English 😊", pasteCommand: .commandV)
         try await waitForHelperInsertRequests(helper, count: 1)
 
         model.revokeHelperTextBridge(for: profile.id)
-        for _ in 0..<40 where model.snapshot.latestInjectionAttempt?.status != .sent {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .sent })
 
         XCTAssertEqual(helper.insertedTexts, ["한글과 English 😊"])
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .sent)
@@ -6926,16 +6873,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("첫 문장", pasteCommand: .controlV)
         let sendingDraftID = try XCTUnwrap(model.snapshot.composeDraft?.id)
-        for _ in 0..<50 where connector.clipboardPayloads.isEmpty {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await settle(while: { connector.clipboardPayloads.isEmpty })
         XCTAssertEqual(connector.clipboardPayloads, ["첫 문장"])
 
         model.updateComposeDraftText("새로 쓰는 문장")
@@ -6977,15 +6920,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<20 where model.snapshot.session?.state != .active {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await settle(while: { model.snapshot.session?.state != .active })
         XCTAssertEqual(model.snapshot.session?.state, .active)
 
         model.sendComposedText("중단되어야 하는 paste", pasteCommand: .controlV)
-        for _ in 0..<50 where connector.clipboardPayloads.isEmpty {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await settle(while: { connector.clipboardPayloads.isEmpty })
         XCTAssertEqual(connector.clipboardPayloads, ["중단되어야 하는 paste"])
         XCTAssertTrue(
             connector.pasteCommands.isEmpty,
@@ -6993,9 +6932,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         model.disconnect()
-        for _ in 0..<120 where model.snapshot.latestInjectionAttempt?.status != .failed {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestInjectionAttempt?.status != .failed })
 
         XCTAssertTrue(connector.pasteCommands.isEmpty)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.status, .failed)
@@ -7273,13 +7210,9 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         try await pacingGate.waitForWaitCount(1)
-        for _ in 0..<80 where model.snapshot.profilePreviews[profile.id] == nil {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.profilePreviews[profile.id] == nil })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
         XCTAssertEqual(model.frameStore.framebuffer, firstFramebuffer)
@@ -7289,9 +7222,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let frameEventBaseline = frameEventCount
 
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != secondFramebuffer })
         try await Task.sleep(for: .milliseconds(20))
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, secondFramebuffer)
@@ -7345,9 +7276,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(2))
         model.updateComposeDraftText("입력느낌")
 
-        for _ in 0..<160 where model.snapshot.latestFramebuffer != framebuffers.last {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers.last })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers.last)
         XCTAssertEqual(
@@ -7398,9 +7327,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<80 where !connectGate.hasEntered {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { !connectGate.hasEntered })
         XCTAssertTrue(connectGate.hasEntered)
 
         // Hold the synchronous connector before its first frame so Compose
@@ -7414,9 +7341,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         connectGate.release()
 
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != framebuffers.first {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers.first })
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers.first)
 
         try await frameApplicationGate.waitForWaitCount(1)
@@ -7442,9 +7367,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         // every frame (which happens after enqueue) before opening the slot;
         // otherwise the worker can legitimately apply frame 2 before frames
         // 3 and 4 have reached the bounded queue.
-        for _ in 0..<80 where model.snapshot.sessionStreamStats.deliveredFrameCount < framebuffers.count {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.sessionStreamStats.deliveredFrameCount < framebuffers.count })
         XCTAssertEqual(
             model.snapshot.sessionStreamStats.deliveredFrameCount,
             framebuffers.count,
@@ -7457,9 +7380,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await frameApplicationGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != framebuffers.last {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers.last })
         XCTAssertEqual(
             model.snapshot.latestFramebuffer,
             framebuffers.last,
@@ -7510,9 +7431,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         await model.connectSelectedProfile()
 
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         try await pacingGate.waitForWaitCount(1)
         var delays = await pacingGate.delays
         XCTAssertEqual(
@@ -7524,9 +7443,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         model.setComposeInputEditingActive(true)
         model.updateComposeDraftText("입")
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != secondFramebuffer })
         try await pacingGate.waitForWaitCount(2)
 
         delays = await pacingGate.delays
@@ -7542,9 +7459,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.composeDraft?.text, "입력")
 
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != thirdFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != thirdFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
         XCTAssertEqual(model.snapshot.composeDraft?.text, "입력")
@@ -7593,9 +7508,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         await model.connectSelectedProfile()
 
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         try await pacingGate.waitForWaitCount(1)
         var delays = await pacingGate.delays
         XCTAssertEqual(
@@ -7606,9 +7519,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         model.markTransientFrameDeliveryInteractionActivityForTesting()
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != secondFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != secondFramebuffer })
         try await pacingGate.waitForWaitCount(2)
 
         delays = await pacingGate.delays
@@ -7621,9 +7532,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
 
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != thirdFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != thirdFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
     }
@@ -7660,17 +7569,13 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         let wakeStartedAt = Date()
         model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
         try await waitForPointerEvents(connector, count: 2)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != hoverEchoFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
         XCTAssertLessThan(
@@ -7712,9 +7617,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         model.togglePointerControlMode()
@@ -7725,9 +7628,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         try await waitForPointerEvents(connector, count: 1)
         XCTAssertEqual(connector.recordedBestEffortPointerEventCount, 1)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != hoverEchoFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, hoverEchoFramebuffer)
         XCTAssertLessThan(
@@ -7773,9 +7674,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         try await pacingGate.waitForWaitCount(1)
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
         var delays = await pacingGate.delays
@@ -7785,9 +7684,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         try await waitForPointerEvents(connector, count: 2)
 
         await pacingGate.releaseNext()
-        for _ in 0..<80 where model.snapshot.latestFramebuffer != hoverEchoFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != hoverEchoFramebuffer })
         try await pacingGate.waitForWaitCount(2)
         delays = await pacingGate.delays
 
@@ -7835,16 +7732,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         }
 
         await model.connectSelectedProfile()
-        for _ in 0..<50 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         model.setViewportInteractionActive(true)
         let requestCountAtGestureStart = connector.frameUpdateRequests.count
-        for _ in 0..<120 where connector.frameUpdateRequests.count <= requestCountAtGestureStart {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { connector.frameUpdateRequests.count <= requestCountAtGestureStart })
 
         XCTAssertGreaterThan(
             connector.frameUpdateRequests.count,
@@ -7858,9 +7751,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         model.setViewportInteractionActive(false)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != thirdFramebuffer {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != thirdFramebuffer })
 
         XCTAssertEqual(model.snapshot.latestFramebuffer, thirdFramebuffer)
     }
@@ -7891,15 +7782,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<50 where model.snapshot.latestFramebuffer != firstFramebuffer {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != firstFramebuffer })
         XCTAssertEqual(model.snapshot.latestFramebuffer, firstFramebuffer)
 
         model.setViewportInteractionActive(true)
-        for _ in 0..<120 where model.snapshot.latestFramebuffer != nil {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.latestFramebuffer != nil })
         XCTAssertNil(model.snapshot.latestFramebuffer)
 
         model.setViewportInteractionActive(false)
@@ -8306,9 +8193,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        for _ in 0..<120 where model.snapshot.lastDiagnosticVerdict[first.id] != .passed {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await settle(while: { model.snapshot.lastDiagnosticVerdict[first.id] != .passed })
         XCTAssertEqual(model.snapshot.lastDiagnosticVerdict[first.id], .passed)
 
         // Switch to the second profile — the first profile's
