@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in the app behaves wrongly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The single most useful thing you can attach is a
+        **diagnostic export**: in the app, **Session tools → Diagnostics →
+        Share**. It carries stage results only — no addresses, passwords,
+        screen contents, or text you composed — so it is safe to paste here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the app did instead of what you expected.
+      placeholder: |
+        I tapped Send in Compose with Korean text in the field, and …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Naru Remote version
+      description: From **About** — the line under the app name, e.g. `1.0.0 (12)`.
+      placeholder: "1.0.0 (12)"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and iOS version
+      placeholder: "iPhone 15 Pro, iOS 18.2"
+    validations:
+      required: true
+
+  - type: input
+    id: remote
+    attributes:
+      label: What you were connecting to
+      description: >
+        The remote OS and VNC server — that is where compatibility bugs live.
+        No addresses, please.
+      placeholder: "macOS 15.2 Screen Sharing / Ubuntu 24.04 + TigerVNC / …"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Tailscale / tailnet
+        - Same LAN / Wi-Fi
+        - Other VPN
+        - Public address (advanced)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic export
+      description: >
+        Session tools → Diagnostics → Share. Paste it here. Skip this if the
+        problem happens before you can reach a session.
+      render: text
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >
+        Screenshots and screen recordings are very welcome — please check them
+        for anything private before uploading, since a screenshot of a remote
+        desktop shows whatever was on it.

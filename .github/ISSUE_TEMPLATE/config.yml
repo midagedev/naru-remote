@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/midagedev/naru-remote/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: Questions and ideas
+    url: https://github.com/midagedev/naru-remote/discussions
+    about: For anything that isn't a specific bug or request.

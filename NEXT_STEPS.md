@@ -190,6 +190,50 @@ same PR.
    be confirmed — is what the report was about. **Open:** founder device pass on
    the build that carries this.
 
+00i. **`specs/039` open to developers.** Landed 2026-08-27, from the founder's
+   follow-up to the 038 pass — "이건 근데 내가 이야기한 것만 고친거고 전반적인 개선을
+   더 해볼 부분은 없니… 이거 깃이 퍼블릭이니?" Two halves. **The project had no
+   public face:** no README, LICENSE, CONTRIBUTING or SECURITY, no issue or PR
+   templates, and inside the app no About surface at all — no version, no route
+   to the author, no acknowledgement of glasskeys, and no statement of what
+   leaves the device (measured: not one `github.com` or `mailto:` URL in any
+   source file). All of it now exists; About is reachable from the Connections
+   header **and** from the first-launch empty home, because the grid does not
+   exist until a profile does and a user stuck on their first connection was the
+   one person who could not have found it. **And two defects the design target
+   guarantees every user meets:** (1) `isIdleTimerDisabled` appeared nowhere, so
+   the phone auto-locked during exactly the sessions this app is for — watching
+   a build for minutes without touching the screen is what auto-lock measures as
+   having put the phone down. `ScreenWakePolicy` is one function of the whole
+   state and `ScreenWakeCoordinator` the one place the flag is written, with the
+   property "every ordering ends released" as a test. (2) Hostname fields opened
+   on a **Korean** keyboard — spec 016 FR-010 declared this closed with
+   `.keyboardType(.URL)`, which picks a layout and not a language, so on a
+   Korean-first phone the URL keyboard is the Korean keyboard with `.com` added.
+   FAIL-first reproduced it by reading the keys (`ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ`);
+   `.asciiCapable` closes it. Also removed `ProfileListView.swift`, 243 lines
+   referenced from nowhere since spec 013.
+   **Decisions:** publish the repository, MIT licensed. A full-history scan
+   (868 commits) found no credentials; one real tailnet address in a fixture was
+   replaced with a placeholder.
+   **Open:** flipping the repository to public, and the founder device pass on
+   the build that carries this.
+
+00j. **Two follow-ups the 039 audit surfaced and did not take.**
+   (a) **`NaruRemoteAppModel.swift` is 10,219 lines.** It owns session
+   lifecycle, frame streaming, PiP wiring, persistence, text injection, helper
+   video, diagnostics and settings. Nothing is wrong with it that a reader can
+   point at; the problem is that no reader gets far enough to point. A split
+   along the seams it already has — the `// MARK:` sections are close to the
+   right boundaries — is a round of its own, and wants a spec because moving
+   published state between types changes what SwiftUI invalidates.
+   (b) **The UI is English-only.** `ko.lproj` holds exactly one string, the
+   local-network permission prompt. For a product whose differentiator is
+   composing Korean text, and whose author and earliest users are Korean, an
+   English-only interface is an odd note. Localisation is a large round —
+   every user-facing string in the app plus the App Store listing — and it
+   should not be attempted alongside behaviour changes.
+
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
    viewport made Apple Screen Sharing answer roughly twenty times slower

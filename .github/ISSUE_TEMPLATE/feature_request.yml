@@ -1,0 +1,50 @@
+name: Feature request
+description: Something the app should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Naru is developed spec-first, so a good request is already half a spec:
+        the situation you were in matters more than the control you have in mind.
+
+  - type: textarea
+    id: situation
+    attributes:
+      label: What were you trying to do
+      description: >
+        The concrete moment — what you were working on, on what device, over
+        what network — not the feature name.
+      placeholder: |
+        I was watching a test suite run over cellular and wanted to …
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do about it today
+      description: The workaround, or "nothing, I give up and open the laptop".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you think should happen
+      description: >
+        Optional. If you already have a shape in mind, describe it — but the
+        situation above is the part that can't be reconstructed.
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Does this touch any of these?
+      description: >
+        Not disqualifying — these areas have rules in
+        `.specify/memory/constitution.md`, and knowing early saves a round.
+      options:
+        - label: Text or input reaching the remote machine
+        - label: Credentials, the Keychain, or Naru Helper pairing
+        - label: Anything leaving the device (clipboard, files, screenshots, logs)
+        - label: Connecting over the public internet
