@@ -1,0 +1,60 @@
+name: CI
+
+# The gate an outside pull request meets.
+#
+# `swift test` covers NaruRemoteCore, the app model, and the fake RFB server —
+# the layers that hold the protocol, session, input and geometry logic, and the
+# reason `NaruRemoteCore` is kept free of SwiftUI and UIKit. It is the fast
+# inner loop by design, and it is what a contributor can be asked to keep green.
+#
+# The XCUITest suites are not here. They need a booted simulator, and several
+# of them assert things a hosted runner cannot produce — a Korean keyboard
+# installed, a PiP-capable device, a reachable Mac on the author's tailnet.
+# Those tests skip themselves with a reason rather than failing, so running
+# them in CI would report green for coverage that never ran. They stay a
+# maintainer gate; see CONTRIBUTING.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: swift build + test
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test --skip-build
+
+      - name: Check the module boundary
+        # NaruRemoteCore importing a UI framework is the one architectural rule
+        # a diff can break silently: everything still compiles, and the fast
+        # test loop quietly stops being fast. Cheaper to assert than to notice.
+        run: |
+          if grep -rn --include='*.swift' -E '^import (SwiftUI|UIKit|AppKit)$' \
+               NaruRemote/Sources/NaruRemoteCore; then
+            echo "::error::NaruRemoteCore must not import a UI framework"
+            exit 1
+          fi
+          echo "NaruRemoteCore imports no UI framework."
