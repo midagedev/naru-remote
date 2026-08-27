@@ -837,16 +837,26 @@ public struct ProfileEditorView: View {
 }
 
 private extension View {
-    /// Input traits for hostname fields (spec 016 FR-010): a hostname is
-    /// machine text — autocorrection "fixing" `studio` to `studios`,
-    /// leading-capital `Studio.tailnet…`, or the field opening on a Korean
-    /// IME page are functional defects. The URL keyboard also puts `.` on
-    /// the primary plane.
+    /// Input traits for hostname fields (spec 016 FR-010, spec 039 FR-004): a
+    /// hostname is machine text — autocorrection "fixing" `studio` to
+    /// `studios`, leading-capital `Studio.tailnet…`, or the field opening on a
+    /// Korean IME page are functional defects.
+    ///
+    /// `.asciiCapable`, not `.URL`. The URL keyboard was the first attempt and
+    /// it closes only half the defect: a keyboard type picks a *layout*, and
+    /// the *language* stays whatever the user typed with last. On a phone
+    /// whose keyboards are Korean-then-English — the configuration of this
+    /// product's own founder — the URL keyboard is the Korean keyboard with
+    /// `.com` bolted on, which `HostFieldKeyboardUITests` reproduced by
+    /// reading the keys: `ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ`. `.asciiCapable` says the field
+    /// cannot accept anything but ASCII, and iOS answers by opening a plane
+    /// that can produce it. The cost is the `.com` key; a MagicDNS name has no
+    /// use for it, and `.` is on the primary plane of both.
     @ViewBuilder
     func hostnameInputTraits() -> some View {
         #if os(iOS)
         self
-            .keyboardType(.URL)
+            .keyboardType(.asciiCapable)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
         #else

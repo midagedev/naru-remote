@@ -8248,7 +8248,11 @@ final class NaruRemoteAppModelTests: XCTestCase {
         let credentialRef = "vnc-password:test-timeout-\(UUID().uuidString)"
         let profile = try ConnectionProfile(
             displayName: "Desk",
-            host: "100.126.136.43",
+            // A placeholder in the shared address space, not a real machine —
+            // nothing here opens a socket. (2026-08-27: the previous literal
+            // was an actual tailnet address of the author's, which is not
+            // sensitive but is also not a fixture.)
+            host: "100.64.0.9",
             port: 5900,
             credentialRef: credentialRef,
             hostKind: .privateAddress
