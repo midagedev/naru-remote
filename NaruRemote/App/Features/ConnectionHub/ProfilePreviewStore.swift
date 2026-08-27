@@ -3,8 +3,19 @@ import Foundation
 import NaruRemoteCore
 
 public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
-    public static let defaultMaxWidth = 320
-    public static let defaultMaxHeight = 200
+    /// Spec 038 FR-011: enough pixels that the card is not magnifying a
+    /// thumbnail, without turning a thumbnail into a photograph.
+    ///
+    /// A grid card is about half an iPhone's width — ~190pt on a 402pt screen —
+    /// so at 3× it draws ~570 device pixels wide and the old 320 cap meant a
+    /// permanent 1.8× upscale. 480 brings that to 1.19×, which after FR-010's
+    /// filtering is not visible.
+    ///
+    /// It stops there rather than at 570 because this is stored as raw RGBA in
+    /// a JSON file, per profile: 480×300 is 576KB where 640×400 would be 1MB,
+    /// and the aliasing was always the larger half of the defect.
+    public static let defaultMaxWidth = 480
+    public static let defaultMaxHeight = 300
 
     public let width: Int
     public let height: Int
@@ -103,22 +114,41 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
             guard !bytes.isEmpty else {
                 return
             }
-            let clear = RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
             var pixelIndex = 0
             for y in 0..<thumbnailHeight {
-                let sourceY = min(
+                // Spec 038 FR-010: average the source block this destination
+                // pixel covers, rather than sampling one pixel out of it.
+                //
+                // Point sampling a 3024-wide desktop down to a card keeps one
+                // pixel in ninety-four and throws away the rest, and what these
+                // desktops are full of is text — so strokes appeared, doubled
+                // or vanished depending on where the sample happened to land.
+                // That is not softness, it is aliasing, and no amount of
+                // interpolation at draw time can undo it.
+                let sourceYStart = min(
                     framebuffer.height - 1,
                     Int(Double(y) * sourceYScale)
                 )
-                let sourceRowOffset = sourceY * framebuffer.width
+                let sourceYEnd = max(
+                    sourceYStart + 1,
+                    min(framebuffer.height, Int((Double(y) + 1) * sourceYScale))
+                )
                 for x in 0..<thumbnailWidth {
-                    let sourceX = min(
+                    let sourceXStart = min(
                         framebuffer.width - 1,
                         Int(Double(x) * sourceXScale)
                     )
-                    let sourceIndex = sourceRowOffset + sourceX
+                    let sourceXEnd = max(
+                        sourceXStart + 1,
+                        min(framebuffer.width, Int((Double(x) + 1) * sourceXScale))
+                    )
                     Self.write(
-                        sourceIndex < sourcePixels.count ? sourcePixels[sourceIndex] : clear,
+                        Self.averageColor(
+                            of: sourcePixels,
+                            framebufferWidth: framebuffer.width,
+                            xRange: sourceXStart..<sourceXEnd,
+                            yRange: sourceYStart..<sourceYEnd
+                        ),
                         into: bytes,
                         atPixelIndex: pixelIndex
                     )
@@ -188,6 +218,50 @@ public struct ProfilePreviewThumbnail: Codable, Equatable, Sendable {
             decode: nil,
             shouldInterpolate: true,
             intent: .defaultIntent
+        )
+    }
+
+    /// The mean of one source block, in straight (non-premultiplied) RGBA.
+    ///
+    /// Accumulating in `Int` and dividing once keeps this exact for any block
+    /// a phone-sized framebuffer can produce, and avoids the rounding drift a
+    /// running average would leave across a 3000-pixel row.
+    static func averageColor(
+        of pixels: [RFBColor],
+        framebufferWidth: Int,
+        xRange: Range<Int>,
+        yRange: Range<Int>
+    ) -> RFBColor {
+        var red = 0
+        var green = 0
+        var blue = 0
+        var alpha = 0
+        var count = 0
+
+        for y in yRange {
+            let rowOffset = y * framebufferWidth
+            for x in xRange {
+                let index = rowOffset + x
+                guard index >= 0, index < pixels.count else {
+                    continue
+                }
+                let pixel = pixels[index]
+                red += Int(pixel.red)
+                green += Int(pixel.green)
+                blue += Int(pixel.blue)
+                alpha += Int(pixel.alpha)
+                count += 1
+            }
+        }
+
+        guard count > 0 else {
+            return RFBColor(red: 0, green: 0, blue: 0, alpha: 0)
+        }
+        return RFBColor(
+            red: UInt8((red + count / 2) / count),
+            green: UInt8((green + count / 2) / count),
+            blue: UInt8((blue + count / 2) / count),
+            alpha: UInt8((alpha + count / 2) / count)
         )
     }
 

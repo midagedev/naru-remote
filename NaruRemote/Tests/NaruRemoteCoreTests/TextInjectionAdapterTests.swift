@@ -32,7 +32,9 @@ final class TextInjectionAdapterTests: XCTestCase {
         XCTAssertEqual(attempt.clipboardSetStatus, .succeeded)
         XCTAssertEqual(attempt.pasteCommandStatus, .succeeded)
         XCTAssertEqual(attempt.remoteClipboardRestore, .unsupported)
-        XCTAssertEqual(draft.text, "plain ASCII input")
+        // Spec 038 FR-004: a dispatched paste consumes the draft — the bytes
+        // left the device and only the remote app's reaction is unknown.
+        XCTAssertEqual(draft.text, "")
         XCTAssertEqual(draft.sendState, .unknown)
         XCTAssertNil(draft.lastFailureReason)
         XCTAssertEqual(

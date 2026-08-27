@@ -35,23 +35,36 @@ final class PiPFramingUITests: XCTestCase {
         )
     }
 
-    func testLongPressOffersTheFramingChoices() throws {
+    /// Contract changed by spec 038 FR-006 (2026-08-27): `followActivity` is
+    /// gone at the founder's call — "실 동작영역을 찾는 알고리즘 구현하는건 어려울것
+    /// 같아서 제거하고". This used to assert its presence, calling it "the mode
+    /// the founder asked for by name", which is exactly why the assertion had
+    /// to move rather than be quietly deleted.
+    ///
+    /// With one mode left there is nothing to choose between until a region is
+    /// drawn, so the menu is just the action — and the assertion is that the
+    /// retired mode is *not* offered, which a deleted test could not make.
+    func testLongPressOffersDrawingARegionAndNotTheRetiredAutomaticMode() throws {
         let app = launchLiveSession()
         let pip = try revealPiPControl(in: app)
 
         pip.press(forDuration: 1.1)
 
         XCTAssertTrue(
-            app.buttons["naru.session.pip.framing.currentView"].waitForExistence(timeout: 5),
-            "Long press must offer the current-view mode"
-        )
-        XCTAssertTrue(
-            app.buttons["naru.session.pip.framing.followActivity"].exists,
-            "Long press must offer automatic framing — the mode the founder asked for by name"
-        )
-        XCTAssertTrue(
-            app.buttons["naru.session.pip.chooseRegion"].exists,
+            app.buttons["naru.session.pip.chooseRegion"].waitForExistence(timeout: 5),
             "Long press must offer drawing a region"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.pip.framing.followActivity"].exists,
+            "Follow activity was removed; offering it would frame PiP on a guess"
+        )
+        XCTAssertFalse(
+            app.buttons["naru.session.pip.framing.currentView"].exists,
+            """
+            With no region drawn, "Current view" is the only mode there is — a \
+            row that is permanently checked and cannot be unchecked is chrome \
+            pretending to be a choice.
+            """
         )
         saveScreen(named: "21-pip-framing-menu.png")
     }

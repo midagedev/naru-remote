@@ -421,7 +421,6 @@ public final class NaruRemoteAppModel: ObservableObject {
     public let pipLayerHost: PiPLayerHost
     /// Automatic PiP framing (spec 034). Reset whenever a session or the mode
     /// changes, so a new session never inherits the last one's framing.
-    private var pipAutoFramingState = PiPAutoFramingState()
     public let helperVideoLayerHost: HelperVideoLayerHost
     #endif
     private var activeTextClient: RemoteClipboardTextClient?
@@ -996,7 +995,6 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         appSettings = updated
         persistAppSettings(updated)
-        pipAutoFramingState.reset()
         applyPiPFramingForActiveWatch()
     }
 
@@ -1017,6 +1015,39 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// The region the user drew, this session. Nil means none drawn yet, in
     /// which case `chosenRegion` behaves like `currentView`.
     @Published public private(set) var pipChosenRegion: PiPFramingTarget?
+
+    /// Was PiP up when the region picker opened? (spec 038 FR-007)
+    @Published public private(set) var pipResumesAfterRegionChoice = false
+
+    /// Opens the region picker, closing the PiP window first if one is up.
+    ///
+    /// While PiP watches, the in-app viewport draws through the very
+    /// `AVSampleBufferDisplayLayer` the system has taken for the floating
+    /// window, so the in-app copy is blank — and "Choose region…" dropped the
+    /// user onto a picker over an empty screen with nothing to aim at. Closing
+    /// the window gives the picture back.
+    ///
+    /// It is also the only way the choice can take effect: framing is imposed
+    /// at entry because PiP is watch-only, so a region chosen while a window is
+    /// already open would not have been applied to it anyway.
+    public func beginChoosingPiPRegion() {
+        pipResumesAfterRegionChoice = isPiPWatchEngaged
+        guard pipResumesAfterRegionChoice else {
+            return
+        }
+        stopPiPWatch()
+    }
+
+    /// Closes the picker and re-opens PiP if this call closed it — with
+    /// whatever framing is now selected, which for a completed pick is the
+    /// region just drawn.
+    public func endChoosingPiPRegion() {
+        guard pipResumesAfterRegionChoice else {
+            return
+        }
+        pipResumesAfterRegionChoice = false
+        startPiPWatch()
+    }
 
     public func setPiPChosenRegion(_ region: PiPFramingTarget?) {
         pipChosenRegion = region
@@ -7674,7 +7705,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         // Unicode keysyms is unconfirmable, so report like the paste path:
         // dispatched, not confirmed.
         let message = "Typed \(transcoding.usesUnicodeKeysyms ? "as keystrokes (Unicode)" : "as keystrokes")"
-        draft.markUnknown(message: message, clearAfterSend: false, at: now)
+        draft.markUnknown(message: message, at: now)
         composeDraft = draft
         latestInjectionAttempt = TextInjectionAttempt(
             draftID: draft.id,
@@ -9850,9 +9881,8 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         // The framing a single tap gets is whatever the user was looking at
-        // (FR-001); the other two modes impose theirs here, before the window
+        // (FR-001); a chosen region imposes itself here, before the window
         // opens, because PiP is watch-only and there is no adjusting it after.
-        pipAutoFramingState.reset()
         switch appSettings.pipFramingMode {
         case .currentView:
             break
@@ -9860,11 +9890,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             if let pipChosenRegion {
                 applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
             }
-        case .followActivity:
-            pipAutoFramingState.adopt(
-                Self.framingTarget(for: pipLayerHost.currentViewport),
-                at: ProcessInfo.processInfo.systemUptime
-            )
         }
         #endif
 
@@ -9936,10 +9961,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             return
         }
 
-        #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
-        updatePiPAutoFramingIfNeeded(framebuffer: framebuffer, dirtyRectangles: dirtyRectangles)
-        #endif
-
         do {
             forwardFrameToLayerHost(framebuffer)
             try pipWatchController.enqueue(framebuffer, viewport: currentPiPWatchViewport)
@@ -9963,8 +9984,8 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func clearPiPWatchSession() {
         stopPiPWatchController(reason: .sessionEnded)
         pipWatchSession = nil
-        pipAutoFramingState.reset()
         pipChosenRegion = nil
+        pipResumesAfterRegionChoice = false
         #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
         pipLayerHost.flush()
         #endif
@@ -10033,46 +10054,11 @@ public final class NaruRemoteAppModel: ObservableObject {
             if let pipChosenRegion {
                 applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
             }
-        case .followActivity:
-            pipAutoFramingState.adopt(
-                Self.framingTarget(for: pipLayerHost.currentViewport),
-                at: ProcessInfo.processInfo.systemUptime
-            )
         }
         #endif
     }
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
-    /// Feeds this frame's damage to the automatic policy and moves the PiP
-    /// window when it says to (spec 034 FR-004). Runs only while a PiP window
-    /// is up and the mode asks for it, so an ordinary foreground session pays
-    /// nothing for this.
-    private func updatePiPAutoFramingIfNeeded(
-        framebuffer: RFBRawFramebuffer,
-        dirtyRectangles: [RFBFrameDamageRect]?
-    ) {
-        guard appSettings.pipFramingMode == .followActivity,
-              isPiPWatchEngaged,
-              let dirtyRectangles
-        else {
-            return
-        }
-
-        let target = pipAutoFramingState.observe(
-            damage: dirtyRectangles,
-            framebufferWidth: framebuffer.width,
-            framebufferHeight: framebuffer.height,
-            now: ProcessInfo.processInfo.systemUptime
-        )
-        guard let target else {
-            return
-        }
-        // No replay here: the caller enqueues this very frame immediately
-        // after, through the viewport this call just set. Replaying would
-        // convert the same framebuffer to video samples twice.
-        applyPiPFraming(target, replaying: nil)
-    }
-
     /// `replaying` re-sends a frame through the new viewport, which is what a
     /// mode or region change needs — a static remote screen would otherwise
     /// keep the old framing until something moved.
@@ -10194,7 +10180,6 @@ public final class NaruRemoteAppModel: ObservableObject {
 
         // Same framing the tapped entry would have taken — automatic entry is
         // not a second, plainer kind of PiP (spec 034 applies as written).
-        pipAutoFramingState.reset()
         switch appSettings.pipFramingMode {
         case .currentView:
             break
@@ -10202,11 +10187,6 @@ public final class NaruRemoteAppModel: ObservableObject {
             if let pipChosenRegion {
                 applyPiPFraming(pipChosenRegion, replaying: latestFramebuffer)
             }
-        case .followActivity:
-            pipAutoFramingState.adopt(
-                Self.framingTarget(for: pipLayerHost.currentViewport),
-                at: ProcessInfo.processInfo.systemUptime
-            )
         }
         forwardFrameToLayerHost(latestFramebuffer)
     }

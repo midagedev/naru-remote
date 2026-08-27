@@ -187,6 +187,61 @@ public struct ViewportTransform: Equatable, Sendable {
         )
     }
 
+    /// The framebuffer pixel currently under the middle of the viewport.
+    ///
+    /// Unclamped on purpose: at fit there are letterbox bands, and the centre
+    /// of the view can sit inside one on the short axis. What matters for
+    /// `resized(to:)` is the continuous coordinate, not whether it happens to
+    /// land on a real pixel.
+    public var centerFramebufferPoint: CGPoint {
+        framebufferPointUnclamped(
+            fromViewPoint: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        )
+    }
+
+    /// Copy in a viewport of a different size, still looking at the same thing
+    /// (spec 038 FR-008).
+    ///
+    /// A resize is not a navigation. Raising the software keyboard shrinks the
+    /// viewport, and the shell used to answer that by recomputing the baseline
+    /// zoom and dropping `panOffset` to `.zero` — so the act of typing returned
+    /// a user who had panned to a corner back to the middle of the desktop, and
+    /// switching keyboards did it twice because the globe resizes twice.
+    ///
+    /// Zoom is carried across unchanged, and the pan is re-derived so the pixel
+    /// that was in the middle stays in the middle. It can still be clamped by
+    /// the new bounds — a viewport that grew may have less pan travel available
+    /// — which is a smaller, explicable movement rather than a jump.
+    public func resized(to newViewSize: CGSize) -> ViewportTransform {
+        let anchor = centerFramebufferPoint
+        let candidate = ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: newViewSize,
+            zoomScale: zoomScale,
+            panOffset: .zero,
+            maxZoomScale: maxZoomScale
+        )
+        guard candidate.displayScale > 0 else {
+            return candidate
+        }
+
+        // Centred content puts `contentOrigin` at the letterbox origin; the pan
+        // that moves `anchor` to the middle is the difference between where it
+        // lands and where we want it.
+        let landedX = candidate.contentOrigin.x + anchor.x * candidate.displayScale
+        let landedY = candidate.contentOrigin.y + anchor.y * candidate.displayScale
+        return ViewportTransform(
+            framebufferSize: framebufferSize,
+            viewSize: newViewSize,
+            zoomScale: zoomScale,
+            panOffset: CGSize(
+                width: newViewSize.width / 2 - landedX,
+                height: newViewSize.height / 2 - landedY
+            ),
+            maxZoomScale: maxZoomScale
+        )
+    }
+
     /// Copy at the fit scale (zoom reset, pan cleared).
     public func reset() -> ViewportTransform {
         ViewportTransform(

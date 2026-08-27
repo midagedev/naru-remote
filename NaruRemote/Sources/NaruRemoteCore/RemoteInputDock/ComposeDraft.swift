@@ -62,8 +62,32 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
         self.lastStatusMessage = "Sending through \(path.rawValue)"
     }
 
+    /// Did this outcome consume the draft? (spec 038 FR-004/FR-005)
+    ///
+    /// Send is a submit since spec 015 v1.1 FR-010 — the draft leaves with a
+    /// trailing Return — so text that reached the wire has to leave the field
+    /// too. Leaving it there is how the founder came to be looking at a line he
+    /// had already run, one tap away from running it twice, which in a terminal
+    /// is not a cosmetic mistake.
+    ///
+    /// `unknown` counts as consumed: the bytes left the device and only the
+    /// remote app's reaction is unconfirmable. `failed` does not, because then
+    /// the field is the only place the text still exists.
+    ///
+    /// This is a property of the outcome rather than a flag each caller passes.
+    /// It was a `clearAfterSend:` / `clearAfterConfirmation:` parameter
+    /// defaulting to false, and all three delivery paths — keystroke, helper,
+    /// clipboard — took the default.
+    public static func outcomeConsumesDraft(_ state: ComposeSendState) -> Bool {
+        switch state {
+        case .sent, .unknown:
+            return true
+        case .idle, .ready, .sending, .failed:
+            return false
+        }
+    }
+
     public mutating func markSent(
-        clearAfterConfirmation: Bool = false,
         message: String = "Sent",
         at date: Date = Date()
     ) {
@@ -71,9 +95,7 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
         self.updatedAt = date
         self.lastFailureReason = nil
         self.lastStatusMessage = message
-        if clearAfterConfirmation {
-            self.text = ""
-        }
+        consumeTextIfOutcomeRequires()
     }
 
     public mutating func markFailed(reason: String, at date: Date = Date()) {
@@ -81,23 +103,28 @@ public struct ComposeDraft: Codable, Equatable, Identifiable, Sendable {
         self.updatedAt = date
         self.lastFailureReason = reason
         self.lastStatusMessage = reason
+        consumeTextIfOutcomeRequires()
     }
 
     public mutating func markUnknown(
         message: String,
-        clearAfterSend: Bool = false,
         at date: Date = Date()
     ) {
         self.sendState = .unknown
         self.updatedAt = date
         self.lastFailureReason = nil
         self.lastStatusMessage = message
-        if clearAfterSend {
-            self.text = ""
-        }
+        consumeTextIfOutcomeRequires()
     }
 
     public mutating func markPasteDispatched(message: String, at date: Date = Date()) {
-        markUnknown(message: message, clearAfterSend: false, at: date)
+        markUnknown(message: message, at: date)
+    }
+
+    private mutating func consumeTextIfOutcomeRequires() {
+        guard Self.outcomeConsumesDraft(sendState) else {
+            return
+        }
+        text = ""
     }
 }

@@ -16,7 +16,12 @@ public struct RemoteInputDockView: View {
     /// Spec 015 v1.1: the compact Compose field is one line tall, full stop.
     /// The founder read the old 88pt box as a multi-line editor eating the
     /// remote screen; long drafts scroll inside this height instead.
+    ///
+    /// Spec 038 FR-003: this is the height of the whole control — the same 40pt
+    /// every other control on the row is — and `compactComposeEditorInset` is
+    /// taken out of it rather than added to it.
     nonisolated static let compactComposeEditorHeight: CGFloat = 40
+    nonisolated static let compactComposeEditorInset: CGFloat = 5
     nonisolated static let minimumFloatingModeTargetDiameter: CGFloat = 44
     nonisolated static let composeSendFastSnapshotCount = 3
     nonisolated static let composeSendFastDelayNanoseconds: UInt64 = 0
@@ -551,10 +556,16 @@ public struct RemoteInputDockView: View {
 
                     if showsCompactComposeEditor {
                         composeTextEditor
-                            .frame(height: Self.compactComposeEditorHeight)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, Self.compactComposeEditorInset)
                             .padding(.horizontal, 10)
+                            // Spec 038 FR-003: the height is the whole
+                            // control's, inset included. It used to be the
+                            // *text view's*, with 6pt of padding added on top —
+                            // so a row of 40pt controls was 52pt tall to seat a
+                            // 40pt field, and Compose was permanently 12pt
+                            // taller than Type for no visible reason.
+                            .frame(height: Self.compactComposeEditorHeight)
                             .background(NaruColors.surfaceEditor)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(
@@ -983,7 +994,19 @@ public struct RemoteInputDockView: View {
     /// controls remain one tap away, but collapse from a permanent strip into
     /// a menu inside the accessory row.
     private var compactMacControlMenu: some View {
-        Menu {
+        macControlMenu(insideKeyStrip: false)
+    }
+
+    /// Spec 038: inside the strip this wears the strip's own key chrome.
+    ///
+    /// It was a `.bordered` menu around a 38×38 label everywhere, and
+    /// `.bordered` adds its own padding — so the one control that was not a
+    /// strip key measured 56pt and decided the height of a row of 36pt keys.
+    /// On an iPhone that is 16pt of remote screen, on the row the founder
+    /// types on, spent on a button looking different from its neighbours.
+    @ViewBuilder
+    private func macControlMenu(insideKeyStrip: Bool) -> some View {
+        let menu = Menu {
             ForEach(MacSessionControl.allCases, id: \.self) { control in
                 Button {
                     onMacSessionControl(control)
@@ -994,11 +1017,31 @@ public struct RemoteInputDockView: View {
                 .accessibilityIdentifier("naru.input.mac-control.\(control.rawValue)")
             }
         } label: {
-            Image(systemName: "rectangle.3.group")
-                .frame(width: 38, height: 38)
-                .accessibilityHidden(true)
+            if insideKeyStrip {
+                Image(systemName: "rectangle.3.group")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(minWidth: 44, minHeight: 36)
+                    .background(NaruColors.surfaceKey)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(NaruColors.hairline, lineWidth: 1)
+                    )
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "rectangle.3.group")
+                    .frame(width: 38, height: 38)
+                    .accessibilityHidden(true)
+            }
         }
-        .buttonStyle(.bordered)
+
+        Group {
+            if insideKeyStrip {
+                menu.buttonStyle(.plain).foregroundStyle(.primary)
+            } else {
+                menu.buttonStyle(.bordered)
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Mac controls")
@@ -1172,7 +1215,7 @@ public struct RemoteInputDockView: View {
                         // it took ~52pt of the fixed width and pushed keys
                         // out of the no-scroll zone (spec 012 US2-2).
                         if hostsRowMigratedControls, showsMacSessionControls {
-                            compactMacControlMenu
+                            macControlMenu(insideKeyStrip: true)
                         }
                     }
                     .padding(.vertical, 2)
@@ -1577,9 +1620,33 @@ public struct RemoteInputDockView: View {
             guard !finalText.isEmpty else { return }
             triggerCrossingPulse()
             onSend(finalText)
+            emptyComposeFieldAfterSend()
         }
         #else
         onSend(text)
+        #endif
+    }
+
+    /// Empties the field the moment the draft is dispatched (spec 038 FR-004).
+    ///
+    /// The model clears its own copy through `ComposeDraft.outcomeConsumesDraft`,
+    /// but that clear cannot reach a focused `UITextView` — the binding write is
+    /// deferred by design — and it arrives an async round-trip later besides.
+    /// The field is emptied here, at the tap, and the model's outcome is what
+    /// puts text *back* if the send failed: a failed draft keeps its text, so
+    /// `initialText` re-arrives non-empty and the editor adopts it.
+    ///
+    /// The propagation bookkeeping is updated first so this local clear is not
+    /// mistaken for the user deleting their own draft mid-send.
+    private func emptyComposeFieldAfterSend() {
+        #if os(iOS) && canImport(UIKit)
+        lastPropagatedComposeText = ""
+        lastAppliedInitialText = ""
+        cancelPendingComposeTextPropagation()
+        composeCommitController.clearAfterSend()
+        if !text.isEmpty {
+            text = ""
+        }
         #endif
     }
 
@@ -2183,6 +2250,26 @@ final class ComposeTextCommitController {
     /// field there is no drag surface left to lower the keyboard with.
     func blur() {
         _ = textView?.resignFirstResponder()
+    }
+
+    /// Empties the field because the user sent it (spec 038 FR-004).
+    ///
+    /// This has to go through UIKit rather than the SwiftUI binding:
+    /// `shouldDeferUIKitComposeBindingWrite` refuses any write that would empty
+    /// a *focused* field, which is right when the model's mirror is stale and
+    /// wrong when the user pressed Send. Same shape as
+    /// `commitMarkedTextAndRead` — user-initiated, so it acts.
+    func clearAfterSend() {
+        guard let textView else {
+            currentText = ""
+            return
+        }
+        if textView.markedTextRange != nil {
+            textView.unmarkText()
+        }
+        textView.text = ""
+        textView.layoutIfNeeded()
+        updateCurrentText(from: textView)
     }
 
     func updateCurrentText(from textView: UITextView) {

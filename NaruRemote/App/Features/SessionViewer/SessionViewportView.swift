@@ -173,7 +173,6 @@ public struct SessionViewportView: View {
     /// as state lets keyboard-driven viewport height changes preserve
     /// explicit user zoom while still re-centering when the user was at
     /// the baseline.
-    @State private var immersiveBaselineZoomScale: CGFloat = 1.0
 
     /// Local pan offset in view points while zoomed. Constitution I:
     /// pan is a local viewport transform and never emits an RFB message.
@@ -812,7 +811,11 @@ public struct SessionViewportView: View {
                     initialZoomScale: 2,
                     onCancel: { isChoosingPiPRegion?.wrappedValue = false },
                     onUse: { box in
-                        isChoosingPiPRegion?.wrappedValue = false
+                        // The region is committed *before* the picker closes:
+                        // closing it re-opens the PiP window (spec 038 FR-007),
+                        // and framing is imposed at entry, so a region that
+                        // arrived after the dismissal would open the window on
+                        // the old framing.
                         if let target = framingTarget(
                             forViewRect: box,
                             framebuffer: framebuffer,
@@ -820,6 +823,7 @@ public struct SessionViewportView: View {
                         ) {
                             onChoosePiPRegion?(target)
                         }
+                        isChoosingPiPRegion?.wrappedValue = false
                     }
                 )
             }
@@ -867,10 +871,13 @@ public struct SessionViewportView: View {
     /// The framing choices, behind the PiP control's long press.
     @ViewBuilder
     private var pipFramingMenu: some View {
-        Section("PiP shows") {
-            pipFramingModeButton(.currentView, title: "Current view", symbol: "rectangle.dashed")
-            pipFramingModeButton(.followActivity, title: "Follow activity", symbol: "waveform")
-            if pipChosenRegion != nil {
+        // With `followActivity` gone (spec 038 FR-006) there is nothing to
+        // choose between until a region exists, and a section holding one
+        // permanently-checked row is the dead-chip failure of UX punch-list
+        // #103 in another costume. Until then the menu is just the action.
+        if pipChosenRegion != nil {
+            Section("PiP shows") {
+                pipFramingModeButton(.currentView, title: "Current view", symbol: "rectangle.dashed")
                 pipFramingModeButton(.chosenRegion, title: "Chosen region", symbol: "crop")
             }
         }
@@ -878,7 +885,13 @@ public struct SessionViewportView: View {
         Button {
             isChoosingPiPRegion?.wrappedValue = true
         } label: {
-            Label("Choose region…", systemImage: "crop")
+            // Spec 038 FR-007: this closes the PiP window while you choose,
+            // because the in-app screen is blank while the system is flying
+            // that layer — and reopens it on the region you drew.
+            Label(
+                isPiPWatching ? "Choose region (reopens PiP)…" : "Choose region…",
+                systemImage: "crop"
+            )
         }
         .disabled(onChoosePiPRegion == nil || framebuffer == nil || isChoosingPiPRegion == nil)
         .accessibilityIdentifier("naru.session.pip.chooseRegion")
@@ -1692,12 +1705,13 @@ public struct SessionViewportView: View {
             let displaySize = fillsAvailableHeight
                 ? proxy.size
                 : Self.aspectFitSize(aspectRatio: aspectRatio, containerSize: proxy.size)
-            // The floor is fit in BOTH layouts now. Hero mode used to floor at
-            // the fill scale, which meant the whole remote screen could never
-            // be brought into view and the session controls riding over the top
-            // and bottom edges always covered live content
-            // (`ViewportZoomBounds`). Filling is still the opening state — see
-            // `syncImmersiveBaselineZoom`.
+            // Fit in both layouts — as the floor, and since spec 038 FR-009 as
+            // the opening state too. Hero mode used to floor at the fill scale,
+            // which meant the whole remote screen could never be brought into
+            // view and the session controls riding over the top and bottom
+            // edges always covered live content (`ViewportZoomBounds`); it then
+            // still *opened* filled, which on a portrait phone showed the
+            // desktop's height and lost most of its width.
             let minimumZoomScale = ViewportZoomBounds.floorScale
             let framebufferSizeToken = "\(framebuffer.width)x\(framebuffer.height)"
 
@@ -1760,24 +1774,28 @@ public struct SessionViewportView: View {
                 .clipped()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: framebufferAlignment)
                 .onAppear {
-                    syncImmersiveBaselineZoom(
-                        immersiveBaselineZoom(aspectRatio: aspectRatio, containerSize: proxy.size),
+                    clampViewportToCurrentBounds(
                         framebuffer: framebuffer,
                         viewSize: proxy.size
                     )
                 }
-                .onChange(of: proxy.size) { _, newSize in
-                    syncImmersiveBaselineZoom(
-                        fillsAvailableHeight
-                            ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: newSize)
-                            : ViewportZoomBounds.floorScale,
+                .onChange(of: proxy.size) { oldSize, newSize in
+                    // Spec 038 FR-008: a resize keeps what the user is looking
+                    // at. This used to recompute the baseline and clear the
+                    // pan, so raising the keyboard teleported the viewport back
+                    // to the middle of the desktop.
+                    preserveViewportCentreAcrossResize(
+                        framebuffer: framebuffer,
+                        from: oldSize,
+                        to: newSize
+                    )
+                    clampViewportToCurrentBounds(
                         framebuffer: framebuffer,
                         viewSize: newSize
                     )
                 }
                 .onChange(of: framebufferSizeToken) { _, _ in
-                    syncImmersiveBaselineZoom(
-                        immersiveBaselineZoom(aspectRatio: aspectRatio, containerSize: proxy.size),
+                    clampViewportToCurrentBounds(
                         framebuffer: framebuffer,
                         viewSize: proxy.size
                     )
@@ -2199,15 +2217,14 @@ public struct SessionViewportView: View {
         return CGSize(width: width, height: width / aspectRatio)
     }
 
-    /// The scale a hero viewport opens at: filled. The *floor* is
-    /// `ViewportZoomBounds.floorScale` (fit) — the two are deliberately
-    /// different values.
-    private func immersiveBaselineZoom(aspectRatio: CGFloat, containerSize: CGSize) -> CGFloat {
-        fillsAvailableHeight
-            ? Self.aspectFillZoomScale(aspectRatio: aspectRatio, containerSize: containerSize)
-            : ViewportZoomBounds.floorScale
-    }
-
+    /// The scale a session *would* open at if it filled the view.
+    ///
+    /// Nothing opens at it since spec 038 FR-009 — an immersive session opens
+    /// at `ViewportZoomBounds.floorScale`, which on a portrait phone against a
+    /// landscape desktop is the founder's requested fit-to-width. This is kept
+    /// because the two scales are still the pair the geometry is reasoned
+    /// about in, and `SessionViewportViewGeometryTests` asserts they differ —
+    /// a test that would be vacuous if the helper were deleted.
     static func aspectFillZoomScale(aspectRatio: CGFloat, containerSize: CGSize) -> CGFloat {
         guard aspectRatio.isFinite,
               aspectRatio > 0,
@@ -2234,8 +2251,47 @@ public struct SessionViewportView: View {
         ViewportZoomBounds.floorScale
     }
 
-    private func syncImmersiveBaselineZoom(
-        _ minimumZoomScale: CGFloat,
+    /// Carries zoom and the centred framebuffer point across a viewport resize
+    /// (spec 038 FR-008). The arithmetic lives in `ViewportTransform` so it is
+    /// testable without a simulator.
+    private func preserveViewportCentreAcrossResize(
+        framebuffer: RFBRawFramebuffer,
+        from oldSize: CGSize,
+        to newSize: CGSize
+    ) {
+        guard oldSize.width > 0, oldSize.height > 0,
+              newSize.width > 0, newSize.height > 0,
+              oldSize != newSize
+        else {
+            return
+        }
+
+        let before = ViewportTransform(
+            framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
+            viewSize: oldSize,
+            zoomScale: zoomScale,
+            panOffset: panOffset,
+            maxZoomScale: Self.maxZoomScale
+        )
+        let after = before.resized(to: newSize)
+        zoomScale = after.zoomScale
+        panOffset = after.panOffset
+    }
+
+    /// Keeps zoom and pan legal for the current framebuffer and view size.
+    ///
+    /// This was `syncImmersiveBaselineZoom`, and it carried a *baseline* that
+    /// differed from the zoom floor: the session opened filled and could fall
+    /// back to fit, so "was the user at the baseline" was a real question — and
+    /// the answer was used to snap the pan to `.zero`, which is what teleported
+    /// the viewport every time the keyboard changed the view size (spec 038
+    /// FR-008). Since FR-009 the opening state *is* the floor, so there is no
+    /// baseline left to track, and where the viewport points is decided by
+    /// `preserveViewportCentreAcrossResize` alone.
+    ///
+    /// What remains is re-clamping: a new remote resolution or a new view size
+    /// can leave the current pan outside what `ViewportTransform` allows.
+    private func clampViewportToCurrentBounds(
         framebuffer: RFBRawFramebuffer,
         viewSize: CGSize
     ) {
@@ -2246,18 +2302,11 @@ public struct SessionViewportView: View {
             return
         }
 
-        let baseline = min(max(minimumZoomScale, Self.minZoomScale), Self.maxZoomScale)
-        let wasAtBaseline = abs(zoomScale - immersiveBaselineZoomScale) < 0.02
-        let shouldSnapToBaseline = wasAtBaseline || zoomScale < baseline
-        immersiveBaselineZoomScale = baseline
-
-        let targetZoom = shouldSnapToBaseline ? baseline : zoomScale
-        let targetPan = shouldSnapToBaseline ? CGSize.zero : panOffset
         let transform = ViewportTransform(
             framebufferSize: CGSize(width: framebuffer.width, height: framebuffer.height),
             viewSize: viewSize,
-            zoomScale: targetZoom,
-            panOffset: targetPan,
+            zoomScale: max(zoomScale, ViewportZoomBounds.floorScale),
+            panOffset: panOffset,
             maxZoomScale: Self.maxZoomScale
         )
         zoomScale = transform.zoomScale

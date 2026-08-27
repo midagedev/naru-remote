@@ -28,12 +28,15 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
-    /// A row's controls are 40pt; with the surface's 8pt top and bottom
-    /// padding a single-row dock spans ~56pt. 72pt leaves room for a taller
-    /// control without admitting a second row (which costs ≥44pt more).
-    /// Since v1.1 the Compose editor is one line tall too, so a single budget
-    /// covers both modes.
-    private static let singleRowSpanBudget: CGFloat = 72
+    /// A row's controls are 40pt, and a single-row dock spans 41pt measured.
+    ///
+    /// The budget was 72, which is how a 56pt row went unnoticed for three
+    /// builds: the Mac-controls menu was a `.bordered` button where its
+    /// neighbours were 36pt strip keys, and `.bordered` adds its own padding,
+    /// so one control decided the height of the row the founder types on
+    /// (spec 038). 48 leaves headroom for a genuinely taller control and
+    /// rejects a whole extra key's worth of it.
+    private static let singleRowSpanBudget: CGFloat = 48
 
     /// Spec 015 v1.1 FR-008: Type mode's row IS the soft-key strip — no text
     /// field, no `⋯` (there is nothing left to reveal), at every width. The
@@ -260,6 +263,76 @@ final class KeyboardUpDockHeightUITests: XCTestCase {
             expanded.bands.count,
             collapsed.bands.count + 1,
             "Revealing the keys adds one row, not a stack: \(expanded.bandDescription)"
+        )
+    }
+
+    /// Compose costs the same height as Type (spec 038 FR-003).
+    ///
+    /// The founder's "컴포즈에서 아직도 높이가 높은 문제": the compact Compose row
+    /// was built from 40pt controls and one editor that was `.frame(height: 40)`
+    /// *plus* 6pt of vertical padding, so the row was 52pt to seat a 40pt
+    /// field. Neither mode's absolute number is the contract — what a
+    /// regression would break is the two being equal, because there is no
+    /// reason for one mode's row to be taller than the other's.
+    func testComposeCostsTheSameHeightAsType() throws {
+        let typeApp = launchLiveSession()
+        try raiseKeyboard(in: typeApp, mode: .type)
+        let type = try measureChrome(in: typeApp, mode: "type-for-parity")
+        typeApp.terminate()
+
+        let composeApp = launchLiveSession()
+        try raiseKeyboard(in: composeApp, mode: .compose)
+        try skipUnlessCompactDock(composeApp, requirement: "FR-003's row parity")
+        let compose = try measureChrome(in: composeApp, mode: "compose-for-parity")
+
+        XCTAssertEqual(
+            compose.span,
+            type.span,
+            accuracy: 2,
+            """
+            Compose's row is \(Int(compose.span))pt and Type's is \(Int(type.span))pt. \
+            Everything between the keyboard and the remote screen is subtracted \
+            from what the user came for, and a mode switch is not a reason to \
+            pay more of it.
+            """
+        )
+    }
+
+    /// The status line is a sentence; it must not be painted over a key.
+    ///
+    /// `rowBands` groups *overlapping* elements into one band, so a label that
+    /// lands on top of the strip reads as "one row" and every budget above
+    /// stays green — which is how the founder came to be looking at a label
+    /// sitting on the keys while this suite reported a single tidy row. Rows
+    /// are the wrong question for this defect; the right one is whether two
+    /// things occupy the same pixels.
+    ///
+    /// The exemption list is deliberate: a badge that lives *inside* the row is
+    /// supposed to share the band with the keys beside it. What must never
+    /// overlap is a full-width sentence and a control.
+    func testTheStatusSentenceDoesNotSitOnTheKeys() throws {
+        let app = launchLiveSession(fixture: "session-active-compose-confirmation-unavailable")
+        try raiseKeyboard(in: app, mode: .compose)
+
+        let status = app.descendants(matching: .any)["naru.input.focused-status"]
+        guard status.waitForExistence(timeout: 6), status.frame.height > 1 else {
+            throw XCTSkip("no status sentence in this configuration — nothing to collide")
+        }
+
+        let measurement = try measureChrome(in: app, mode: "status-overlap")
+        let statusFrame = status.frame
+        let collisions = measurement.rows
+            .filter { $0.0 != "naru.input.focused-status" }
+            .filter { $0.1.intersects(statusFrame) }
+
+        XCTAssertTrue(
+            collisions.isEmpty,
+            """
+            The status sentence is painted over \(collisions.map(\.0).joined(separator: ", ")).
+            A sentence that covers a key makes the key untappable and unreadable \
+            at the same time, and the row budget cannot see it because \
+            overlapping elements count as one row. \(measurement.description)
+            """
         )
     }
 

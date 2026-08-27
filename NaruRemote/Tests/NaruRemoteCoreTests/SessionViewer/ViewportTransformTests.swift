@@ -302,4 +302,82 @@ final class ViewportTransformTests: XCTestCase {
         let revealed = transform.panToReveal(framebufferPoint: CGPoint(x: 0, y: 0), margin: 24)
         XCTAssertEqual(transform, revealed)
     }
+
+    // MARK: - Resize preserves what the user is looking at (spec 038 FR-008)
+
+    /// The founder's report: raising the software keyboard moved the viewport
+    /// to a different part of the desktop. The shell answered a resize by
+    /// recomputing the baseline zoom and dropping the pan to `.zero`, so any
+    /// pan the user had built up was discarded by the act of typing.
+    ///
+    /// Stated as the property that matters — same remote pixel in the middle
+    /// before and after — rather than as "pan is preserved", because the pan
+    /// that keeps a point centred is a *different* number in a smaller view.
+    func testAKeyboardSizedResizeKeepsTheSameFramebufferPointCentred() {
+        let fb = CGSize(width: 3024, height: 1890)
+        let before = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: CGSize(width: 402, height: 780),
+            zoomScale: 3,
+            panOffset: CGSize(width: -180, height: 240),
+            maxZoomScale: 4
+        )
+        let centredBefore = before.centerFramebufferPoint
+
+        // The keyboard takes roughly 340pt of an iPhone 17 Pro.
+        let after = before.resized(to: CGSize(width: 402, height: 440))
+
+        XCTAssertEqual(after.zoomScale, before.zoomScale, accuracy: 1e-6)
+        XCTAssertEqual(after.centerFramebufferPoint.x, centredBefore.x, accuracy: 1)
+        XCTAssertEqual(after.centerFramebufferPoint.y, centredBefore.y, accuracy: 1)
+    }
+
+    /// Growing the viewport — the keyboard going *down* — cannot always keep
+    /// the centre: a taller view may fit the content vertically, and then
+    /// centred is the only place it can be. What it must not do is throw away
+    /// the horizontal pan as well, which is what `panOffset = .zero` did.
+    func testTheKeyboardGoingDownKeepsTheHorizontalPanItStillHasRoomFor() {
+        let fb = CGSize(width: 2560, height: 1600)
+        let before = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: CGSize(width: 402, height: 430),
+            zoomScale: 2.5,
+            panOffset: CGSize(width: 120, height: -90),
+            maxZoomScale: 4
+        )
+        let centredBefore = before.centerFramebufferPoint
+
+        let after = before.resized(to: CGSize(width: 402, height: 800))
+
+        XCTAssertEqual(after.zoomScale, before.zoomScale, accuracy: 1e-6)
+        XCTAssertEqual(
+            after.centerFramebufferPoint.x,
+            centredBefore.x,
+            accuracy: 1,
+            "The horizontal axis still has pan travel, so the column stays put"
+        )
+        XCTAssertNotEqual(
+            after.panOffset.width,
+            0,
+            "Zeroing the pan is the defect: it is what moved the viewport off the user's column"
+        )
+    }
+
+    /// At fit there is nothing to preserve on the constrained axis, and the
+    /// resize must not invent a pan that pushes content off an edge.
+    func testResizingAtFitLeavesTheContentCentred() {
+        let fb = CGSize(width: 1920, height: 1200)
+        let before = ViewportTransform(
+            framebufferSize: fb,
+            viewSize: CGSize(width: 402, height: 800),
+            zoomScale: 1,
+            panOffset: .zero,
+            maxZoomScale: 4
+        )
+
+        let after = before.resized(to: CGSize(width: 402, height: 440))
+
+        XCTAssertEqual(after.panOffset.width, 0, accuracy: 0.5)
+        XCTAssertEqual(after.zoomScale, 1, accuracy: 1e-6)
+    }
 }

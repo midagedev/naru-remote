@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-25 KST.
+Updated: 2026-08-27 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -61,6 +61,11 @@ same PR.
    terminal that is printing. The legible band (≈750 px of crop width, from
    3024 ÷ the app's 4x zoom ceiling) is arithmetic, not a measurement of a real
    PiP window, which no simulator can produce.
+   **Superseded in part by `specs/038` (2026-08-27): Follow activity is
+   removed** — the founder's call that a reliable "where is the work actually
+   happening" algorithm is not worth building, and that a window re-framing on
+   the wrong thing is worse than one that holds still. Current view and a drawn
+   region remain.
 
 00d. **`specs/035` Type mode has to type.** Landed 2026-08-25, from three build-11
    reports in one sentence. (1) **The keyboard sometimes did not come up.** Two
@@ -151,6 +156,39 @@ same PR.
    CoreGraphics counter. **Open:** founder device pass on build 12 — does a
    two-finger drag scroll, and does 24 points per notch feel right? No runner
    here can drive a real two-finger touch pair.
+
+00h. **`specs/038` the session UX punch list.** Landed 2026-08-27, from the
+   founder's build-12 pass: eight defects, none of them blocking on its own,
+   together making the session surface feel unfinished. Two root causes ran
+   through most of them. **Chrome painted outside its own layout:** the dock's
+   status sentence was an `.overlay` with an alignment guide meant to float it
+   above the row, and it landed *on* the row — measured as one band containing
+   the sentence, `⋯`, the field, the mode switch and Send, and invisible to the
+   row budget precisely because overlapping elements count as one row. It is a
+   layout row again, with a zero-height slot holding its place so the VStack's
+   child set never changes (the original reason for the overlay). **A viewport
+   baseline recomputed from scratch on every resize:** raising the keyboard
+   shrank the viewport, which recomputed the baseline zoom and dropped the pan
+   to `.zero`, so the act of typing returned a user who had panned to a corner
+   to the middle of the desktop — twice per keyboard switch, since the globe
+   resizes twice. `ViewportTransform.resized(to:)` now carries the centred
+   framebuffer point across, as a pure function with its own tests. Also:
+   Compose's row was 52pt to seat a 40pt field and is now 40pt like every other
+   row; the Mac-controls menu was a `.bordered` button among 36pt strip keys and
+   made the whole row 56pt (Type's dock is 96pt → 80pt); Send empties the field,
+   because it is a submit and leaving the line there invites running it twice;
+   immersive sessions open at fit rather than fill, which on a portrait phone is
+   the requested fit-to-width; host-list thumbnails are box-filtered instead of
+   point-sampled and stored at 480×300 rather than 320×200; **Follow activity
+   framing is removed** at the founder's call. Choosing a PiP region now closes
+   the window for the pick and re-opens it with the region — the in-app viewport
+   draws through the layer the system has taken, so the picker had nothing under
+   it. **Residual risk:** an unconfirmed clipboard paste now clears the field
+   like every other dispatch; if a remote app silently blocked the paste the
+   text has to be retyped. That is the trade the founder asked for, and the
+   alternative — never clearing on the default keystroke path, which can never
+   be confirmed — is what the report was about. **Open:** founder device pass on
+   the build that carries this.
 
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible

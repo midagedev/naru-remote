@@ -417,7 +417,11 @@ private struct ProfilePreviewThumbnailView: View {
                 GeometryReader { proxy in
                     Image(decorative: cgImage, scale: 1, orientation: .up)
                         .resizable()
-                        .interpolation(.medium)
+                        // The thumbnail now arrives larger than the card
+                        // (spec 038 FR-011), so what happens here is a
+                        // downscale — where `.high` is worth its cost and
+                        // `.medium` was leaving stair-stepping on desktop text.
+                        .interpolation(.high)
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()

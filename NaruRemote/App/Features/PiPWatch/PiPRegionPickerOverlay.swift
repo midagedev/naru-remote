@@ -178,7 +178,7 @@ struct PiPRegionPickerOverlay: View {
                 // Pinching out shrinks the region — the gesture magnifies what
                 // the window will show, which is the same direction as zooming
                 // the viewport itself.
-                zoomScale = min(max(start * Double(value), 1), PiPAutoFramingPolicy.maximumZoomScale)
+                zoomScale = min(max(start * Double(value), 1), PiPFramingTarget.maximumZoomScale)
                 centerX = clampCenter(centerX, span: 1 / zoomScale)
                 centerY = clampCenter(centerY, span: 1 / zoomScale)
             }

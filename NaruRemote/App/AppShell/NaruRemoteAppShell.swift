@@ -169,7 +169,21 @@ public struct NaruRemoteAppShell: View {
             fillsAvailableHeight: fillsAvailableHeight,
             onReturnToConnections: returnToConnections,
             onOpenDiagnostics: { showsDiagnosticDetail = true },
-            isChoosingPiPRegion: $isChoosingPiPRegion,
+            // Spec 038 FR-007: opening the picker closes any PiP window, and
+            // closing the picker re-opens it. Wrapping the binding here puts
+            // that on every path — the menu item, Cancel, and Use — instead of
+            // asking three call sites in a presentation-only view to remember.
+            isChoosingPiPRegion: Binding(
+                get: { isChoosingPiPRegion },
+                set: { isChoosing in
+                    if isChoosing {
+                        model.beginChoosingPiPRegion()
+                    } else {
+                        model.endChoosingPiPRegion()
+                    }
+                    isChoosingPiPRegion = isChoosing
+                }
+            ),
             healthAccessory: showsInlineHealth
                 ? AnyView(sessionHealthAffordance(presentation: .collapsed))
                 : nil
@@ -585,27 +599,27 @@ public struct NaruRemoteAppShell: View {
                             onDismiss: { model.dismissIncomingClipboard() }
                         )
 
-                        // Spec 015 FR-006: the status line rides *above* the
-                        // dock as an overlay instead of as a stack row. Two
-                        // reasons, both measured: as a row it cost 25pt of an
+                        // Spec 038 FR-001/FR-002: the status line is a row
+                        // again, and the slot that holds it is always present.
+                        //
+                        // It was an overlay because a row cost 25pt of an
                         // iPhone screen whenever the field was focused, and
-                        // adding/removing that row mid-typing changed the
-                        // VStack's children — which is what previously
-                        // collapsed the keyboard safe-area layout under UIKit
-                        // IME and forced a permanent "Ready to compose
-                        // locally" placeholder to hold the slot open.
+                        // because adding/removing that row mid-typing changed
+                        // the VStack's children — which collapsed the keyboard
+                        // safe-area layout under UIKit IME. The first reason is
+                        // already answered by FR-006's narrowing (only an
+                        // actionable sentence is built at all), and the second
+                        // is answered by keeping the child and giving it zero
+                        // height when there is nothing to say: what changes is
+                        // a height, never the set of children.
+                        //
+                        // What the overlay actually did was paint the sentence
+                        // across `⋯`, the field, the mode switch and Send —
+                        // measured as a single band containing all five, and
+                        // invisible to a row budget precisely because
+                        // overlapping elements count as one row.
+                        RemoteInputDockStatusLine(text: accessoryChrome.statusLine?.text)
                         remoteInputDockHost(state: dockState)
-                            .overlay(alignment: .top) {
-                                if let statusLine = accessoryChrome.statusLine {
-                                    RemoteInputDockStatusLine(text: statusLine.text)
-                                        .alignmentGuide(.top) { $0[.bottom] }
-                                        // It is a sentence, not a control: as a
-                                        // row it could not steal taps, and as an
-                                        // overlay over the remote screen it must
-                                        // not start.
-                                        .allowsHitTesting(false)
-                                }
-                            }
                     }
                     .frame(maxWidth: pinnedDockColumnMaxWidth, alignment: .center)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1078,23 +1092,43 @@ struct RemoteInputDockStatusLineState: Equatable, Sendable {
     }
 }
 
+/// The dock's status row, and the empty slot that holds its place.
+///
+/// `text == nil` renders a zero-height child rather than no child at all
+/// (spec 038 FR-002): the VStack around it keeps a constant set of children, so
+/// a sentence arriving mid-typing changes one height and cannot disturb the
+/// keyboard safe-area layout the way an inserted row once did.
 private struct RemoteInputDockStatusLine: View {
-    let text: String
+    let text: String?
 
+    @ViewBuilder
     var body: some View {
-        Text(text)
+        if let text, !text.isEmpty {
+            sentence(text)
+        } else {
+            Color.clear.frame(height: 0)
+        }
+    }
+
+    private func sentence(_ text: String) -> some View {
+        let label = Text(text)
             .font(.caption2)
             .foregroundStyle(NaruColors.mutedInk)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+
+        return label
             .remoteChromeSurface()
             .overlay(alignment: .top) {
                 Rectangle()
                     .fill(NaruColors.hairline)
                     .frame(height: 1)
             }
+            // It is a sentence, not a control: it must not take a tap that was
+            // aimed at the remote screen or at the row below it.
+            .allowsHitTesting(false)
             .accessibilityIdentifier("naru.input.focused-status")
     }
 }

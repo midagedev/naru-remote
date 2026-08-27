@@ -436,6 +436,38 @@ final class SessionViewportViewGeometryTests: XCTestCase {
         XCTAssertEqual(zoomed.zoomScale, 2.7, accuracy: 1e-6)
     }
 
+    /// Spec 038 FR-009: an immersive session opens at fit, not fill.
+    ///
+    /// `aspectFillZoomScale` is kept and still tested below because the
+    /// arithmetic is still correct and still used to reason about the two
+    /// scales — what changed is which one a session *opens* at. Filled meant a
+    /// portrait phone showed the desktop's height and lost most of its width;
+    /// the founder asked for the width, which on a portrait phone is fit.
+    func testAnImmersiveSessionOpensAtFitRatherThanFill() {
+        let portrait = CGSize(width: 402, height: 800)
+        let widescreen = 16.0 / 9.0
+
+        let fill = SessionViewportView.aspectFillZoomScale(
+            aspectRatio: widescreen,
+            containerSize: portrait
+        )
+
+        XCTAssertEqual(
+            ViewportZoomBounds.floorScale,
+            1,
+            "Fit is the floor, and since FR-009 it is also the opening state"
+        )
+        XCTAssertGreaterThan(
+            fill,
+            ViewportZoomBounds.floorScale,
+            """
+            The two are still different numbers — this test is only meaningful \
+            while filling would zoom in, which is precisely the behaviour \
+            FR-009 stopped opening with.
+            """
+        )
+    }
+
     func testAspectFillZoomScaleExpandsWidescreenIntoPortraitViewport() {
         let scale = SessionViewportView.aspectFillZoomScale(
             aspectRatio: 16.0 / 9.0,

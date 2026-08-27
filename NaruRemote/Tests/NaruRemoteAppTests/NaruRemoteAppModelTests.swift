@@ -1836,11 +1836,18 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await Task.sleep(for: .milliseconds(80))
+        // The thumbnail is built on a detached utility task, so a fixed sleep
+        // is a race against how expensive that task happens to be — spec 038
+        // FR-010's filtering made it lose one. Wait for the thing itself.
+        for _ in 0..<100 where model.snapshot.profilePreviews[profile.id] == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
 
         let preview = try XCTUnwrap(model.snapshot.profilePreviews[profile.id])
-        XCTAssertEqual(preview.width, 320)
-        XCTAssertEqual(preview.height, 200)
+        // 640×400 against the 480×300 cap scales by 0.75 (spec 038 FR-011).
+        XCTAssertEqual(preview.width, 480)
+        XCTAssertEqual(preview.height, 300)
+        // A flat fill averages to itself, whatever the filter (FR-010).
         XCTAssertEqual(preview.pixels.first, RFBColor(red: 42, green: 7, blue: 9))
 
         let storedPreview = try await previewStore.loadThumbnail(for: profile.id)
@@ -5173,6 +5180,78 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.pipWatchSession?.state, .watching)
     }
 
+    /// Spec 038 FR-007: the founder could not pick a region while PiP was up.
+    ///
+    /// The in-app viewport draws through the very `AVSampleBufferDisplayLayer`
+    /// the system has taken for the floating window, so with PiP watching the
+    /// in-app copy is blank and the picker had nothing under it to aim at.
+    /// Opening the picker closes the window; closing the picker re-opens it —
+    /// which is also the only way the chosen region can take effect, because
+    /// framing is imposed at entry and PiP is watch-only after that.
+    func testChoosingARegionClosesThePiPWindowAndReopensItAfterwards() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                latestFramebuffer: RFBRawFramebuffer(width: 4, height: 2)
+            ),
+            pipWatchController: pipController
+        )
+        model.startPiPWatch(at: Date(timeIntervalSince1970: 101))
+        XCTAssertEqual(model.snapshot.pipWatchSession?.state, .watching)
+
+        model.beginChoosingPiPRegion()
+
+        XCTAssertEqual(pipController.stopCount, 1, "The picker needs the screen back")
+        XCTAssertNotEqual(model.snapshot.pipWatchSession?.state, .watching)
+        XCTAssertTrue(model.pipResumesAfterRegionChoice)
+
+        model.setPiPChosenRegion(PiPFramingTarget(centerX: 0.25, centerY: 0.75, zoomScale: 2))
+        model.setPiPFramingMode(.chosenRegion)
+        model.endChoosingPiPRegion()
+
+        XCTAssertEqual(pipController.startCount, 2, "And it comes back with the region")
+        XCTAssertEqual(model.snapshot.pipWatchSession?.state, .watching)
+        XCTAssertFalse(model.pipResumesAfterRegionChoice)
+    }
+
+    /// The other direction: with no window up, picking a region must not open
+    /// one the user never asked for.
+    func testChoosingARegionWithoutPiPDoesNotOpenAWindow() throws {
+        let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
+        let session = RemoteSession(
+            profileID: profile.id,
+            state: .active,
+            lastFrameAt: Date(timeIntervalSince1970: 100)
+        )
+        let pipController = FakePiPWatchController()
+        let model = NaruRemoteAppModel(
+            snapshot: NaruRemoteAppSnapshot(
+                profiles: [profile],
+                selectedProfileID: profile.id,
+                session: session,
+                latestFramebuffer: RFBRawFramebuffer(width: 4, height: 2)
+            ),
+            pipWatchController: pipController
+        )
+
+        model.beginChoosingPiPRegion()
+        model.setPiPChosenRegion(PiPFramingTarget(centerX: 0.5, centerY: 0.5, zoomScale: 2))
+        model.endChoosingPiPRegion()
+
+        XCTAssertEqual(pipController.startCount, 0)
+        XCTAssertEqual(pipController.stopCount, 0)
+        XCTAssertFalse(model.pipResumesAfterRegionChoice)
+    }
+
     func testModelReportsPiPUnavailableWhenSystemPiPIsUnsupported() throws {
         let profile = try ConnectionProfile(displayName: "Desk", host: "desk.tailnet.ts.net")
         let session = RemoteSession(
@@ -5316,11 +5395,32 @@ final class NaruRemoteAppModelTests: XCTestCase {
 
         XCTAssertEqual(model.pipFramingMode, .currentView)
 
-        model.setPiPFramingMode(.followActivity)
+        // Spec 038 FR-006 removed `followActivity`, so the mode that proves
+        // persistence is the region — the only other one left.
+        model.setPiPChosenRegion(PiPFramingTarget(centerX: 0.4, centerY: 0.6, zoomScale: 2))
+        model.setPiPFramingMode(.chosenRegion)
 
-        XCTAssertEqual(model.pipFramingMode, .followActivity)
-        XCTAssertEqual(model.effectivePiPFramingMode, .followActivity)
-        XCTAssertEqual(model.appSettings.pipFramingMode, .followActivity)
+        XCTAssertEqual(model.pipFramingMode, .chosenRegion)
+        XCTAssertEqual(model.effectivePiPFramingMode, .chosenRegion)
+        XCTAssertEqual(model.appSettings.pipFramingMode, .chosenRegion)
+    }
+
+    /// Spec 038 FR-006: a phone that ran build 12 has `followActivity` in its
+    /// settings file. It must resolve to the default rather than throwing and
+    /// taking every other setting down with it.
+    func testAFramingModeThisBuildNoLongerHasDecodesToTheDefault() throws {
+        let json = Data(#"{"pipFramingMode":"followActivity"}"#.utf8)
+        struct Holder: Decodable {
+            let pipFramingMode: PiPFramingMode
+        }
+
+        let decoded = try JSONDecoder().decode(Holder.self, from: json)
+
+        XCTAssertEqual(
+            decoded.pipFramingMode,
+            .currentView,
+            "A retired mode is not a corrupt settings file"
+        )
     }
 
     func testModelSendsComposedTextThroughActiveRFBTextClientAfterConnect() async throws {
@@ -5366,7 +5466,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.utf8ClipboardSupport, .supported)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .succeeded)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .succeeded)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        // Spec 038 FR-004: Send empties the draft, so what the export sees
+        // afterwards is an empty one. Assertions below moved with the contract;
+        // they used to describe a draft that survived its own dispatch.
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .unknown)
         XCTAssertEqual(
             model.snapshot.composeDraft?.lastStatusMessage,
@@ -5381,18 +5484,22 @@ final class NaruRemoteAppModelTests: XCTestCase {
             DiagnosticCollectionReport.self,
             from: Data(json.utf8)
         )
-        XCTAssertEqual(report.input?.hasComposeDraftText, true)
+        XCTAssertEqual(report.input?.hasComposeDraftText, false)
         XCTAssertEqual(report.input?.composeSendState, ComposeSendState.unknown.rawValue)
         XCTAssertEqual(
             report.input?.composeDraftPayloadEncoding,
-            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+            TextInjectionPayloadEncoding.ascii.rawValue
         )
-        XCTAssertEqual(report.input?.composePlannedPath, TextInjectionPath.vncClipboardPaste.rawValue)
+        XCTAssertNil(report.input?.composePlannedPath)
         XCTAssertEqual(
             report.input?.composeUTF8ClipboardSupport,
             RemoteClipboardUTF8Support.supported.rawValue
         )
-        XCTAssertEqual(report.input?.composeRouteBlocker, DiagnosticComposeRouteBlocker.none.rawValue)
+        XCTAssertEqual(
+            report.input?.composeRouteBlocker,
+            DiagnosticComposeRouteBlocker.emptyDraft.rawValue,
+            "Nothing is queued to send once the draft has gone — that is the point"
+        )
         XCTAssertEqual(report.input?.latestInjectionPasteCommand, PasteCommand.controlV.rawValue)
         XCTAssertEqual(
             report.input?.latestInjectionPayloadEncoding,
@@ -5597,7 +5704,10 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.helperStrategyUsed, .nativeInsert)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.clipboardSetStatus, .notAttempted)
         XCTAssertEqual(model.snapshot.latestInjectionAttempt?.pasteCommandStatus, .notAttempted)
-        XCTAssertEqual(model.snapshot.composeDraft?.text, "한글과 English 😊")
+        // Spec 038 FR-004: Send empties the draft, so what the export sees
+        // afterwards is an empty one. Assertions below moved with the contract;
+        // they used to describe a draft that survived its own dispatch.
+        XCTAssertEqual(model.snapshot.composeDraft?.text, "")
         XCTAssertEqual(model.snapshot.composeDraft?.sendState, .sent)
         XCTAssertEqual(model.snapshot.composeDraft?.lastStatusMessage, "Inserted into the remote app.")
         XCTAssertEqual(
@@ -5618,14 +5728,17 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(report.input?.latestInjectionHelperStrategy, HelperTextInsertStrategy.nativeInsert.rawValue)
         XCTAssertEqual(
             report.input?.composeDraftPayloadEncoding,
-            TextInjectionPayloadEncoding.utf8ExtensionRequired.rawValue
+            TextInjectionPayloadEncoding.ascii.rawValue
         )
-        XCTAssertEqual(report.input?.composePlannedPath, TextInjectionPath.helperTextBridge.rawValue)
+        XCTAssertNil(report.input?.composePlannedPath)
         XCTAssertEqual(
             report.input?.composeUTF8ClipboardSupport,
             RemoteClipboardUTF8Support.unknown.rawValue
         )
-        XCTAssertEqual(report.input?.composeRouteBlocker, DiagnosticComposeRouteBlocker.none.rawValue)
+        XCTAssertEqual(
+            report.input?.composeRouteBlocker,
+            DiagnosticComposeRouteBlocker.emptyDraft.rawValue
+        )
         XCTAssertEqual(report.input?.helperTextBridgeAvailability, HelperTextBridgeAvailability.reachable.rawValue)
         XCTAssertEqual(report.input?.helperTextBridgeLastFailureCode, HelperTextBridgeFailureCode.none.rawValue)
         XCTAssertFalse(json.contains("한글과 English"))
