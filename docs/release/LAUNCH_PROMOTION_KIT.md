@@ -1,10 +1,17 @@
 # Naru Remote 1.0 — Launch & Promotion Kit
 
+> **Point-in-time record, 2026-07-12.** This documented the run-up to the
+> **first** App Store submission — `1.0.0 (build 1)`. The app has shipped since
+> and is well past that build, so read this as how the launch was prepared, not
+> as a description of anything outstanding. Current work is queued in
+> `NEXT_STEPS.md`; each feature's truth is the **Status** line of its
+> `specs/<n>-<slug>/spec.md`.
+
 작성일: 2026-07-12 KST · 대상: **1.0.0 (build 1)**, App Store Connect Apple ID `6790122006`
 
 이 문서는 심사 제출 직후~공개 첫 주에 그대로 복사해 쓰는 홍보 자료 모음이다.
-메타데이터 원본은 `APP_STORE_LISTING.md`, 브랜드 근거는 `BRANDING.md`,
-제출 상태는 `SUBMISSION_READINESS.md`를 따른다.
+메타데이터 원본은 `docs/release/APP_STORE_LISTING.md`, 브랜드 근거는 `docs/BRANDING.md`,
+제출 상태는 `docs/release/SUBMISSION_READINESS.md`를 따른다.
 
 ## 0. 출시 전 남은 클릭 (파운더 전용, 순서대로)
 
@@ -123,7 +130,7 @@
 | 앱 아이콘 원본/실증 (Between Worlds) | `artifacts/branding/2026-07-12/` |
 | UX 상태별 라이트/다크 캡처 (SNS용 재료) | `artifacts/screenshots/ux-audit/` |
 | 서포트/프라이버시 사이트 | `https://midagedev.github.io/naru-remote-support/` |
-| 스토어 메타데이터 전문 | `APP_STORE_LISTING.md` |
+| 스토어 메타데이터 전문 | `docs/release/APP_STORE_LISTING.md` |
 
 ## 8. 공개 당일 런북
 

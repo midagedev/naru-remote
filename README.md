@@ -141,7 +141,18 @@ Two rules are load-bearing and visible throughout the codebase:
    before it is believed.
 
 If you want the long version, `AGENTS.md`, `.specify/memory/constitution.md`, and
-`AGENTIC_DEVELOPMENT_METHODOLOGY.md` are the entry points.
+`docs/AGENTIC_DEVELOPMENT_METHODOLOGY.md` are the entry points.
+
+## Documentation
+
+`docs/` holds the product specification, the branding and quality bars, the
+engineering method, the runbooks, and the dated records — [start with its
+index](docs/README.md). Feature-level truth is the **Status** line of each
+`specs/<n>-<slug>/spec.md`; the working queue is [NEXT_STEPS.md](NEXT_STEPS.md).
+
+Most of those are Korean, because that is the language they were thought in.
+Everything a reader meets first — this file, CONTRIBUTING, SECURITY, the specs,
+and every code comment — is English.
 
 ## Contributing
 

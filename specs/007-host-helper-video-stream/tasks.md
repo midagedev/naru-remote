@@ -10,7 +10,7 @@ description: "Tasks: Host Helper Video Stream"
 
 ## Phase 1: Spec & Research Readiness
 
-- [x] T001 Read `BRANDING.md`, `PRODUCT_SPEC.md`,
+- [x] T001 Read `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`,
   `.specify/memory/constitution.md`, `specs/004-rfb-encodings/research.md`,
   and this feature's `spec.md`. **Done for spec PR.**
 - [x] T002 Confirm all `[NEEDS CLARIFICATION]` markers are resolved or
@@ -909,7 +909,7 @@ without unsafe report fields.
   `artifacts/benchmarks/2026-06-17-text-keystroke-observed-no-input-summary.md`.
   **Done.**
 - [x] T031BC [US2] Map the current implementation evidence back to
-  `PRODUCT_QUALITY_TARGETS.md` so release-gate status is explicit before more
+  `docs/PRODUCT_QUALITY_TARGETS.md` so release-gate status is explicit before more
   long-running experiments. The current checkpoint records helper-video
   ScreenCaptureKit/app bootstrap ready for physical promotion, helper-native
   text insertion ready for physical Compose promotion, VNC still below the

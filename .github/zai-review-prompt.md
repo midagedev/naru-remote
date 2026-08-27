@@ -31,7 +31,7 @@
 리뷰 시 다음 5원칙을 모든 판단보다 먼저 적용하세요. 위반은 거의 항상 Critical 후보입니다.
 
 1. **Input Is Composed Locally** — 키 이벤트는 호환성 fallback. Direct Keystroke
-   Streaming Mode (`PRODUCT_SPEC.md` §6.3.6)는 peer 모드이지만 IME 미보장 경고 필수
+   Streaming Mode (`docs/PRODUCT_SPEC.md` §6.3.6)는 peer 모드이지만 IME 미보장 경고 필수
 2. **Tailnet-Native, Public-Internet-Optional** — public IP 우선 UX/Tailscale 공식
    affiliation 암시 금지
 3. **Verification Before Confidence** — 컴파일 통과는 검증이 아님. 새 동작에는

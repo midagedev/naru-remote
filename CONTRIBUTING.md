@@ -62,6 +62,33 @@ under test — a Korean keyboard for the hostname-field gate, PiP support that n
 simulator has. A skip with a reason is a correct result. A skip that hides a
 real failure is not, so keep them narrow.
 
+## Style
+
+There is no auto-formatter, and that is deliberate. Measured on 2026-08-27:
+`swift format lint` against a config describing this codebase's own conventions
+reports 2,176 diagnostics across 140,000 lines, and 1,651 of them are the
+pretty-printer's line-breaking opinions — `Indentation`, `AddLines`, `Spacing`.
+This code is full of hand-wrapped prose comments that carry the reasoning behind
+a decision, and a formatter that rewraps them costs more than the consistency it
+buys. Shipping a `.swift-format` anyway would hand anyone who hits Xcode's
+Format action a two-thousand-line diff.
+
+So the conventions are written down instead, and they are what the code already
+does rather than an aspiration:
+
+- **Four spaces**, never tabs. (Measured: every indentation level in the
+  repository is a multiple of four.)
+- **Lines under 120 columns.** The 99th percentile is 103; 277 lines out of
+  140,683 exceed 120, and each is a place where breaking would hurt.
+- **No trailing whitespace.** Currently zero files have any; please keep it
+  that way.
+- **Comments explain why, not what.** The convention here is heavier than most
+  codebases: where a value was chosen by measurement, the comment says what was
+  measured; where a rule exists because something broke, it says what broke.
+  Read a file like `NaruRemote/Sources/NaruRemoteCore/SessionViewer/ViewportZoomBounds.swift`
+  for the register.
+- **`NaruRemoteCore` imports no UI framework.** CI checks this one.
+
 ## Things that will come up in review
 
 These are the rules this codebase enforces, drawn from

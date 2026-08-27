@@ -4,7 +4,7 @@
 **Created**: 2026-04-29  
 **Status**: Implemented (MVP shipped; reference baseline). Reconciled 2026-07-12 — profile writes now report durable completion to the editor; only T029 (iPad IME manual checklist) remains open in tasks.md.
 **Product**: Naru Remote  
-**Input**: Product direction from `PRODUCT_SPEC.md`, branding decision `Naru Remote`, and spec-driven setup request.
+**Input**: Product direction from `docs/PRODUCT_SPEC.md`, branding decision `Naru Remote`, and spec-driven setup request.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -396,7 +396,7 @@ launch with one or more saved profiles and verify the empty-state CTA is gone.
 - Tailscale VPN embedding or replacement.
 - Tailscale API inventory.
 - Direct Keystroke Streaming Mode (peer input mode to Compose & Send;
-  documented at `PRODUCT_SPEC.md` §6.3.6 and tracked in `ROADMAP.md` Phase 9).
+  documented at `docs/PRODUCT_SPEC.md` §6.3.6 and tracked in `docs/ROADMAP.md` Phase 9).
 - Voice Compose.
 - Image Paste Bridge.
 - File Drop.

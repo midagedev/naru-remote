@@ -6,7 +6,7 @@
 
 ## Phase 1: Spec & Research Readiness
 
-- [x] T001 Read `BRANDING.md`, `PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and `specs/001-naru-remote-mvp/spec.md`
+- [x] T001 Read `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and `specs/001-naru-remote-mvp/spec.md`
 - [x] T002 Resolve all `[NEEDS CLARIFICATION]` markers in `specs/001-naru-remote-mvp/spec.md`
 - [x] T003 [P] Record MVP decisions in `specs/001-naru-remote-mvp/research.md`
 - [x] T004 [P] Record verification matrix in `specs/001-naru-remote-mvp/plan.md`
@@ -78,7 +78,7 @@ the expected UTF-8 clipboard payload and paste command path.
 - [x] T034 Run all currently executable checks from `specs/001-naru-remote-mvp/quickstart.md`
 - [x] T035 Update `specs/001-naru-remote-mvp/research.md` with final VNC/RFB implementation choice
 - [x] T036 Update `specs/001-naru-remote-mvp/spec.md` after unknown paste-confirmation behavior changed user-visible status
-- [x] T037 Review user-facing text against `BRANDING.md`
+- [x] T037 Review user-facing text against `docs/BRANDING.md`
 - [x] T038 Record residual compatibility risks for macOS/Linux/Windows VNC servers
 
 ## Phase 8: Review Remediation Sync
@@ -95,7 +95,7 @@ the expected UTF-8 clipboard payload and paste command path.
 
 ## Phase 9: Roadmap And App Shell
 
-- [x] T048 Create `ROADMAP.md` with current phase, next engineering priorities, and deferred post-MVP input expansion
+- [x] T048 Create `docs/ROADMAP.md` with current phase, next engineering priorities, and deferred post-MVP input expansion
 - [x] T049 Add `NaruRemoteApp` SwiftPM target and `NaruRemoteAppTests` in `Package.swift`
 - [x] T050 Add app shell presentation model and tests in `NaruRemote/App/AppShell/` and `NaruRemote/Tests/NaruRemoteAppTests/`
 - [x] T051 Sync `AGENTS.md`, `plan.md`, `research.md`, and `quickstart.md` with the app shell target and 24-test baseline
@@ -114,7 +114,7 @@ the expected UTF-8 clipboard payload and paste command path.
 - [x] T058 [US3] Separate unknown send status message from failure reason in `ComposeDraft`
 - [x] T059 [US1] Fall back to the first available profile when app shell selection is stale
 - [x] T060 [US4] Use unique diagnostic row identifiers for repeated diagnostic stages
-- [x] T061 Sync `data-model.md`, `contracts/diagnostics.md`, `research.md`, `quickstart.md`, and `ROADMAP.md` with fresh review changes
+- [x] T061 Sync `data-model.md`, `contracts/diagnostics.md`, `research.md`, `quickstart.md`, and `docs/ROADMAP.md` with fresh review changes
 
 ## Phase 12: Fake RFB Server Integration
 
@@ -184,7 +184,7 @@ the expected UTF-8 clipboard payload and paste command path.
 - [x] T104 [US3] Extend the fake RFB server with client-message recording and verify network clipboard/paste writes after handshake
 - [x] T105 [US4] Replace caller-dependent diagnostic export detail redaction with a fixed safe stage-detail catalog
 - [x] T106 [US3] Wire Remote Input Dock Send into `NaruRemoteAppModel` and preserve local text when no active RFB text client exists
-- [x] T107 Sync `spec.md`, `plan.md`, `data-model.md`, `contracts/diagnostics.md`, `research.md`, `quickstart.md`, and `ROADMAP.md` with live connection foundation status
+- [x] T107 Sync `spec.md`, `plan.md`, `data-model.md`, `contracts/diagnostics.md`, `research.md`, `quickstart.md`, and `docs/ROADMAP.md` with live connection foundation status
 
 ## Phase 20: Persisted Launch And Raw Frame Decode Foundation
 

@@ -11,7 +11,7 @@
 
 작성일: 2026-07-05 KST
 증거: `artifacts/benchmarks/2026-07-05-physical-iphone-release-hud-and-helper-gate-summary.md` + 본문 인용.
-기준 문서: `PRODUCT_QUALITY_TARGETS.md`(품질 기준), `PRODUCT_SPEC.md`, `ROADMAP.md`, `specs/006`, `specs/007`.
+기준 문서: `docs/PRODUCT_QUALITY_TARGETS.md`(품질 기준), `docs/PRODUCT_SPEC.md`, `docs/ROADMAP.md`, `specs/006`, `specs/007`.
 
 목표 문장(창업자 확인, 2026-07-05): **"Chrome Remote Desktop 수준의 사용성 — 특히 compose 입력이 정말 잘 되는 상태"**. 이 문서는 그 목표와 현재 사이의 격차를 실측으로 분해하고, 달성 경로를 우선순위로 정리한다.
 
@@ -88,7 +88,7 @@
 
 ### 4.1 프레임레이트
 
-- 현재: VNC visual path 콘텐츠 ~5fps(서버 한계). 10fps 제품 게이트(§`PRODUCT_QUALITY_TARGETS.md` 5.1)는 이 서버 상대로는 구조적으로 미달.
+- 현재: VNC visual path 콘텐츠 ~5fps(서버 한계). 10fps 제품 게이트(§`docs/PRODUCT_QUALITY_TARGETS.md` 5.1)는 이 서버 상대로는 구조적으로 미달.
 - 해법: **helper video visual primary 승격**(§5 Track A). ScreenCaptureKit(60fps) → VideoToolbox H.264 저지연 HW 인코드 → 인증 TCP → `AVSampleBufferDisplayLayer` HW 디코드. 전 구간 구현 완료, 옵트인 상태.
 - VNC측 잔여 최적화(§5 Track C)는 폴백 품질용이지 패리티 수단이 아님을 명시한다.
 
@@ -133,7 +133,7 @@
 
 1. Mac에서 `helper-dev-app-setup` 실행 → NaruHelperDev.app에 화면 기록 권한 부여(1회, 사용자 클릭 필요).
 2. `helper-video-live-gate` → 실화면 소스 실기기 게이트(`physical-iphone-helper-video-gate`, listener auto) 통과 기록.
-3. `PRODUCT_QUALITY_TARGETS.md` §14 기준 충족 시 helper 구성 프로파일에서 visual primary를 기본값 후보로 승격. VNC는 control/input/fallback 재분류.
+3. `docs/PRODUCT_QUALITY_TARGETS.md` §14 기준 충족 시 helper 구성 프로파일에서 visual primary를 기본값 후보로 승격. VNC는 control/input/fallback 재분류.
 4. 백로그(승격 후): `requestKeyframe`/`stopStream` 와이어업(현재 미배선 — 스톨 복구용), 스톨 재시도 계약(현재 terminal→VNC 폴백만), HEVC, 전송 개선(UDP류) 검토.
 
 ### Track B — CRD식 type-through Compose (입력 패리티, **사용자 최우선**)
@@ -146,7 +146,7 @@
   - ①의 480ms 안정화 창을 marked-text 상태 이벤트 기반으로 단축(고정 30×16ms 폴링 대신 커밋 감지 시 즉시).
   - ②의 300ms settle을 helper 존재 시 생략(네이티브 삽입은 클립보드 미사용).
   - ④ helper 경로에선 `observed-inserted`를 그대로 성공 확인 UI로 노출("확인 불가" 배너 탈출).
-- 검증: 실기기 한글 200자 혼합 문장 게이트(§`PRODUCT_QUALITY_TARGETS.md` 6.1) + `helper-text-observed-probe`(자동) + 실기기 수동 30분 세션.
+- 검증: 실기기 한글 200자 혼합 문장 게이트(§`docs/PRODUCT_QUALITY_TARGETS.md` 6.1) + `helper-text-observed-probe`(자동) + 실기기 수동 30분 세션.
 
 ### Track C — VNC 폴백 품질 + UX 폴리시
 

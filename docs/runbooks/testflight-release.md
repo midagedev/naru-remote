@@ -77,7 +77,7 @@ These are web actions in App Store Connect, and they are the founder's:
    Testing). A processed build is not visible to testers until it is assigned.
 2. **Export compliance**, if prompted the first time on a version.
 3. **For a public release**: store screenshots upload, EU DSA trader declaration,
-   Korea declarations, and submit for review — see `SUBMISSION_READINESS.md` §5.5.
+   Korea declarations, and submit for review — see `docs/release/SUBMISSION_READINESS.md` §5.5.
 
 ## When it fails
 

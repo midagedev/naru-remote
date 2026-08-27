@@ -248,6 +248,37 @@ same PR.
    was only visible because a wait caught it. Worth an hour with the model's
    session-id guards.
 
+00i-c. **The documentation was tidied for a public reader.** Landed
+   2026-08-27, from the founder's "레포를 공개로 하는 만큼 코드나 문서의 품질도
+   대대적으로 올려야 하는거 아닌가". The root held seventeen markdown files and
+   about 7,000 lines, mixed Korean and English, with README/CONTRIBUTING/SECURITY
+   buried among them — and three of the loudest were saying untrue things.
+   The competitive-research document positioned the product as an *"iPad-first remote
+   workbench"* twice, contradicting constitution §VI, the README, and every
+   recent spec; it is out of the repository at the founder's call (history keeps
+   it). `docs/release/SUBMISSION_READINESS.md`, `docs/release/LAUNCH_PROMOTION_KIT.md`
+   and `docs/release/APP_STORE_LISTING.md` were build-1 checklists reading as
+   current; they moved there behind point-in-time banners.
+   `docs/ROADMAP.md` was six weeks stale *and* the repository's own agent rules
+   told readers not to trust its prose — a document nobody is allowed to believe
+   should be fixed or retired, so its head now says what it is (phase narrative,
+   not status, not queue) and the distrust clause is gone. The rest moved to
+   `docs/` behind an index; root is six files. **The structural closure is
+   `scripts/check-doc-links.sh`**, in CI: every backticked `*.md` reference in
+   living documentation must resolve, with `artifacts/` and `scratch/` excluded
+   because rewriting a path inside a dated record would be falsifying it. It
+   found eleven broken references on its first run, all now fixed.
+   **Deliberately not done: an auto-formatter.** `swift format lint` against a
+   config describing this codebase's own measured conventions reports 2,176
+   diagnostics over 140,000 lines, and 1,651 are the pretty-printer's
+   line-breaking opinions about hand-wrapped prose comments. Shipping a
+   `.swift-format` would hand any contributor who hits Xcode's Format action a
+   two-thousand-line diff; the conventions are written into CONTRIBUTING with
+   their measurements instead. Code hygiene measured clean independently: zero
+   trailing-whitespace files, zero `TODO`/`FIXME` in shipped code, one `try!` in
+   Core, and the only three `print` calls are `#if DEBUG` behind a test
+   environment variable.
+
 00j. **Three follow-ups the 039 audit surfaced and did not take.**
    (a) **`NaruRemoteAppModel.swift` is 10,219 lines.** It owns session
    lifecycle, frame streaming, PiP wiring, persistence, text injection, helper
@@ -610,8 +641,8 @@ same PR.
 4. **30-minute whole-product iPhone pass** — helper video, VNC fallback,
    Type/Compose, trackpad/zoom, reconnect, and PiP enter/leave in one
    session. Record only privacy-safe aggregate diagnostics and thermal/RSS
-   verdicts (`SUBMISSION_READINESS.md` §5.4).
-5. **App Store Connect human steps** (`SUBMISSION_READINESS.md` §5.5) — app
+   verdicts (`docs/release/SUBMISSION_READINESS.md` §5.4).
+5. **App Store Connect human steps** (`docs/release/SUBMISSION_READINESS.md` §5.5) — app
    record, hosted privacy policy URL, TestFlight distribution, EU DSA trader
    and Korea declarations, then submit. Founder decision D3 (Live→default) is
    EXECUTED by spec 011 + the constitution §I amendment (2026-08-17).
@@ -674,7 +705,7 @@ same PR.
   path (a fast connect failure was wiping the prelocked modifier), and
   compose typing waits for the keyboard before `typeText`.
 - **Korean localization** — String Catalog; founder ICP is Korean-first
-  (`ROADMAP.md` ship-readiness list).
+  (`docs/ROADMAP.md` ship-readiness list).
 
 ## Later (P2)
 
@@ -682,13 +713,13 @@ same PR.
   helper action docs (T016), transport explanation labels + benchmark
   evidence (T019–T020), quickstart checks.
 - **Track C VNC-fallback perf** — eliminate the ~24 MB framebuffer
-  copy-on-write in the apply path (`PERFORMANCE_PARITY_ANALYSIS.md`).
+  copy-on-write in the apply path (`docs/PERFORMANCE_PARITY_ANALYSIS.md`).
 - **Helper delete-op contract** — v1 ladder deletes ride the VNC BackSpace
   key lane only (founder D1); a helper-native delete is a post-v1 contract
   change.
 - **Non-macOS host ladder tiers** — `specs/009` Non-Goal; needs its own spec.
 - **Phase 8 multi-session coordinator spec; Phase 10 SSH/terminal mode** —
-  see `ROADMAP.md` pre-spec gates.
+  see `docs/ROADMAP.md` pre-spec gates.
 
 ## Standing constraints (do not regress)
 

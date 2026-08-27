@@ -94,7 +94,7 @@ default (D3) — not this opt-in slice.
 - [ ] T023 [FR-005] Physical regression: `text-keystroke-observed-probe` (unicode-hangul) confirms Unicode `KeyEvent` to macOS remains `no-input`.
 - [ ] T024 [SC-007] Physical iPhone: 30-min sustained live-typing session — no accumulated desync/loss/unrecoverable state/sustained serious thermal. Record session log + diagnostic export.
 - [x] T025 Record the non-macOS-host residual (Non-Goal): adapter ladder must
-  not assume macOS everywhere; `NEXT_STEPS.md` and `ROADMAP.md` now keep
+  not assume macOS everywhere; `NEXT_STEPS.md` and `docs/ROADMAP.md` now keep
   non-mac tiers behind a later feature spec rather than implying current
   support. **Done 2026-07-12.**
 

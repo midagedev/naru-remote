@@ -49,7 +49,7 @@ gated on physical-device evidence (founder decision D3).
 
 No constitution violations planned. Live augments input; it does not replace RFB
 viewing or the Compose default. Complexity is justified by the CRD-parity gap
-(the batch per-sentence silence budget) identified in `PERFORMANCE_PARITY_ANALYSIS.md`.
+(the batch per-sentence silence budget) identified in `docs/PERFORMANCE_PARITY_ANALYSIS.md`.
 
 ## Architecture Decision
 

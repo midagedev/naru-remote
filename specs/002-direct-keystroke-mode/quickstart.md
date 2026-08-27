@@ -134,4 +134,4 @@ physical hardware and are tracked as residual risk per constitution §III.
 
 When T045 / T046 are recorded as PASS, mark the corresponding entries
 in `tasks.md` complete and remove the residual-risk note from the
-Phase 9 keyboard sub-track in `ROADMAP.md`.
+Phase 9 keyboard sub-track in `docs/ROADMAP.md`.

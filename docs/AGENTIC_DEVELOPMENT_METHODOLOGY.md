@@ -291,7 +291,7 @@ root AGENTS.md에는 다음만 둔다.
 
 - `xcodebuild test -scheme VNCViewer -destination 'platform=iOS Simulator,name=iPad Pro ...'`
 - `tools/vnc-test-server/run.sh --clipboard=utf8`
-- `docs/compatibility/vnc-clipboard-matrix.md` 업데이트
+- 서버별 클립보드 지원 표 업데이트 (문서 미작성 — 현재 근거는 `TestFixtures/FakeRFBServer/Fixtures/`의 트랜스크립트)
 - `InputBridge` 변경 시 `TextInjectionAdapterTests` 필수
 
 ## 6. Task 설계 규칙

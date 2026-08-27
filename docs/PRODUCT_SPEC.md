@@ -19,7 +19,7 @@ Naru Remote는 iPhone을 일차 설계 대상으로 둔다(constitution §VI). i
 > iPhone에서 합성하고, Tailnet 안의 컴퓨터에 정확히 보낸다. 데스크톱 터미널과 AI 에이전트를 주머니에 — 한국어가 깨지지 않은 채로.
 
 스트리밍, 입력, 제스처, iPhone/iPad 사용감이 "원활하다"고 판정하는
-구체적인 제품 품질 기준은 `PRODUCT_QUALITY_TARGETS.md`를 따른다. 기능별 spec은
+구체적인 제품 품질 기준은 `docs/PRODUCT_QUALITY_TARGETS.md`를 따른다. 기능별 spec은
 이 기준을 각 acceptance test와 benchmark gate로 구체화한다.
 
 ## 2. 배경과 문제

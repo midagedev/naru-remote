@@ -52,10 +52,10 @@ the remote computer, plus an optional macOS host helper (`NaruHelper`) that
 unlocks Chrome-Remote-Desktop-level type-through input and a hardware-codec
 video stream.
 
-Read before architecture or implementation work: `BRANDING.md`,
-`PRODUCT_SPEC.md`, `PRODUCT_RESEARCH.md`, `AGENTIC_DEVELOPMENT_METHODOLOGY.md`,
-`SPEC_DRIVEN_DEVELOPMENT.md`, `.specify/memory/constitution.md`. For current
-performance/parity ground truth read `PERFORMANCE_PARITY_ANALYSIS.md`.
+Read before architecture or implementation work: `docs/BRANDING.md`,
+`docs/PRODUCT_SPEC.md`, `docs/AGENTIC_DEVELOPMENT_METHODOLOGY.md`,
+`docs/SPEC_DRIVEN_DEVELOPMENT.md`, `.specify/memory/constitution.md`. For current
+performance/parity ground truth read `docs/PERFORMANCE_PARITY_ANALYSIS.md`.
 
 ## Spec-Driven Workflow (non-negotiable)
 
@@ -230,7 +230,7 @@ Hard-won, live-measured; do not re-litigate without new measurements:
 - **Apple Screen Sharing serves ZRLE only** and does not support
   ContinuousUpdates; its ~5.6 content-fps produce rate is the VNC framerate
   ceiling. The client pipeline is not the bottleneck
-  (`PERFORMANCE_PARITY_ANALYSIS.md`); helper video is the structural path.
+  (`docs/PERFORMANCE_PARITY_ANALYSIS.md`); helper video is the structural path.
 - **Perf instrumentation already exists**: `SessionStreamStats` + the DEBUG
   `SessionPerformanceHUDView`. Read it; don't add new timing.
 - **Diagnostic exports use a fixed safe-detail catalog** — never pipe raw

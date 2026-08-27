@@ -10,7 +10,7 @@ description: "Tasks: Host Helper Text Bridge"
 
 ## Phase 1: Spec & Research Readiness
 
-- [x] T001 Read `BRANDING.md`, `PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and `specs/006-host-helper-text-bridge/spec.md`. **Done for spec PR.**
+- [x] T001 Read `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and `specs/006-host-helper-text-bridge/spec.md`. **Done for spec PR.**
 - [x] T002 Confirm all clarification markers are resolved or explicitly deferred. **Done; none remain.**
 - [x] T003 [P] Complete risky API/protocol/policy decisions in `specs/006-host-helper-text-bridge/research.md`. **Done for spec PR.**
 - [x] T004 [P] Record the required verification matrix in `specs/006-host-helper-text-bridge/plan.md`. **Done for spec PR.**

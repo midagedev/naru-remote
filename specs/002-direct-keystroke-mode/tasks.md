@@ -10,7 +10,7 @@ description: "Tasks: Direct Keystroke Streaming Mode"
 
 > **Reconciliation note (2026-07-05)**: this feature shipped via PRs #28–#35
 > (custom soft keyboard, sticky modifiers, hardware passthrough — see
-> `spec.md` Status and `ROADMAP.md` Phase 9), but the checkboxes below were
+> `spec.md` Status and `docs/ROADMAP.md` Phase 9), but the checkboxes below were
 > not maintained during implementation. Treat unchecked Phase2/US1 items as
 > DONE unless code inspection says otherwise; the genuinely open residuals
 > are the physical-device manual tests T045 (vim) and T046 (Bluetooth Magic
@@ -190,8 +190,8 @@ PR grouping suggestion: each `Phase` below is a natural PR boundary. Phase 2 + 3
 - [ ] T045 [Manual] [Cross] iPhone physical-device test: connect to a real Mac VNC, enter Direct mode, complete `vim` open → navigate `h j k l` → save & quit `Esc :wq Return`. Record PASS/FAIL in `artifacts/manual-tests/direct-keystroke-vim.md` with a short screen recording.
 - [ ] T046 [Manual] [Cross] iPhone physical-device test: same as T045 but with a Bluetooth Magic Keyboard attached. Cover Tab completion, `Ctrl-R` reverse search, `Ctrl-C` cancel. Record PASS/FAIL in `artifacts/manual-tests/direct-keystroke-hwkb.md`.
 - [ ] T047 [P] [Cross] Add `quickstart.md` under `specs/002-direct-keystroke-mode/` — how to run the feature checks: `swift test`, fake-RFB byte-trace command, simulator drive-to-Direct steps for screenshots, manual-test recipe templates.
-- [ ] T048 [Cross] Update `ROADMAP.md` Phase 9 keyboard sub-track from "promoted to ship-blocker / pending" to "implemented" once T042–T046 close. Update Ship Readiness P0 list.
-- [ ] T049 [Cross] Update `PRODUCT_SPEC.md` §6.3.6 if implementation reality changed any user-visible flow described in the spec (e.g., final modifier-button visual semantics, final special-keys page contents, exact warning-dialog wording).
+- [ ] T048 [Cross] Update `docs/ROADMAP.md` Phase 9 keyboard sub-track from "promoted to ship-blocker / pending" to "implemented" once T042–T046 close. Update Ship Readiness P0 list.
+- [ ] T049 [Cross] Update `docs/PRODUCT_SPEC.md` §6.3.6 if implementation reality changed any user-visible flow described in the spec (e.g., final modifier-button visual semantics, final special-keys page contents, exact warning-dialog wording).
 - [x] T050 [Cross] Physical iPhone input-lane correction: split app-level key dispatch from pointer dispatch so slow buttonless trackpad-move writes cannot head-of-line block Direct keys or Compose quick keys; pointer timeout narrows to the pointer lane. Covered by delayed-trackpad-move and timed-out-pointer regressions in `DirectKeystrokeModeTests`. **Done.**
 - [x] T051 [Cross] Physical iPhone focused-IME correction: treat focused
   Compose text as a UIKit-owned local transaction and stop automatic
@@ -253,4 +253,4 @@ PR-D can fork from PR-B (same Core base) and merge alongside PR-C — Phase 3 Ap
 - Each PR opens against a clean branch off `main` after the prior PR merges. The `feat/<task-id>-<slug>` naming convention is fine; or `feat/02-direct-keystroke-<phase>` if the loop prefers feature-grouped names.
 - After every UI-touching task, the agent MUST follow `feedback_ui_iteration_via_simulator_screenshots` — boot simulator, screenshot, vision-judge, save under `artifacts/screenshots/direct-keystroke/`, before claiming the task complete.
 - Manual-test tasks (T045, T046) cannot be auto-completed by the agent; they require physical iPhone access. Mark them `BLOCKED` and surface the residual risk explicitly in the closing PR (constitution §III).
-- After PR-I lands, mark Phase 9 keyboard sub-track as implemented in `ROADMAP.md` and `feedback_phase9_keyboard_is_ship_blocker.md` becomes historical (do NOT delete; it's the audit trail of why the work happened).
+- After PR-I lands, mark Phase 9 keyboard sub-track as implemented in `docs/ROADMAP.md` and the founder-feedback memory recording it as a ship blocker becomes historical (do NOT delete; it is the audit trail of why the work happened). That memory lives in the agent's own store, not in this repository.

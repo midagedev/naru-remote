@@ -10,7 +10,7 @@
 
 | # | 경로 | 확인 |
 |---|------|------|
-| 1 | `redhorse/CLAUDE.md` | 읽음 |
+| 1 | `CLAUDE.md` | 읽음 |
 | 2 | `orca/mobile/src/terminal/terminal-accessory-keys.ts` | 읽음 |
 | 3 | `orca/mobile/src/terminal/terminal-accessory-layout.ts` | 읽음 |
 | 4 | `orca/mobile/src/terminal/quick-commands.ts` | 읽음 |

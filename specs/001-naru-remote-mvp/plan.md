@@ -19,7 +19,7 @@ state boundary. The MVP proves the core product claim before adding full-rate
 Metal rendering, fully device-verified system PiP, voice, image paste,
 helper-native insertion, or agent handoff.
 
-Current roadmap is tracked in `ROADMAP.md`.
+Current roadmap is tracked in `docs/ROADMAP.md`.
 
 ## Technical Context
 

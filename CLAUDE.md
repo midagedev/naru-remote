@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Product
 
-Naru Remote is an iPhone/iPad VNC viewer for private networks (Tailscale-friendly). Its differentiator is reliable **local composition** of multilingual text, voice, images, and files before sending finished input to the remote computer. Required reading before architecture/implementation work: `BRANDING.md`, `PRODUCT_SPEC.md`, `PRODUCT_RESEARCH.md`, `AGENTIC_DEVELOPMENT_METHODOLOGY.md`, `SPEC_DRIVEN_DEVELOPMENT.md`, `.specify/memory/constitution.md`.
+Naru Remote is an iPhone/iPad VNC viewer for private networks (Tailscale-friendly). Its differentiator is reliable **local composition** of multilingual text, voice, images, and files before sending finished input to the remote computer. Required reading before architecture/implementation work: `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`, `docs/AGENTIC_DEVELOPMENT_METHODOLOGY.md`, `docs/SPEC_DRIVEN_DEVELOPMENT.md`, `.specify/memory/constitution.md`.
 
 ## Spec-Driven Workflow (non-negotiable)
 
@@ -16,7 +16,7 @@ This repo runs Spec Kit. Treat `.specify/memory/constitution.md` as the highest 
 
 - **Do not implement a feature that lacks a `specs/<n>-<slug>/spec.md`.** If a request would add new behavior with no spec, stop and ask, or use `$speckit-specify` first.
 - The active feature is pinned in `.specify/feature.json` (currently `specs/018-adaptive-server-downscale`). `plan.md`, `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and `quickstart.md` for that feature are authoritative — update them when implementation behavior changes.
-- Every `specs/<n>-<slug>/spec.md` carries a **Status** line — trust it over ROADMAP prose. Cross-feature priorities live in `NEXT_STEPS.md`; update it in the same PR when you finish or reprioritize work.
+- Every `specs/<n>-<slug>/spec.md` carries a **Status** line — that is the truth for one feature. Cross-feature priorities live in `NEXT_STEPS.md`; update it in the same PR when you finish or reprioritize work. `docs/ROADMAP.md` is the phase-level narrative of how the product was built and answers neither question.
 - `AGENTS.md` is the equivalent entry point for non-Claude agents (e.g. Codex). When rules here change, keep `AGENTS.md` in sync.
 - Workflow phases: `$speckit-constitution` → `$speckit-specify` → `$speckit-clarify` → `$speckit-plan` → `$speckit-tasks` → `$speckit-implement`.
 - Tasks must be small, independently testable, and declare file ownership; parallel work is allowed only when write sets are disjoint.

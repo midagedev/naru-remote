@@ -54,6 +54,13 @@ jobs:
       - name: Test
         run: swift test --skip-build
 
+      - name: Check document references
+        # The documentation cross-references by name in prose, so a moved file
+        # breaks nothing visibly — it just quietly stops being true. Measured
+        # when the repository went public: eleven references pointed at
+        # documents that had been superseded, moved, or never written.
+        run: scripts/check-doc-links.sh
+
       - name: Check the module boundary
         # NaruRemoteCore importing a UI framework is the one architectural rule
         # a diff can break silently: everything still compiles, and the fast

@@ -12,7 +12,7 @@ description: "Tasks for Apple Remote Desktop native support strategy"
 
 **Purpose**: Ensure the ARD support boundary is explicit before writing code.
 
-- [x] T001 Read `BRANDING.md`, `PRODUCT_SPEC.md`,
+- [x] T001 Read `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`,
   `.specify/memory/constitution.md`, and this feature's `spec.md`.
 - [x] T002 Confirm all `[NEEDS CLARIFICATION]` markers are resolved or
   explicitly deferred.

@@ -1,5 +1,12 @@
 # Naru Remote — App Store Submission Readiness
 
+> **Point-in-time record, 2026-07-12.** This documented the run-up to the
+> **first** App Store submission — `1.0.0 (build 1)`. The app has shipped since
+> and is well past that build, so read this as how the launch was prepared, not
+> as a description of anything outstanding. Current work is queued in
+> `NEXT_STEPS.md`; each feature's truth is the **Status** line of its
+> `specs/<n>-<slug>/spec.md`.
+
 작성일: 2026-07-12 KST · 대상 버전: **1.0.0 (build 1)**
 
 이 문서는 "내일이라도 앱스토어에 제출할 수 있는 수준"을 목표로 한
@@ -55,7 +62,7 @@
    no-tracking/no-collection 라벨을 게시했다.
 5. ~~**연령 등급 / 카테고리 / 가격**~~ ✅ Productivity(주), Utilities(부),
    4+, Free, 175개 국가 또는 지역으로 설정했다.
-6. ~~**메타데이터 / Review Notes**~~ ✅ `APP_STORE_LISTING.md`의 영문 설명,
+6. ~~**메타데이터 / Review Notes**~~ ✅ `docs/release/APP_STORE_LISTING.md`의 영문 설명,
    키워드, 지원 URL과 사설망 심사 메모를 저장했다.
 7. ~~**Distribution 검증**~~ ✅ Release archive의 버전/번들 ID/암호화 선언,
    코드 서명, Privacy manifest·현지화 포함 여부와 테스트 표식 부재를 검증했다.
@@ -84,7 +91,7 @@
 | Export compliance | ✅ | `project.yml` `ITSAppUsesNonExemptEncryption: false` |
 | **PrivacyInfo.xcprivacy** | ✅ 이미 존재·번들 포함 | `NaruRemote/iOSApp/PrivacyInfo.xcprivacy` (앱 타깃 소스 디렉터리 → 리소스로 자동 포함). no-tracking / no-collection / no-required-reason-API 선언 |
 | 마케팅 버전 | ✅ `1.0.0 (build 1)` | `project.yml` |
-| 스토어 리스팅 초안 | ✅ (PR #490) | `APP_STORE_LISTING.md` (이름/부제/키워드/설명 한·영) |
+| 스토어 리스팅 초안 | ✅ (PR #490) | `docs/release/APP_STORE_LISTING.md` (이름/부제/키워드/설명 한·영) |
 | 풀스크린 빈 홈 + 브랜드 폴리시 | ✅ (#489/#492) | 화면 인벤토리 §2 유효 |
 
 ### 5.2 실기기 서명 실증 (§3.1 차단 해소)
@@ -141,7 +148,7 @@
 ### 5.4 제출 전에 남은 제품 품질 게이트
 
 아래 항목은 App Store의 기계적 업로드 요건과 별개다. 저장소의
-`PRODUCT_QUALITY_TARGETS.md`가 정의한 Green 판정 전에는 공개 1.0을
+`docs/PRODUCT_QUALITY_TARGETS.md`가 정의한 Green 판정 전에는 공개 1.0을
 "원활/CRD급"으로 표현하지 않는다.
 
 1. `specs/007`의 실제 ScreenCaptureKit 화면 helper-video 물리 iPhone 게이트.
@@ -214,7 +221,7 @@
    게이트할 수 없지만 토큰은 계산할 수 있기 때문이다. 팔레트는 `NaruPalette`로
    데이터화됐고 `NaruColorContrastTests`가 앱이 만드는 모든 (텍스트, 배경)
    조합을 두 테마에서 검사한다(본문 4.5:1). 그 과정에서 Light Muted Ink가
-   독 위 4.41:1로 AA 미달임이 드러나 `#5F6773`으로 조정됐다(`BRANDING.md` §7).
+   독 위 4.41:1로 AA 미달임이 드러나 `#5F6773`으로 조정됐다(`docs/BRANDING.md` §7).
 
 > 요약: 코드/에셋과 UI 제출 자료는 Green이고 최종 `swift test`는 1,565 tests,
 > 26 skipped, 0 failures다. App Store Connect 레코드·메타데이터·개인정보·가격은

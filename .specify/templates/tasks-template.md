@@ -19,7 +19,7 @@ description: "Naru Remote task list template for feature implementation"
 
 **Purpose**: Ensure the agent has grounded context before writing code.
 
-- [ ] T001 Read `BRANDING.md`, `PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and this feature's `spec.md`
+- [ ] T001 Read `docs/BRANDING.md`, `docs/PRODUCT_SPEC.md`, `.specify/memory/constitution.md`, and this feature's `spec.md`
 - [ ] T002 Confirm all `[NEEDS CLARIFICATION]` markers are resolved or explicitly deferred
 - [ ] T003 [P] Complete risky API/protocol/policy decisions in `specs/[###-feature]/research.md`
 - [ ] T004 [P] Record the required verification matrix in `specs/[###-feature]/plan.md`

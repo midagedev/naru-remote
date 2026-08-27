@@ -123,6 +123,6 @@ terminal window fits — anything else renders as `?`.
 Store text and captions must not claim behaviour the build does not have:
 
 - **No "bring the remote clipboard back to your iPhone".** Incoming clipboard
-  review ships inert on the streaming path (see `SUBMISSION_READINESS.md` #7).
+  review ships inert on the streaming path (see `docs/release/SUBMISSION_READINESS.md` #7).
 - **No Tailscale affiliation** and no public-internet-first framing
   (constitution principle II).

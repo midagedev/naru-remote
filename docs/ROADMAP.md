@@ -1,11 +1,32 @@
 # Roadmap: Naru Remote
 
-Updated: 2026-07-12 KST
+Updated: 2026-08-27 KST
+
+**What this file is.** The phase-level narrative of how the product was built —
+what each phase set out to do and what it left behind. It is *not* the status of
+any particular feature and it is not the work queue; those have owners:
+
+| Question | Where it is answered |
+| --- | --- |
+| Is feature X done? | The **Status** line of its `specs/<n>-<slug>/spec.md` |
+| What should be worked on next? | `NEXT_STEPS.md` |
+| How did the product get here? | This file |
+
+That split exists because this file used to answer all three and drift on two of
+them. It was six weeks stale on 2026-08-27 — still describing a product in
+"ship-readiness" that had shipped and was on its thirteenth build — and the
+repository's own agent rules had grown a clause telling readers not to trust its
+prose. A document nobody is allowed to believe should either be fixed or
+retired; this is the fix.
 
 ## Current Position
 
-The MVP vertical slice has shipped; the product is in the ship-readiness and
-CRD-parity hardening stage. Implemented so far:
+Shipped to the App Store as 1.0.0 and iterating on TestFlight builds. The work
+since launch has been the session surface — input dock geometry, PiP framing and
+re-entry, viewport behaviour, scroll, and the founder's own device passes — plus,
+on 2026-08-27, opening the repository. Phases 0–11 below record how it was built.
+
+Implemented through the MVP and hardening phases:
 
 - Core viewer (`specs/001`): profiles + Keychain `credentialRef`, staged
   diagnostics, onboarding, Compose & Send, `RemoteSession` state machine,
@@ -20,14 +41,14 @@ CRD-parity hardening stage. Implemented so far:
 - Live type-through compose (`specs/009`) + helper onboarding (`specs/010`):
   implemented 2026-07-05; physical gates T021–T024 remain. The non-macOS
   adapter-ladder limitation is documented as a later-spec boundary.
-- Performance parity analysis (`PERFORMANCE_PARITY_ANALYSIS.md`): the client
+- Performance parity analysis (`docs/PERFORMANCE_PARITY_ANALYSIS.md`): the client
   pipeline is healthy on-device; the Apple VNC server's ~5.6 content-fps
   produce rate is the framerate ceiling; helper video is the structural path
   to commercial-grade parity.
 
 Authoritative per-feature status lives in each `specs/<n>-<slug>/spec.md`
 **Status** line. Cross-feature priorities and residual work live in
-`NEXT_STEPS.md`; submission state in `SUBMISSION_READINESS.md`. The 2026-07
+`NEXT_STEPS.md`; submission state in `docs/release/SUBMISSION_READINESS.md`. The 2026-07
 helper/CRD-parity workstream is Phase 11 below. The canonical simulator
 verification target is iPhone first (constitution §VI): iPhone 17 Pro,
 iOS 26.2, with iPad Pro 13-inch (M5) as the graceful-scaling secondary.
@@ -439,7 +460,7 @@ P1 — App Store listing requires these:
 - App Store screenshots (6.7" iPhone 17 Pro Max mandatory; iPad 13"
   recommended).  `artifacts/screenshots/` exists for compose-text
   smoke checks but is not yet App Store-sized
-- ✅ App description and keywords draft (KR + EN) in `APP_STORE_LISTING.md`
+- ✅ App description and keywords draft (KR + EN) in `docs/release/APP_STORE_LISTING.md`
 - Support URL; price decision; review-accessible demo/notes
 - Privacy Policy URL (hosted page)
 - App Privacy questionnaire answers — Naru collects nothing;
@@ -534,7 +555,7 @@ session type rather than replacing the single-session app model).
 Status: implemented in code; physical verification gates in progress
 
 Goal: Chrome-Remote-Desktop-level compose usability and Screen-Sharing-level
-framerate. Analysis and measured baselines: `PERFORMANCE_PARITY_ANALYSIS.md`.
+framerate. Analysis and measured baselines: `docs/PERFORMANCE_PARITY_ANALYSIS.md`.
 
 - `specs/006` helper text bridge: HMAC-paired localhost bridge (`--listen`,
   port 5974, macOS Accessibility permission); `nativeInsert` live-verified

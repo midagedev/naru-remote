@@ -1,10 +1,17 @@
 # App Store Connect Listing — Naru Remote 1.0
 
+> **Point-in-time record, 2026-07-12.** This documented the run-up to the
+> **first** App Store submission — `1.0.0 (build 1)`. The app has shipped since
+> and is well past that build, so read this as how the launch was prepared, not
+> as a description of anything outstanding. Current work is queued in
+> `NEXT_STEPS.md`; each feature's truth is the **Status** line of its
+> `specs/<n>-<slug>/spec.md`.
+
 작성일: 2026-07-12 KST. 이 문서는 App Store Connect에 그대로 붙여 넣을
 메타데이터 초안이다. 문자수 제한은 Apple 기준(2026): 이름 30자, 부제
 30자, 프로모션 텍스트 170자, 키워드 100자(쉼표 포함), 설명 4000자.
 
-> 브랜딩 근거: `BRANDING.md`. 제품 특성/보안 경계: `PRODUCT_SPEC.md`,
+> 브랜딩 근거: `docs/BRANDING.md`. 제품 특성/보안 경계: `docs/PRODUCT_SPEC.md`,
 > `.specify/memory/constitution.md`.
 
 ## 1. 기본

@@ -173,11 +173,11 @@ images, and files, plus an optional host helper and agent-ready control layer.
 
 Primary references:
 
-- `BRANDING.md` for naming, tone, icon, color, and product language
-- `PRODUCT_SPEC.md` for product behavior and roadmap
-- `PRODUCT_RESEARCH.md` for competitive and demand research
-- `AGENTIC_DEVELOPMENT_METHODOLOGY.md` for agent task selection and workflow
-- `SPEC_DRIVEN_DEVELOPMENT.md` for the spec-driven operating model
+- `docs/BRANDING.md` for naming, tone, icon, color, and product language
+- `docs/PRODUCT_SPEC.md` for product behavior and roadmap
+- Competitive and demand research is not kept in this repository
+- `docs/AGENTIC_DEVELOPMENT_METHODOLOGY.md` for agent task selection and workflow
+- `docs/SPEC_DRIVEN_DEVELOPMENT.md` for the spec-driven operating model
 
 Initial non-goals:
 
