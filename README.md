@@ -1,5 +1,7 @@
 # Naru Remote
 
+[![CI](https://github.com/midagedev/naru-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/midagedev/naru-remote/actions/workflows/ci.yml)
+
 **A VNC viewer for the phone you actually work from.**
 
 Naru Remote connects an iPhone or iPad to a Mac or Linux machine on your own
@@ -72,7 +74,9 @@ written into the profile file.
 
 ## Getting started
 
-Requirements: macOS with Xcode 16+ (Swift 6), an iOS 17+ device or simulator.
+Requirements: macOS with a Swift 6.2 toolchain (Xcode 26), an iOS 17+ device or
+simulator. Older toolchains do compile most of the tree, but Swift 6.1 rejects
+one test file over actor isolation — CI pins the version for that reason.
 
 ```bash
 git clone https://github.com/midagedev/naru-remote.git
@@ -142,6 +146,7 @@ If you want the long version, `AGENTS.md`, `.specify/memory/constitution.md`, an
 ## Contributing
 
 Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+CI runs `swift build`, `swift test` and a module-boundary check on every PR.
 
 Bug reports are much easier to act on with a diagnostic export attached: in the
 app, **Session tools → Diagnostics → Share**. It is built to be safe to paste in

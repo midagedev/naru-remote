@@ -224,7 +224,31 @@ same PR.
    **Open:** flipping the repository to public, and the founder device pass on
    the build that carries this.
 
-00j. **Two follow-ups the 039 audit surfaced and did not take.**
+00i-b. **CI exists now, and the first three runs each found a real defect.**
+   Landed 2026-08-27. `.github/workflows/ci.yml` runs `swift build`, `swift
+   test` and a module-boundary check on every pull request — the repository is
+   public and CONTRIBUTING invites PRs, and nothing was verifying them. Run 1
+   failed to **compile**: the `macos-15` image's Swift 6.1.2 rejects
+   `SimplifiedInputUxModelTests` where 6.2 accepts it (`XCTestCase.tearDown()`
+   gained `@MainActor` isolation between them), so the runner is pinned to
+   `macos-26` rather than the source loosened. Runs 2 and 3 failed on **waits**,
+   which turned into the largest single test-quality change this project has
+   had: 76 `for _ in 0..<N where <pending> { sleep }` loops with 400 ms–1.25 s
+   budgets that fell through in silence, plus two `waitFor` helpers with the
+   same shape — every one of them letting the next assertion report a timeout as
+   whatever that assertion happened to be about. All now fail on their deadline
+   with a description and the caller's line. Tightening them then exposed four
+   **proxy waits** (`status != .failed`, then asserting *which path* failed) and
+   one test asserting a 150 ms wall-clock window from four async round-trips
+   away; both classes are closed. CI green on main from `24097c66`.
+   **Open:** the intermediate helper-bridge attempt that reports "Text send
+   cancelled because the remote session changed" during a session that has been
+   active since before the send. It is transient and the final outcome is
+   correct, so it is not blocking — but nothing explains why it happens, and it
+   was only visible because a wait caught it. Worth an hour with the model's
+   session-id guards.
+
+00j. **Three follow-ups the 039 audit surfaced and did not take.**
    (a) **`NaruRemoteAppModel.swift` is 10,219 lines.** It owns session
    lifecycle, frame streaming, PiP wiring, persistence, text injection, helper
    video, diagnostics and settings. Nothing is wrong with it that a reader can
@@ -238,6 +262,15 @@ same PR.
    English-only interface is an odd note. Localisation is a large round —
    every user-facing string in the app plus the App Store listing — and it
    should not be attempted alongside behaviour changes.
+   (c) **The idle input dock truncates its status sentence at accessibility
+   text sizes.** Measured at `extra-extra-extra-large` on iPhone 17 Pro: the
+   header's title is `.fixedSize`, so the status block beside it wraps to two
+   lines and clips ("Ready to compose l…"). Everything else in the dock, and
+   the whole of About and the profile editor, scale cleanly at that size. The
+   fix is to stack the header when `dynamicTypeSize.isAccessibilitySize`, and
+   it wants its own round: the dock's row budget is gated at the default text
+   size only, so an accessibility-size branch has no gate that can measure it
+   yet.
 
 0. **`specs/030` full-frame incremental requests — the founder's frame rate.**
    Landed 2026-08-25. Scoping incremental framebuffer requests to the visible
