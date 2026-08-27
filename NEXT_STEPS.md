@@ -210,8 +210,13 @@ same PR.
    on a **Korean** keyboard — spec 016 FR-010 declared this closed with
    `.keyboardType(.URL)`, which picks a layout and not a language, so on a
    Korean-first phone the URL keyboard is the Korean keyboard with `.com` added.
-   FAIL-first reproduced it by reading the keys (`ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ`);
-   `.asciiCapable` closes it. Also removed `ProfileListView.swift`, 243 lines
+   FAIL-first reproduced it by reading the keys (`ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ`). The first
+   fix, `.asciiCapable`, was **worse than the defect** and the capture caught
+   it: it opens a bare alphabet with no period, turning one globe tap into
+   twelve trips to the numbers plane for `studio.tailnet.ts.net`. No
+   `keyboardType` can do both — it picks a layout, never a language — so
+   `HostnameTextField` takes `.URL` for the layout and pins `textInputMode` on
+   a `UITextField` for the language. The gate now reads the period too. Also removed `ProfileListView.swift`, 243 lines
    referenced from nowhere since spec 013.
    **Decisions:** publish the repository, MIT licensed. A full-history scan
    (868 commits) found no credentials; one real tailnet address in a fixture was

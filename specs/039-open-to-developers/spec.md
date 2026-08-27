@@ -104,6 +104,24 @@ nothing was reading the keys.
 **FR-004.** A hostname field opens on a Latin keyboard whatever the device's
 last-used input mode was, and a gate reads the keys to say so.
 
+**FR-004a.** It also opens on a plane that carries `.` and `/`. A hostname is
+mostly separators — `studio.tailnet.ts.net` is four dots — and a keyboard the
+user must leave for every one of them is a different defect, not a fix.
+
+**The first attempt failed FR-004a and the capture caught it.**
+`.keyboardType(.asciiCapable)` passed the Latin assertion and opened a **bare
+alphabet**: measured, `q…p / a…l / z…m / delete numbers`, no period. That turns
+one globe tap — the actual cost of the original defect — into twelve taps to
+the numbers plane and back. The gate now asserts the period too, and failed on
+`.asciiCapable` before the second attempt.
+
+Neither `keyboardType` value can deliver both, because `keyboardType` chooses a
+layout and never a language. `HostnameTextField` takes `.URL` for the layout and
+overrides `textInputMode` on a `UITextField` for the language, which is the only
+API iOS offers for the second half. The globe key stays: pinning the *initial*
+mode is the whole intent, and a user who wants another keyboard in this field
+can still ask for one.
+
 ### 4. Dead code
 
 `ProfileListView.swift` — 243 lines, a complete view with its own delete-confirm
@@ -122,7 +140,7 @@ value.
 | FR-001 | The files exist; full-history secret scan recorded above. |
 | FR-002, FR-002a | `AboutAndFeedbackUITests` — reachable from the empty home and from the Connections header; version renders from the real bundle keys rather than its fallback; every route present. |
 | FR-003 | `ScreenWakePolicyTests` (13) over the decision for every session state, plus settings default/round-trip; `ScreenWakeCoordinatorTests` (6) over the writes, including the property that every ordering ends with the hold released. |
-| FR-004 | `HostFieldKeyboardUITests.testTheHostFieldOpensOnALatinKeyboardEvenWhenTheDeviceTypesKorean` — reads the on-screen keys. FAIL-first confirmed. Skips narrowly when no non-Latin keyboard is installed, because there the outcome is unproducible. |
+| FR-004, FR-004a | `HostFieldKeyboardUITests.testTheHostFieldOpensOnALatinKeyboardEvenWhenTheDeviceTypesKorean` — reads the on-screen keys: a Latin letter present, no Hangul, and the period on the plane that opened. FAIL-first confirmed for both halves, the second against the first attempt at the fix. Skips narrowly when no non-Latin keyboard is installed, because there the outcome is unproducible. |
 | FR-005 | `swift build` (nothing referenced it) plus a repository-wide search for its identifiers. |
 | All | iPhone 17 Pro simulator; founder device pass on the build that carries this. |
 
@@ -138,15 +156,30 @@ error: The host field came up on a non-Latin keyboard. …
 error: ㅂ is on screen, so the Korean plane is the one that opened
 ```
 
-After `.keyboardType(.asciiCapable)`: passed, 8.96 s.
+After `.keyboardType(.asciiCapable)`: the Latin assertions passed, and the
+period assertion failed with the plane it had opened:
+
+```
+error: The period is not on the plane that opened, so typing a MagicDNS name
+       means switching planes for every dot. Keys present: q w e r t y u i o p
+       a s d f g h j k l  z x c v b n m  delete numbers
+```
+
+After `HostnameTextField` (`.URL` layout, `textInputMode` pinned): all three
+assertions pass — Latin letters present, no Hangul, `.` on the opening plane —
+with `.` `/` `.com` visible in the capture.
 
 ## Residual risk
 
-`.asciiCapable` costs the `.com` and `/` keys that the URL keyboard put on the
-primary plane. For a MagicDNS name — `studio.tailnet.ts.net` — `.com` is of no
-use and `.` is on the primary plane of both, so the trade is nearly free here.
-It would be a worse trade on a field that took real URLs, and this modifier is
-named `hostnameInputTraits` so it does not spread to one.
+`HostnameTextField` is a `UIViewRepresentable`, so it does not participate in
+SwiftUI focus and the editor's `@FocusState` is bridged to it by hand. Focus is
+driven one way — into the field — because resigning from `updateUIView` as well
+would let a stale `isFocused` snatch the keyboard back from whatever the user
+tapped next. The cost is that dismissing the keyboard without moving to another
+field leaves `focusedField` pointing at the host row; nothing reads it in that
+state, and `onEditingEnded` records the visit that the inline error caption
+needs, so the visible behaviour is unchanged. It is still a hand-maintained
+bridge where there used to be a modifier.
 
 Holding the screen awake spends battery, by design, and the case it is built for
 — a long unattended session — is also the case where a user may put the phone

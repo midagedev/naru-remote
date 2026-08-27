@@ -65,6 +65,17 @@ final class HostFieldKeyboardUITests: XCTestCase {
             """
         )
 
+        // A hostname is mostly dots — `studio.tailnet.ts.net` is four of them.
+        // A plane the user has to leave for every separator is only half a fix.
+        XCTAssertTrue(
+            app.keys["."].exists,
+            """
+            The period is not on the plane that opened, so typing a MagicDNS \
+            name means switching planes for every dot. Keys present: \
+            \(Self.visibleKeyLabels(in: app, limit: 40))
+            """
+        )
+
         for hangulKey in ["ㅂ", "ㅈ", "ㄷ", "ㄱ"] {
             XCTAssertFalse(
                 app.keys[hangulKey].exists,
@@ -100,9 +111,9 @@ final class HostFieldKeyboardUITests: XCTestCase {
 
     private static let nonLatinPrefixes = ["ko", "ja", "zh", "ru", "ar", "he", "th", "hi", "el"]
 
-    private static func visibleKeyLabels(in app: XCUIApplication) -> String {
+    private static func visibleKeyLabels(in app: XCUIApplication, limit: Int = 12) -> String {
         let labels = app.keyboards.keys.allElementsBoundByIndex
-            .prefix(12)
+            .prefix(limit)
             .map(\.label)
         return labels.isEmpty ? "(none)" : labels.joined(separator: " ")
     }
