@@ -37,6 +37,48 @@ final class ComposeInputResponsivenessUITests: XCTestCase {
         waitForEditor(editor, toContain: "입력")
     }
 
+    /// Spec 038 FR-004: Send empties the field.
+    ///
+    /// The founder, on build 12: "컴포즈에서 문자 보내기를 했는데도 여전히 컴포즈된
+    /// 문자들이 지워지지 않고 남아있는 문제". Two halves had to agree for that to
+    /// happen — every delivery path kept the draft's text, *and*
+    /// `shouldDeferUIKitComposeBindingWrite` refuses any write that would empty
+    /// a focused field, which is right for a stale model mirror and wrong for
+    /// the user pressing Send. The model half has unit coverage; this is the
+    /// half the founder actually saw, so it is asserted where he saw it.
+    func testSendEmptiesTheComposeField() {
+        let app = launchAppWithActiveSessionFixture()
+        let editor = composeEditor(in: app)
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+
+        editor.typeText("echo hello")
+        waitForEditor(editor, toContain: "echo hello")
+
+        let send = app.buttons["naru.input.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 4))
+        XCTAssertTrue(send.isEnabled, "A field with a draft in it must be sendable")
+        send.tap()
+
+        let emptied = NSPredicate(format: "value == %@ OR value == nil", "")
+        let result = XCTWaiter().wait(
+            for: [XCTNSPredicateExpectation(predicate: emptied, object: editor)],
+            timeout: 5
+        )
+        XCTAssertEqual(
+            result,
+            .completed,
+            """
+            Send is a submit (spec 015 v1.1 FR-010), so the line left with a \
+            trailing Return. Leaving it in the field puts the founder one tap \
+            from running it twice — and the editor still reads \
+            \"\(editor.value as? String ?? "")\".
+            """
+        )
+    }
+
     func testFocusedActiveSessionComposeSurvivesConfirmationStatusClearAfterFirstInput() {
         let app = launchAppWithActiveSessionConfirmationUnavailableFixture()
         let editor = composeEditor(in: app)
