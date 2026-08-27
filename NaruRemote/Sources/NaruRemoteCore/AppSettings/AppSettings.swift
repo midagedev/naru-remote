@@ -166,6 +166,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// PiP belongs. Switchable, because a PiP window keeps streaming while
     /// backgrounded and what that costs on cellular is still unmeasured.
     public var pipEntersOnLeavingApp: Bool
+    /// Does an open connection hold off the device's auto-lock (spec 039
+    /// FR-003)?
+    ///
+    /// Default on. The canonical session here is watching a build, a test run,
+    /// or an agent work for minutes at a time without touching the screen —
+    /// which is precisely the input auto-lock counts as idleness. Switchable,
+    /// because holding a phone awake is a battery decision and it is the
+    /// user's to make; `ScreenWakePolicy` reads this.
+    public var keepsScreenAwakeDuringSession: Bool
 
     public init(
         streamPowerMode: StreamPowerMode = .balanced,
@@ -174,7 +183,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         startupGlanceScaleMode: StreamStartupGlanceScaleMode = .standard045,
         composeDelivery: ComposeDeliveryMode = .keystrokeStream,
         pipFramingMode: PiPFramingMode = .currentView,
-        pipEntersOnLeavingApp: Bool = true
+        pipEntersOnLeavingApp: Bool = true,
+        keepsScreenAwakeDuringSession: Bool = true
     ) {
         self.streamPowerMode = streamPowerMode
         self.streamEncodingMode = streamEncodingMode
@@ -183,6 +193,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.composeDelivery = composeDelivery
         self.pipFramingMode = pipFramingMode
         self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
+        self.keepsScreenAwakeDuringSession = keepsScreenAwakeDuringSession
     }
 
     public init(from decoder: Decoder) throws {
@@ -215,6 +226,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
             Bool.self,
             forKey: .pipEntersOnLeavingApp
         ) ?? true
+        let keepsScreenAwakeDuringSession = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .keepsScreenAwakeDuringSession
+        ) ?? true
         self.init(
             streamPowerMode: streamPowerMode,
             streamEncodingMode: streamEncodingMode,
@@ -222,7 +237,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
             startupGlanceScaleMode: startupGlanceScaleMode,
             composeDelivery: composeDelivery,
             pipFramingMode: pipFramingMode,
-            pipEntersOnLeavingApp: pipEntersOnLeavingApp
+            pipEntersOnLeavingApp: pipEntersOnLeavingApp,
+            keepsScreenAwakeDuringSession: keepsScreenAwakeDuringSession
         )
     }
 
@@ -249,6 +265,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if !pipEntersOnLeavingApp {
             try container.encode(pipEntersOnLeavingApp, forKey: .pipEntersOnLeavingApp)
         }
+        if !keepsScreenAwakeDuringSession {
+            try container.encode(
+                keepsScreenAwakeDuringSession,
+                forKey: .keepsScreenAwakeDuringSession
+            )
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -259,5 +281,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case composeDelivery
         case pipFramingMode
         case pipEntersOnLeavingApp
+        case keepsScreenAwakeDuringSession
     }
 }

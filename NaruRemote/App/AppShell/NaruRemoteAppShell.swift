@@ -8,6 +8,9 @@ public struct NaruRemoteAppShell: View {
     #if os(iOS) && canImport(UIKit)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
+    /// Read for one reason: a backgrounded app must not hold the screen awake
+    /// (spec 039 FR-003).
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var model: NaruRemoteAppModel
     @State private var showsProfileEditor = false
@@ -25,6 +28,9 @@ public struct NaruRemoteAppShell: View {
     /// capture of it (spec 034 FR-005).
     @State private var isChoosingPiPRegion = false
     @State private var showsGridDiagnosticDetail = false
+    /// About & Feedback (spec 039 FR-002). Presented from the Connections
+    /// header — the one screen that exists before a session does.
+    @State private var showsAbout = false
     /// When non-nil, an "Edit Profile" sheet is presented for this
     /// profile.  Using `Identifiable` here means SwiftUI will tear
     /// down and re-create the editor's state on each invocation, so
@@ -511,7 +517,10 @@ public struct NaruRemoteAppShell: View {
         ZStack {
             Group {
                 if isEmptyHome {
-                    EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                    EmptyHomeView(
+                        onAddProfile: { showsProfileEditor = true },
+                        onAbout: { showsAbout = true }
+                    )
                 } else if showsConnectionGrid {
                     ConnectionGridView(
                         cards: snapshot.connectionGridCards,
@@ -520,7 +529,8 @@ public struct NaruRemoteAppShell: View {
                         onDiagnostics: openDiagnostics,
                         onEdit: editProfile,
                         onDelete: performProfileDeletion,
-                        onCancelConnection: cancelConnection
+                        onCancelConnection: cancelConnection,
+                        onAbout: { showsAbout = true }
                     )
                     .navigationBarBackButtonHidden(true)
                 } else {
@@ -693,7 +703,10 @@ public struct NaruRemoteAppShell: View {
                 // home to root removes that chevron and the dead-end
                 // back navigation (spec FR-015 is still satisfied: one
                 // title, one primary action, nothing else).
-                EmptyHomeView(onAddProfile: { showsProfileEditor = true })
+                EmptyHomeView(
+                    onAddProfile: { showsProfileEditor = true },
+                    onAbout: { showsAbout = true }
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(NaruColors.canvas)
             } else {
@@ -845,6 +858,12 @@ public struct NaruRemoteAppShell: View {
             Text(retryState.message)
                 .accessibilityIdentifier("naru.profile.delete.failure.message")
         }
+        .sheet(isPresented: $showsAbout) {
+            AboutNaruView(buildVersion: buildVersion)
+        }
+        .screenWakeHold(
+            model.screenWakeResolution(isAppForeground: scenePhase == .active)
+        )
         .task {
             await model.loadStoredProfiles()
             await model.loadStoredSettings()
@@ -1247,6 +1266,8 @@ private struct SessionViewportFrameBridge: View {
             },
             pipEntersOnLeavingApp: model.pipEntersOnLeavingApp,
             onSetPiPEntersOnLeavingApp: { model.setPiPEntersOnLeavingApp($0) },
+            keepsScreenAwakeDuringSession: model.keepsScreenAwakeDuringSession,
+            onSetKeepsScreenAwake: { model.setKeepsScreenAwakeDuringSession($0) },
             isChoosingPiPRegion: isChoosingPiPRegion,
             onOpenDiagnostics: onOpenDiagnostics,
             healthAccessory: healthAccessory,

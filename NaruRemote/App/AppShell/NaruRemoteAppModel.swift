@@ -1080,6 +1080,39 @@ public final class NaruRemoteAppModel: ObservableObject {
         refreshPiPAutomaticEntry()
     }
 
+    // MARK: - Screen wake (spec 039)
+
+    /// Does an open connection hold off auto-lock (FR-003)?
+    public var keepsScreenAwakeDuringSession: Bool {
+        appSettings.keepsScreenAwakeDuringSession
+    }
+
+    public func setKeepsScreenAwakeDuringSession(_ enabled: Bool) {
+        var updated = appSettings
+        updated.keepsScreenAwakeDuringSession = enabled
+        guard updated != appSettings else {
+            return
+        }
+
+        appSettings = updated
+        persistAppSettings(updated)
+    }
+
+    /// The one answer, derived — never assigned.
+    ///
+    /// `isAppForeground` is the caller's, because the scene phase belongs to
+    /// the scene; everything else the model already knows. Exposed as a
+    /// function rather than folded into the applier so `swift test` can pin
+    /// the decision for every session state without a UIKit application.
+    public func screenWakeResolution(isAppForeground: Bool) -> ScreenWakeResolution {
+        ScreenWakePolicy.resolve(
+            sessionState: session?.state,
+            hasFramebuffer: latestFramebuffer != nil,
+            isAppForeground: isAppForeground,
+            userKeepsScreenAwake: appSettings.keepsScreenAwakeDuringSession
+        )
+    }
+
     /// Keeps a live session's PiP controller built and its automatic-entry
     /// policy current (FR-002/FR-004).
     ///

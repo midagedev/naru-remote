@@ -57,6 +57,9 @@ public struct SessionViewportView: View {
     /// the hook that changes it. `nil` hides the switch entirely.
     private let pipEntersOnLeavingApp: Bool
     private let onSetPiPEntersOnLeavingApp: ((Bool) -> Void)?
+    /// Does an open connection hold off auto-lock (spec 039 FR-003)?
+    private let keepsScreenAwakeDuringSession: Bool
+    private let onSetKeepsScreenAwake: ((Bool) -> Void)?
     /// Owned by the shell: while the picker is up the shell also steps the
     /// input dock aside, which it can only do if it knows (spec 034 FR-005).
     /// The first capture had `Cancel` and `Watch this region` behind the dock.
@@ -262,6 +265,8 @@ public struct SessionViewportView: View {
         onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
         pipEntersOnLeavingApp: Bool = true,
         onSetPiPEntersOnLeavingApp: ((Bool) -> Void)? = nil,
+        keepsScreenAwakeDuringSession: Bool = true,
+        onSetKeepsScreenAwake: ((Bool) -> Void)? = nil,
         isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
@@ -331,6 +336,8 @@ public struct SessionViewportView: View {
         self.onChoosePiPRegion = onChoosePiPRegion
         self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
         self.onSetPiPEntersOnLeavingApp = onSetPiPEntersOnLeavingApp
+        self.keepsScreenAwakeDuringSession = keepsScreenAwakeDuringSession
+        self.onSetKeepsScreenAwake = onSetKeepsScreenAwake
         self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
@@ -393,6 +400,8 @@ public struct SessionViewportView: View {
         onChoosePiPRegion: ((PiPFramingTarget) -> Void)? = nil,
         pipEntersOnLeavingApp: Bool = true,
         onSetPiPEntersOnLeavingApp: ((Bool) -> Void)? = nil,
+        keepsScreenAwakeDuringSession: Bool = true,
+        onSetKeepsScreenAwake: ((Bool) -> Void)? = nil,
         isChoosingPiPRegion: Binding<Bool>? = nil,
         onOpenDiagnostics: (() -> Void)? = nil,
         healthAccessory: AnyView? = nil,
@@ -460,6 +469,8 @@ public struct SessionViewportView: View {
         self.onChoosePiPRegion = onChoosePiPRegion
         self.pipEntersOnLeavingApp = pipEntersOnLeavingApp
         self.onSetPiPEntersOnLeavingApp = onSetPiPEntersOnLeavingApp
+        self.keepsScreenAwakeDuringSession = keepsScreenAwakeDuringSession
+        self.onSetKeepsScreenAwake = onSetKeepsScreenAwake
         self.isChoosingPiPRegion = isChoosingPiPRegion
         self.onOpenDiagnostics = onOpenDiagnostics
         self.healthAccessory = healthAccessory
@@ -997,6 +1008,22 @@ public struct SessionViewportView: View {
             }
             .disabled(onOpenDiagnostics == nil)
             .accessibilityIdentifier("naru.session.tools.diagnostics")
+
+            // Spec 039 FR-003. Top level rather than under Advanced: the
+            // others there are stream experiments, and this is a plain comfort
+            // switch with an obvious battery cost. It sits next to the session
+            // it applies to for the same reason PiP's auto-entry does.
+            if let onSetKeepsScreenAwake {
+                Button {
+                    onSetKeepsScreenAwake(!keepsScreenAwakeDuringSession)
+                } label: {
+                    Label(
+                        "Keep screen awake",
+                        systemImage: keepsScreenAwakeDuringSession ? "checkmark" : "square"
+                    )
+                }
+                .accessibilityIdentifier("naru.session.tools.keepScreenAwake")
+            }
 
             Menu {
                 Button {
