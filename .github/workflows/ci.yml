@@ -30,12 +30,19 @@ concurrency:
 jobs:
   swift:
     name: swift build + test
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
+      # The toolchain is part of the contract, not an incidental. Measured on
+      # the first run of this workflow: the `macos-15` image's Swift 6.1.2
+      # rejects `SimplifiedInputUxModelTests` with "main actor-isolated
+      # property can not be mutated from a nonisolated context", where 6.2
+      # accepts it — `XCTestCase.tearDown()` gained `@MainActor` isolation
+      # between them. Reshaping the source to satisfy an older compiler would
+      # have been fixing CI by loosening the thing CI is for.
       - name: Show toolchain
         run: |
           xcodebuild -version
