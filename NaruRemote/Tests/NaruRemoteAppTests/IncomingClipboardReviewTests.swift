@@ -234,9 +234,19 @@ final class IncomingClipboardReviewTests: XCTestCase {
         XCTAssertFalse(summaryAfter.contains("another remote text"))
     }
 
+    /// Waits for `check`, and **fails** if it never passes.
+    ///
+    /// It used to fall out of the loop and return, which leaves the assertions
+    /// after the call describing a state that simply had not arrived yet — a
+    /// timeout reported as whatever the next `XCTAssertEqual` happened to be
+    /// about. Same defect the reconnect suite's helper had; closed in both
+    /// (2026-08-27).
     private func waitFor(
         _ initial: @autoclosure () -> Bool,
         timeoutMillis: Int,
+        _ description: String = "the awaited state",
+        file: StaticString = #filePath,
+        line: UInt = #line,
         check: () -> Bool
     ) async throws {
         if initial() {
@@ -250,6 +260,14 @@ final class IncomingClipboardReviewTests: XCTestCase {
             if check() {
                 return
             }
+        }
+        guard check() else {
+            XCTFail(
+                "Timed out after \(timeoutMillis)ms waiting for \(description)",
+                file: file,
+                line: line
+            )
+            return
         }
     }
 }

@@ -24,14 +24,35 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
     /// read 1, not 2) while passing every time on an idle one — the assertion
     /// was sound, the wait was not. Returns as soon as the condition holds;
     /// the deadline only bounds a genuine failure.
+    ///
+    /// And when the deadline is reached, it **fails**. It used to fall out of
+    /// the loop and return, so the same flake came back on the build-13 gate
+    /// run wearing a different face: `testReconnectAttemptsUseSameProfileAnd-
+    /// CredentialRef` announced `("1") is not equal to ("2")` — a message about
+    /// the reconnect using the wrong profile, when what had happened is that
+    /// the reconnect had not happened yet. A wait that gives up quietly does
+    /// not make a test flaky; it makes a flaky test lie about why.
     private func waitFor(
         _ condition: @escaping () -> Bool,
-        timeout: Duration = .seconds(5)
+        _ description: String = "the awaited state",
+        timeout: Duration = .seconds(10),
+        file: StaticString = #filePath,
+        line: UInt = #line
     ) async throws {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(20))
+        }
+        // One last look: the loop can exit at the deadline in the instant
+        // before the condition becomes true.
+        guard condition() else {
+            XCTFail(
+                "Timed out after \(timeout) waiting for \(description)",
+                file: file,
+                line: line
+            )
+            return
         }
     }
 
@@ -59,10 +80,10 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         // proxy: it went green while the post-reconnect frames were still being
         // counted, and the delivered-frame assertion read 1 instead of 3 on a
         // loaded runner (2026-08-21) while passing on an idle one.
-        try await waitFor {
+        try await waitFor({
             connector.sessionRequests.count >= 2
                 && model.snapshot.sessionStreamStats.deliveredFrameCount >= 3
-        }
+        }, "a reconnect plus the three frames this test counts")
 
         // Two streaming connects total: the original + one
         // reconnect.  The reconnect uses the same host/port and the
@@ -101,7 +122,7 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await waitFor { connector.sessionRequests.count >= 2 }
+        try await waitFor({ connector.sessionRequests.count >= 2 }, "a second session request")
 
         XCTAssertEqual(connector.sessionRequests.count, 2)
         // Same host + same credential on every attempt.  The
@@ -133,9 +154,9 @@ final class NaruRemoteAppReconnectTests: XCTestCase {
         )
 
         await model.connectSelectedProfile()
-        try await waitFor {
+        try await waitFor({
             connector.sessionRequests.count >= 3 && model.snapshot.session?.state == .active
-        }
+        }, "three session requests and an active session")
 
         // Three connects total (initial + two reconnects).  Both
         // drops were within the policy budget because each fresh
