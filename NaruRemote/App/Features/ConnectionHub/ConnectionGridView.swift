@@ -11,6 +11,10 @@ public struct ConnectionGridView: View {
     /// Connecting happens on this screen (spec 013 US-4), so cancelling it has
     /// to be reachable from the card that started it.
     private let onCancelConnection: (() -> Void)?
+    /// Opens About & Feedback (spec 039 FR-002). Optional so existing call
+    /// sites and previews that predate it keep compiling; the button hides
+    /// when it is `nil`.
+    private let onAbout: (() -> Void)?
     @State private var pendingDeleteCard: ConnectionGridCard?
 
     public init(
@@ -20,7 +24,8 @@ public struct ConnectionGridView: View {
         onDiagnostics: ((ConnectionGridCard.ID) -> Void)? = nil,
         onEdit: ((ConnectionGridCard.ID) -> Void)? = nil,
         onDelete: ((ConnectionGridCard.ID) -> Void)? = nil,
-        onCancelConnection: (() -> Void)? = nil
+        onCancelConnection: (() -> Void)? = nil,
+        onAbout: (() -> Void)? = nil
     ) {
         self.cards = cards
         self.onSelect = onSelect
@@ -29,6 +34,7 @@ public struct ConnectionGridView: View {
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.onCancelConnection = onCancelConnection
+        self.onAbout = onAbout
     }
 
     public var body: some View {
@@ -73,6 +79,27 @@ public struct ConnectionGridView: View {
                 }
 
                 Spacer()
+
+                if let onAbout {
+                    // Quiet, and to the left of the one primary action: this
+                    // is where a user goes to report something, not something
+                    // they do every session (spec 039 FR-002).
+                    Button(action: onAbout) {
+                        Image(systemName: "info.circle")
+                            .font(.body)
+                            .frame(width: 22, height: 22)
+                            // Visual weight stays small; the hit target does
+                            // not (the 44pt rule this header already applies
+                            // to the card `⋯` menu).
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(NaruColors.mutedInk)
+                    .help("About Naru Remote")
+                    .accessibilityLabel("About Naru Remote")
+                    .accessibilityIdentifier("naru.connection.grid.about")
+                }
 
                 Button {
                     onAddProfile()

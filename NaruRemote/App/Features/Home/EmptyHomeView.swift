@@ -7,9 +7,18 @@ import SwiftUI
 /// discoverable when the user reaches them.
 public struct EmptyHomeView: View {
     private let onAddProfile: () -> Void
+    /// About & Feedback (spec 039 FR-002). The grid header carries the same
+    /// entry, but the grid does not exist until a profile does — and a user
+    /// who cannot get their first connection working is exactly the one who
+    /// needs a way to say so.
+    private let onAbout: (() -> Void)?
 
-    public init(onAddProfile: @escaping () -> Void = {}) {
+    public init(
+        onAddProfile: @escaping () -> Void = {},
+        onAbout: (() -> Void)? = nil
+    ) {
         self.onAddProfile = onAddProfile
+        self.onAbout = onAbout
     }
 
     public var body: some View {
@@ -51,6 +60,17 @@ public struct EmptyHomeView: View {
 
             Spacer(minLength: 0)
             Spacer(minLength: 0)
+
+            if let onAbout {
+                Button(action: onAbout) {
+                    Text("About & feedback")
+                        .font(.footnote)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("naru.home.empty.about")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 32)
