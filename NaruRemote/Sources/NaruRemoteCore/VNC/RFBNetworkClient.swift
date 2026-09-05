@@ -827,6 +827,45 @@ public final class RFBNetworkClient: RFBFirstFrameConnecting, RemoteClipboardTex
         )
     }
 
+    /// Sends Apple Screen Sharing's proprietary `SetDisplay` message (0x0d)
+    /// on the active session — a request to stream a single display rather
+    /// than the combined union (Screens 5's on-the-fly display selection).
+    /// Probe-only: the iShareScreen RFC documents this machinery only
+    /// inside the Apple-auth record layer, and whether the VNC-password
+    /// path honors it is what `LiveMacDisplaySelectionTests` measures.
+    /// Like `sendAppleScaleFactor`, callers must only target sessions whose
+    /// handshake advertised Apple security types — a non-Apple server
+    /// cannot skip an unknown-length client message.
+    public func sendAppleSetDisplay(
+        combineAllDisplays: Bool,
+        displayId: UInt32,
+        timeout: TimeInterval = 2
+    ) throws {
+        try writeControlMessage(
+            RFBClientMessageEncoder.appleSetDisplay(
+                combineAllDisplays: combineAllDisplays,
+                displayId: displayId
+            ),
+            timeout: timeout
+        )
+    }
+
+    /// Probe-only: re-advertises the session's encoding list with Apple's
+    /// display-layout pseudo-encoding (0x451) appended, so a live probe can
+    /// ask whether screensharingd announces its screen layout on the
+    /// VNC-password auth path. The framebuffer decoder cannot parse 0x451
+    /// rectangles — a stream error naming that encoding after this
+    /// advertisement is itself the probe's answer that the layout arrived.
+    public func advertiseAppleDisplayLayoutEncoding(timeout: TimeInterval = 2) throws {
+        let encodings: [Int32] = lock.withRFBClientLock {
+            clientEncodingPreference.encodingList() + [RFBEncoding.appleDisplayLayout]
+        }
+        try writeControlMessage(
+            RFBClientMessageEncoder.setEncodings(encodings),
+            timeout: timeout
+        )
+    }
+
     /// Sends TigerVNC's `ClientFence` control message on the active
     /// session. Payload validation is handled by
     /// `RFBClientMessageEncoder`; callers should keep payloads opaque

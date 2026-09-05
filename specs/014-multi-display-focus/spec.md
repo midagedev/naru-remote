@@ -205,11 +205,27 @@ protocol path, so it ships behind its own live gate.
    `swift test --filter LiveMacDisplayLayoutTests`
    If ExtendedDesktopSize rectangles > 0 there, US-2's manual setup becomes a
    fallback rather than the main path, and US-1 can ship without it.
+   **Answered 2026-09-04 (imagoworks 3-display host, VNC-password path):**
+   ExtendedDesktopSize rectangles = 0 there as well, and Apple's own
+   `0x451` display-layout encoding — advertised via SetEncodings — was
+   never sent (3 clean updates; `LiveMacDisplaySelectionTests`). Bounds
+   must be user-declared or helper-reported; FR-007's -308 parsing stays
+   for RFC servers.
 2. **Do the per-display ports exist?** `specs/008` research claims Apple serves
    additional displays on TCP `5901`/`5902` (`research.md:34`, `:44`), which was
    never verified against a modern macOS. If true it is a better US-1 than
    cropping — full resolution, a third of the bandwidth, no layout needed. Check
    is one line from the founder's network: `nc -vz <mac> 5901 5902`.
+   **Answered 2026-09-04: no.** `nc -vz` from the founder's network → 5901/
+   5902/5903 Connection refused (5900 open) on imagoworks. The same day's web
+   research corrected the reading behind the claim — the Apple-doc sentence it
+   rests on is about third-party VNC *servers* (ARD glossary: "client computer"
+   is the controlled machine), not screensharingd
+   (`artifacts/research/2026-09-04-multimonitor-mac-framebuffer-research.md`).
+   Cropping/focus is the path. An `0x0d` SetDisplay probe on the VNC-password
+   path also found no effect (no framebuffer resize across ids 0–3) — the
+   display machinery needs Apple auth, per the iShareScreen reverse-engineering
+   and now our own measurement.
 3. **Which display is focused on first connect?** Last used is the obvious
    answer; the first session on a new host has no last-used and no cursor
    information, so it defaults to region 1 unless (2) gives us something better.

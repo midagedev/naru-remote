@@ -183,6 +183,22 @@ public enum RFBClientMessageEncoder {
         return Data(bytes)
     }
 
+    /// Encodes Apple Screen Sharing's proprietary `SetDisplay` client
+    /// message (type 0x0d): combine-all-displays flag + reserved u16 +
+    /// display id. With the flag clear and an id the server recognizes, the
+    /// server streams that display alone (Screens 5's on-the-fly display
+    /// selection); the observed `combine = 1` body selects the combined
+    /// aggregate (wire format per the iShareScreen `apple_vnc_rfc.md`
+    /// reverse-engineering, §7.4 — documented there as living inside the
+    /// Apple-auth record layer). Probe-only until a spec promotes it:
+    /// whether the VNC-password auth path honors it is exactly what
+    /// `LiveMacDisplaySelectionTests` measures.
+    public static func appleSetDisplay(combineAllDisplays: Bool, displayId: UInt32) -> Data {
+        var bytes: [UInt8] = [0x0d, combineAllDisplays ? 1 : 0, 0, 0]
+        bytes.append(contentsOf: uint32Bytes(displayId))
+        return Data(bytes)
+    }
+
     /// Encodes TigerVNC's `ClientFence` message (message type 248).
     /// Payload length is capped at 64 bytes by the extension; only the
     /// published flags are accepted so malformed pacing probes never hit

@@ -26,6 +26,14 @@ public enum RFBEncoding {
     public static let desktopName: Int32 = -307
     public static let fence: Int32 = -312
     public static let continuousUpdates: Int32 = -313
+    /// Apple Screen Sharing's display-layout pseudo-encoding (`0x451`,
+    /// 1105) — the proprietary, richer cousin of ExtendedDesktopSize
+    /// (per-display ids, bounds, and mirror sets; iShareScreen
+    /// `apple_vnc_rfc.md` §8.4). Probe-only constant: the framebuffer
+    /// decoder does not parse its payload, so advertising it is a live-probe
+    /// question ("does the VNC-password path announce a layout?"), never a
+    /// production setting.
+    public static let appleDisplayLayout: Int32 = 1105
     /// Extended Clipboard pseudo-encoding (`0xc0a1e5ce`). The signed
     /// `S32` value is advertised in `SetEncodings`; servers that do not
     /// support it ignore the request, while supporting servers confirm via
