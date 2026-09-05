@@ -279,19 +279,28 @@ same PR.
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
 
-00l. **`specs/041` Naru Helper menu bar app — specified 2026-09-05, next
-   to plan.** Founder decision after the first real QR pairing: "응 메뉴바
-   앱으로 가야해". The helper's shipping form becomes one signed, notarized
-   `Naru Helper.app` in the menu bar that owns pairing (QR in a window),
-   both listeners in one process, permission state with a route to System
-   Settings, login-item auto-start, revoke, and Copy Diagnostics. The wire
-   does not change — TestFlight build 19 must pair against it with no
-   phone change (matrix row). The CLI stays for benchmarks/CI only.
-   Absorbs the P1 "helper production packaging" item below and closes
-   spec 006 T028 (helper-side revoke). Plan must settle: the macOS app
-   target (XcodeGen vs. SwiftPM bundle), the store's absent-vs-transient
-   read distinction (FR-007 — today revoke would be a no-op), and the
-   notarization flow reusing the App Store Connect key.
+00l. **`specs/041` Naru Helper menu bar app — implemented 2026-09-06, physical
+   pass open.** Founder decision after the first real QR pairing: "응 메뉴바
+   앱으로 가야해". The helper's shipping form is now `Naru Helper.app`
+   (`NaruHelper/project.yml`, bundle `com.naruremote.helper`, menu bar only):
+   both listeners in one process with named listener states, pairing QR in a
+   window (rotates on open, retires on the first accepted handshake),
+   permission rows with System Settings routes, `SMAppService` login item,
+   revoke that actually refuses (the state store used to serve its cache when
+   the file was gone — closed with FAIL-first tests), Copy Diagnostics with
+   nothing secret representable, single instance. The wire is unchanged, so
+   TestFlight build 19 pairs against it without a phone change; the offer
+   encoder now pins sorted keys so app and CLI print identical codes. The CLI
+   stays for benchmarks/CI. `scripts/release-naru-helper.sh` archives with
+   Developer ID, notarizes, staples, assesses, records, and optionally
+   publishes a GitHub Release. Gates: `swift test` 1867 green, app
+   `xcodebuild build` green. **Open:** (a) founder pass per
+   `specs/041-helper-menu-bar-app/quickstart.md` — first-launch grants, real
+   pairing, reboot, revoke; (b) the macOS XCUITest runner needs a one-time
+   "Enable UI Automation" approval on this Mac before the app's UI tests can
+   run (they are written and compile; screenshots were taken from the same
+   fixture launch); (c) first real `scripts/release-naru-helper.sh` run;
+   (d) app icon.
 
 00k. **`specs/040` QR pairing sync — implemented 2026-09-04.** Orca-pattern
    pairing end to end: `NaruHelper --pair` mints a per-run token and

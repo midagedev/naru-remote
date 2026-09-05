@@ -77,7 +77,7 @@ public final class NaruHelperPairingSession: @unchecked Sendable {
     /// CoreImage `CIQRCodeGenerator` at correction level M (the level the
     /// terminal renderer and spec 040 chose), scaled nearest-neighbor so
     /// module edges stay crisp, with the quiet zone baked in.
-    static func makeQRImage(message: String) -> CGImage? {
+    public static func makeQRImage(message: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(message.utf8)
         filter.correctionLevel = "M"

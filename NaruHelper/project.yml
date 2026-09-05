@@ -1,0 +1,63 @@
+name: NaruHelper
+options:
+  bundleIdPrefix: com.naruremote
+packages:
+  # Consumes the root SwiftPM package as a local dependency (spec 041
+  # plan): a macOS target inside the iOS root project would compile a
+  # second NaruRemoteCore module; a second project keeps one module.
+  NaruRemotePackage:
+    path: ..
+targets:
+  NaruHelperApp:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: App
+        excludes:
+          # Referenced through INFOPLIST_FILE / CODE_SIGN_ENTITLEMENTS —
+          # never built as sources or copied as resources.
+          - "Info.plist"
+          - "NaruHelperApp.entitlements"
+    dependencies:
+      - package: NaruRemotePackage
+        product: NaruHelperKit
+      - package: NaruRemotePackage
+        product: NaruRemoteCore
+    settings:
+      base:
+        PRODUCT_NAME: "Naru Helper"
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.helper
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        DEVELOPMENT_TEAM: XEF9KH7N43
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: App/NaruHelperApp.entitlements
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+  NaruHelperAppUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: NaruHelperApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.naruremote.helper.uitests
+        TEST_TARGET_NAME: NaruHelperApp
+        DEVELOPMENT_TEAM: XEF9KH7N43
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  NaruHelperApp:
+    build:
+      targets:
+        NaruHelperApp: all
+        NaruHelperAppUITests: [test]
+    test:
+      targets:
+        - NaruHelperAppUITests

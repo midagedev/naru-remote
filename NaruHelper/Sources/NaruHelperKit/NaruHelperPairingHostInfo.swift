@@ -28,6 +28,9 @@ public struct NaruHelperPairingHostInfo: Equatable, Sendable {
         octets.count == 4 && octets[0] == 100 && (64...127).contains(octets[1])
     }
 
+    /// Blocking: the MagicDNS lookup is a synchronous `getnameinfo` that
+    /// can take the resolver's full timeout (tens of seconds, measured
+    /// 2026-09-06). Call it off the main actor in UI code.
     public static func current() -> NaruHelperPairingHostInfo? {
         #if os(macOS)
         let label = Host.current().localizedName ?? "Mac"

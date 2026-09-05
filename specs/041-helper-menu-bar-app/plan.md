@@ -65,7 +65,7 @@ machine, diagnostics text) lives in the Kit with a test.
 
 - `NaruHelperApp.swift` — `@main`, `MenuBarExtra("Naru Helper", systemImage:)` with menu style; single-instance check in `applicationWillFinishLaunching` (activate existing `com.naruremote.helper`, then `exit(0)`).
 - `HelperAppModel` (`@MainActor ObservableObject`) — wires runtime, store, probes, login item; refreshes permissions on a 2 s timer while any window is open and on `didBecomeActive`; owns `PairingSession`.
-- `PairingWindow` — QR (min 320 pt), permission rows with **Open System Settings** (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` / `?Privacy_ScreenCapture`), optional VNC password `SecureField`, **Copy code**, "Paired" transition on `onAuthorizedRequest`.
+- `PairingWindow` — QR (min 320 pt), permission rows with **Open Settings…** (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` / `?Privacy_ScreenCapture`), optional VNC password `SecureField`, **Copy code**, "Paired" transition on `onAuthorizedRequest`.
 - Menu: status line, permission lines, **Pair with iPhone…**, **Start at login** toggle, **Revoke pairing…** (confirmation alert), **Copy Diagnostics**, version, **Quit**.
 
 ### Release
@@ -77,7 +77,7 @@ runtime) → `-exportArchive` with `scripts/ExportOptions-helper.plist`
 --key ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 --key-id
 --issuer --wait` (same credential file as `testflight-upload.sh`) →
 `xcrun stapler staple` → `spctl --assess -vv --type execute` → write
-`artifacts/app-store/<date>-helper-<version>/release.md` → optional
+the release record `artifacts/app-store/<date>-helper-<version>/release` (Markdown) → optional
 `gh release upload`. Credentials never in argv beyond what `notarytool`
 requires; never in the repo.
 
@@ -104,7 +104,7 @@ requires; never in the repo.
 | Look/legibility of menu + QR window | vision verdict (opus) | text verdict recorded in spec Status |
 | TestFlight build 19 pairs and connects with no phone change | physical iPhone + Mac | founder pass |
 | Login item survives reboot | manual Mac | checklist in `quickstart.md` |
-| Release artifact clean | script output | `spctl`, `codesign --verify --strict`, `stapler validate` in `release.md` |
+| Release artifact clean | script output | `spctl`, `codesign --verify --strict`, `stapler validate` recorded in the release record under `artifacts/app-store/` |
 
 ## Residual Risks
 

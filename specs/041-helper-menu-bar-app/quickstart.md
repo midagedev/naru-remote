@@ -11,7 +11,9 @@ paired handshake in under three minutes with no terminal opened.
    [GitHub Releases](https://github.com/midagedev/naru-remote/releases/latest).
 2. Unzip, move `Naru Helper.app` to `/Applications`, open it.
 3. Expect: a menu bar icon, no Dock icon, no main window, and **no
-   Gatekeeper refusal**. A block here means the artifact was not
+   Gatekeeper refusal**. macOS also asks once whether Naru Helper may
+   find and connect to devices on the local network — allow it; the
+   listeners cannot accept the phone otherwise. A block here means the artifact was not
    notarized — do not right-click-open past it; re-run the release
    (section 6).
 4. Click the icon: the menu reads **Not paired**, both permissions read
@@ -97,3 +99,15 @@ keep using the CLI with env-pinned secrets
 (`NARU_HELPER_TOKEN=… .build/release/NaruHelper --listen --token-env NARU_HELPER_TOKEN …`),
 which the app does not disturb — the two share only the pairing state
 file under `~/.naru/`.
+
+## 7. Running the app's UI tests on this Mac (developer)
+
+macOS gates XCUITest behind a one-time authentication. The first
+`xcodebuild -project NaruHelper/NaruHelper.xcodeproj -scheme NaruHelperApp -destination 'platform=macOS' test`
+on a Mac raises an "Enable UI Automation" prompt from `testmanagerd`; until
+a person approves it, the runner times out after 60 s "while enabling
+automation mode" before any test runs. Approve it once (it writes
+`/var/db/com.apple.dt.automationmode/automation-enabled`), then re-run. The
+three tests in `NaruHelper/UITests/` write their PNGs to
+`artifacts/screenshots/helper-menu-bar/`.
+

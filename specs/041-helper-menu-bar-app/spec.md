@@ -2,7 +2,24 @@
 
 **Feature Branch**: `041-helper-menu-bar-app`
 **Created**: 2026-09-05
-**Status**: Draft (founder decision 2026-09-05: "응 메뉴바 앱으로 가야해")
+**Status**: Implemented 2026-09-06 (founder decision 2026-09-05: "응 메뉴바
+앱으로 가야해"). Kit: one-process `NaruHelperListenerRuntime`, real revoke
+(absent state file ⇒ refuse; providers `String?`), `NaruHelperPairingSession`
++ deterministic offer bytes (`.sortedKeys`), status catalog, login-item
+seam — `swift test` 1867 green (NaruHelperKitTests 159). App:
+`NaruHelper/project.yml` → `Naru Helper.app` (`com.naruremote.helper`,
+`LSUIElement`, hardened runtime, no sandbox) with MenuBarExtra menu, pairing
+window, `SMAppService` login item, single instance; `xcodebuild build`
+green; captures in `artifacts/screenshots/helper-menu-bar/`. Release:
+`scripts/release-naru-helper.sh` (Developer ID → notarytool → staple →
+spctl → GitHub Release), dry-run verified to fail fast. **Residual:**
+(1) macOS XCUITest on this Mac is gated by a one-time "Enable UI
+Automation" authentication — `xcodebuild … test` for the app is red until a
+person approves it once; the PNGs came from the same fixture launch via
+`screencapture`. (2) Founder physical pass (quickstart §1–5): grants, real
+pairing from TestFlight build 19, reboot with **Start at login**, revoke.
+(3) First real release run (quickstart §6) — never executed by an agent.
+(4) No app icon yet (system default).
 **Product**: Naru Remote
 **Input**: Founder, 2026-09-05, after pairing a TestFlight build against the
 terminal QR of spec 040: "연결은 되는거 같네 이거 근데 앱으로 안만들고 cli로
@@ -88,7 +105,7 @@ physical path is the founder pass in the matrix.
    code is one click to copy, and both listeners are accepting connections
    on 5974/5975.
 3. **Given** a permission is missing, **When** the window is open,
-   **Then** the row reads "Missing" with an **Open System Settings**
+   **Then** the row reads "Missing" with an **Open Settings…**
    button that lands on the Accessibility or Screen Recording pane, and
    the row updates to "Granted" without relaunching once the grant lands
    (polling or notification — plan decides).
@@ -356,7 +373,7 @@ unchanged phone-side pairing flow, which spec 040 already covers.
 
 - Per-device tokens (spec 040 open question 2) — single active token
   remains; the app makes rotation visible, not multi-phone.
-- Windows tray / Linux daemon helpers (`PRODUCT_SPEC.md` §9.4) — this
+- Windows tray / Linux daemon helpers (`docs/PRODUCT_SPEC.md` §9.4) — this
   spec is macOS only.
 - Mac App Store distribution, Sparkle-style auto-update, Homebrew cask —
   candidates once a release cadence exists.

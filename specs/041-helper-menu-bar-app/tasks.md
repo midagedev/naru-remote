@@ -170,3 +170,125 @@ Two findings worth the lead's eyes:
   159 executed / 0 failures; full `swift test` 1867 executed / 26 skipped / 0 failures.
 - Round C: `bash -n` clean; `--dry-run` fails fast on the missing `NaruHelper/project.yml`
   before invoking any tool (verified); `plutil` accepted the export plist.
+
+## Round B implementation notes (2026-09-06)
+
+App target built and verified manually; the XCTest UI-test gate itself is
+blocked by a machine-level authentication gate (below), so the three PNGs
+were produced through the app's own DEBUG fixture surface with the same
+launch arguments the tests use.
+
+### Launch-argument surface (all DEBUG-only, all guarded by `--ui-test`)
+
+| Argument | Overrides | Guard |
+|---|---|---|
+| `--ui-test` | master flag; without it nothing below parses | `#if DEBUG` + `HelperUITestFixtures.parse` first line |
+| `--ui-test-state-dir <path>` | store location → `<path>/helper-pairing-state.json` (never the real `~/.naru`) | same |
+| `--ui-test-offer <url>` | displayed QR + Copy code payload (no token minted) | same |
+| `--ui-test-state <notPaired\|paired\|connected>` | reported pairing status (unknown values ignored) | same |
+| `--ui-test-permissions <granted\|missing>` | both permission rows | same |
+| `--ui-test-open-pairing` | open fixture window hosting `PairingWindow` at launch | same |
+| `--ui-test-open-menu-preview` | open fixture window hosting `HelperMenu` at launch | same |
+
+### `HelperAppModel` published state
+
+| Property | Source of truth | Refresh trigger |
+|---|---|---|
+| `pairingStatus` | fixture override, else `store.currentSecret()` + `connectedLatched` | init, `didBecomeActive`, authorized request, revoke |
+| `accessibility` / `screenRecording` | `AXIsProcessTrusted()` / `CGPreflightScreenCaptureAccess()` (non-prompting) | 2 s timer while pairing window open or menu opened <10 s; `didBecomeActive` |
+| `textListenerState` / `videoListenerState` | runtime `onStateChange` | listener events |
+| `loginItemState` | `SMAppService.mainApp.status` via `SystemLoginItem` | init, toggle apply |
+| `hostInfo` / `pairingSession` | `NaruHelperPairingHostInfo.current()` / `NaruHelperPairingSession` | window appear (re-read), end |
+| `vncPassword` | SecureField, memory only | user input; cleared on connect/rotate/window close |
+
+### Findings
+
+- **macOS 26 gates XCUITest-on-Mac behind a user authentication.**
+  `testmanagerd` logs "Writer daemon requires authentication to enable
+  automation mode" → `LocalAuthentication evaluatePolicy` ("Enable UI
+  Automation"); the enable state file
+  `/var/db/com.apple.dt.automationmode/automation-enabled` does not exist
+  on this Mac, so every macOS UI-test run dies at exactly 60 s ("Timed out
+  while enabling automation mode") before any test code executes. The
+  runner, the daemon restart, and the test bundle were all checked; the
+  bundle compiles and the app itself is fine. iOS-simulator UI tests never
+  touch this gate. **Enabling it needs one interactive authentication the
+  next time a macOS UI test session starts** — after that the tests below
+  should run as written.
+- **First QR render costs a one-time CoreImage/Metal kernel-library load
+  (~40 s measured on this loaded Mac; the window meanwhile exists but
+  stays blank-ish and AX reports nothing).** The UI tests therefore wait
+  up to 120 s for the QR/headline elements; short waits were why early
+  manual launches looked like "0 windows" (measured, not a bug).
+- Kit gap (app-side adapter, no Kit change): `NaruHelperPairingSession.makeQRImage`
+  is internal (`NaruHelperPairingSession.swift:80`); the fixture path
+  mirrors its math in `HelperUITestQR` using the Kit's public constants.
+  If the Kit ever makes the QR maker public, the adapter can shrink to a
+  call.
+- Spec discrepancy honored: tasks.md Round A list mentions
+  `NaruHelper/.gitignore`; the binding Round B contract says the ignore
+  line goes in the root `.gitignore` — root used.
+- PNG provenance: `pairing.png`/`paired.png` captured from the fixture
+  window (640×532 pt @2x, synthetic offer — no real token/address);
+  `menu.png` cropped to the open menu of the **real** status item driven
+  via AX (contract order verified item-by-item: Not paired → rows →
+  Pair with iPhone… → Start at login → Revoke… → Copy Diagnostics →
+  version → Quit, with the two dividers). Manual-launch checks all pass:
+  status item present, no Dock icon, Quit via its own menu exits, and the
+  real `~/.naru/helper-pairing-state.json` checksum is unchanged across
+  every ui-test and real launch (verified before/after).
+
+## Lead notes after Round B review (2026-09-06)
+
+- Lead gates re-run: `xcodegen generate` rc=0; `xcodebuild … build` rc=0 (twice, before and
+  after the fixes below); `swift build` rc=0; pairing test filters green.
+- Fixed lead-side: reopening the pairing window rotated the token while the view still read
+  "Paired — iPhone connected" (the connected latch survived a rotation). `beginPairingSession()`
+  now clears the latch after minting, so the window shows the fresh QR and the menu reads
+  "Paired" until a phone actually connects on the new token.
+- Fixed lead-side: the DEBUG fixture QR was regenerated (new `CIContext` + filter) on every body
+  evaluation because `displayedQRImage` is a computed property. It is now rendered once at init.
+  This is the likely cause of the "~40 s first render" the round measured; the Kit's own QR test
+  renders in milliseconds. `NaruHelperPairingSession.makeQRImage` is now `public` and the
+  duplicated app-side adapter is gone.
+- Accepted as machine state, not code: the macOS XCUITest automation-mode authentication
+  (quickstart §7).
+
+
+## Lead notes after the first vision verdict (2026-09-06)
+
+- Vision round 1 (opus) returned FIX on every axis: all three captures were occluded by
+  macOS's **Local Network** permission alert (the fixture launch bound 5974/5975 and macOS
+  prompted), and the menu crop lost "Quit". Both are capture/process defects, and one of them
+  is also a product one:
+  - Product: `Info.plist` now carries `NSLocalNetworkUsageDescription` so the first-launch
+    prompt names why the helper listens. The quickstart's first-launch section lists the
+    prompt.
+  - Fixture launches (`--ui-test`) no longer start the listener runtime; they display
+    `listening` rows without binding ports (no prompt, no collision with a real helper).
+- Sampled the "~40 s first render" the round reported: the main thread sat in `getnameinfo`
+  inside `NaruHelperPairingHostInfo.current()` (reverse MagicDNS lookup), called from the
+  pairing window's `onAppear`. Real launches had the same freeze. Resolution now runs on a
+  detached task with a generation counter; the window shows "Preparing the pairing code…"
+  meanwhile. After the fix the fixture window is capturable in about one second.
+- Captures re-taken lead-side with `screencapture -l <window>` from the same fixture launches
+  (the XCUITest gate is still the machine-level automation approval). `menu.png` is the menu
+  *preview* window (same `HelperMenu` content); the real status-item menu was verified
+  item-by-item by Round B via AX and by vision round 1 (items 1–10 visible, "Quit" only
+  cropped by the capture).
+- Vision round 2 (opus): paired state SHIP; pairing window FIX for three ellipsis truncations
+  ("Open System S…", the password placeholder) and misaligned buttons; menu fixture judged
+  inconsistent (Paired + Missing) — a fixture choice, not code. Fixed lead-side: window default
+  720×480 (min 680×440), left column fixed at 344 pt, right column ≥ 280 pt, permission rows
+  use `.fixedSize()` text and a shorter **Open Settings…** button (spec/plan wording updated),
+  password placeholder shortened to "VNC password (optional)" with the "included in this QR only"
+  sentence as a caption below. Captures retaken with one consistent fixture (Paired, Granted).
+- Vision round 3 (opus): paired state and menu SHIP; pairing window FIX — the QR image drawn at
+  its native pixel size (module-count dependent, here 325 px) overflowed the 344-pt column and
+  overlapped the password field. Fixed lead-side: the image is `.resizable()` at exactly 320 pt.
+  Right-column empty space below the listener rows accepted as breathing room. Pairing capture
+  retaken; round 4 judges only that file.
+
+- Vision round 4 (opus) on the retaken pairing capture: SHIP on all four axes. Unrequested
+  notes left as-is: the password field shows a focus ring in the fixture (first responder at
+  launch), and "Granted" sits on a second line under each permission title.
