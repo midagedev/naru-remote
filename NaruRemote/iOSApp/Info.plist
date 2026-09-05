@@ -20,10 +20,23 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.naruremote.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>naru</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Naru scans QR pairing codes printed by NaruHelper --pair on your Mac to add a computer and pair its helper. The camera is used only inside the pairing scanner; no video is stored or sent.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Naru Remote uses your local network to connect directly to VNC computers on your private network.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

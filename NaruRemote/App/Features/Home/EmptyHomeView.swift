@@ -7,6 +7,10 @@ import SwiftUI
 /// discoverable when the user reaches them.
 public struct EmptyHomeView: View {
     private let onAddProfile: () -> Void
+    /// Spec 040: QR pairing entry — the fastest first connection is a scan
+    /// of `NaruHelper --pair`'s terminal QR, so the empty home offers it
+    /// beside the manual editor rather than burying it behind one.
+    private let onScanPairCode: (() -> Void)?
     /// About & Feedback (spec 039 FR-002). The grid header carries the same
     /// entry, but the grid does not exist until a profile does — and a user
     /// who cannot get their first connection working is exactly the one who
@@ -15,9 +19,11 @@ public struct EmptyHomeView: View {
 
     public init(
         onAddProfile: @escaping () -> Void = {},
+        onScanPairCode: (() -> Void)? = nil,
         onAbout: (() -> Void)? = nil
     ) {
         self.onAddProfile = onAddProfile
+        self.onScanPairCode = onScanPairCode
         self.onAbout = onAbout
     }
 
@@ -56,6 +62,18 @@ public struct EmptyHomeView: View {
                 .controlSize(.large)
                 .padding(.top, 4)
                 .accessibilityIdentifier("naru.home.empty.addProfile")
+
+                if let onScanPairCode {
+                    Button(action: onScanPairCode) {
+                        Label("QR 찍어 추가하기", systemImage: "qrcode.viewfinder")
+                            .font(.body.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("naru.home.empty.scanPair")
+                }
             }
 
             Spacer(minLength: 0)

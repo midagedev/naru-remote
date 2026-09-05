@@ -54,9 +54,6 @@ public struct ProfileEditorView: View {
     @State private var testOutcome: ProfileEditorTestOutcome?
     @State private var isTesting: Bool = false
 
-    /// Presents the guided Naru Helper onboarding sheet (spec 010).
-    @State private var showsHelperOnboarding: Bool = false
-
     private let editingProfile: ConnectionProfile?
     private let hasExistingCredential: Bool
     private let hasExistingHelperPairingSecret: Bool
@@ -253,79 +250,19 @@ public struct ProfileEditorView: View {
                 }
 
                 if hostKind != .advancedManualPublicEndpoint {
+                    // Spec 040 FR-007: the editor no longer offers helper
+                    // setup, toggles, or token entry — pairing arrives by
+                    // scanning a `NaruHelper --pair` QR from the
+                    // Connections screen. This section is read-only state.
                     Section("Naru Helper") {
-                        Text("Fast video, confirmed Korean text, and Live type-through need a small helper on your Mac. Basic viewing works without it.")
+                        if helperPairedSummary != nil {
+                            LabeledContent("Pairing", value: helperPairedSummary!)
+                        } else {
+                            Text("Not paired")
+                        }
+                        Text("Pair with the QR your Mac prints for `NaruHelper --pair` — scan it from the Connections screen. Fast video, confirmed Korean text, and Live type-through come with pairing; basic viewing works without it.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Button {
-                            showsHelperOnboarding = true
-                        } label: {
-                            Label("Set up Naru Helper", systemImage: "wand.and.stars")
-                        }
-                        .accessibilityIdentifier("naru.profile.editor.helper.setup")
-                    }
-                }
-
-                Section("Helper text bridge") {
-                    Toggle("Enable helper text bridge", isOn: $formState.helperTextBridgeEnabled)
-                        .accessibilityIdentifier("naru.profile.editor.helper.enabled")
-
-                    if formState.helperTextBridgeEnabled {
-                        HostnameTextField(
-                            placeholder: "Helper host (blank uses VNC host)",
-                            text: $formState.helperHost,
-                            accessibilityIdentifier: "naru.profile.editor.helper.host",
-                            isFocused: focusedField == .helperHost,
-                            onFocusGained: { focusedField = .helperHost },
-                            onEditingEnded: { touchedFields.insert(.helperHost) }
-                        )
-
-                        LabeledContent("Helper port") {
-                            helperPortField
-                        }
-                        if shouldShowError(for: .helperPort), let message = formState.helperPortError {
-                            captionView(message)
-                                .accessibilityIdentifier("naru.profile.editor.helper.port.error")
-                        }
-
-                        if isEditing && hasExistingHelperPairingSecret {
-                            Toggle("Replace helper token", isOn: $replaceHelperPairingSecret)
-                                .accessibilityIdentifier("naru.profile.editor.helper.replaceToken")
-                        }
-
-                        if shouldShowHelperPairingSecretField {
-                            SecureField(helperPairingSecretPlaceholder, text: $helperPairingSecret)
-                                .focused($focusedField, equals: .helperPairingSecret)
-                                .textContentType(.oneTimeCode)
-                                .accessibilityIdentifier("naru.profile.editor.helper.token")
-                        } else {
-                            Text("Saved helper token kept")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Helper video") {
-                    Toggle("Enable helper video", isOn: $formState.helperVideoEnabled)
-                        .accessibilityIdentifier("naru.profile.editor.helperVideo.enabled")
-
-                    if formState.helperVideoEnabled {
-                        if isEditing && hasExistingHelperVideoPairingSecret {
-                            Toggle("Replace helper video token", isOn: $replaceHelperVideoPairingSecret)
-                                .accessibilityIdentifier("naru.profile.editor.helperVideo.replaceToken")
-                        }
-
-                        if shouldShowHelperVideoPairingSecretField {
-                            SecureField(helperVideoPairingSecretPlaceholder, text: $helperVideoPairingSecret)
-                                .focused($focusedField, equals: .helperVideoPairingSecret)
-                                .textContentType(.oneTimeCode)
-                                .accessibilityIdentifier("naru.profile.editor.helperVideo.token")
-                        } else {
-                            Text("Saved helper video token kept")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                 }
 
@@ -416,16 +353,6 @@ public struct ProfileEditorView: View {
                 if !isEditing {
                     focusedField = .host
                 }
-            }
-            .sheet(isPresented: $showsHelperOnboarding) {
-                HelperOnboardingView(
-                    host: formState.host,
-                    port: formState.parsedPort ?? 5900,
-                    existingFingerprint: editingProfile?.helperTextBridge?.pairingFingerprint,
-                    onTestReachability: onTest,
-                    onTestHelper: onTestHelper,
-                    onApply: applyHelperOnboarding
-                )
             }
         }
         .interactiveDismissDisabled(isSaving)
@@ -584,22 +511,19 @@ public struct ProfileEditorView: View {
         isTesting = false
     }
 
-    /// Stage the secret the onboarding generated into the editor's
-    /// existing fields so the next Save persists it through the normal
-    /// `ProfileEditorCredentialUpdate` → Keychain path (spec 010 FR-012;
-    /// constitution §IV — the secret never touches `ConnectionProfile`
-    /// or the file store).  In v1 one secret pairs both text and video.
-    private func applyHelperOnboarding(_ result: HelperOnboardingResult) {
-        if result.capabilities.text {
-            helperPairingSecret = result.secret
-            formState.helperTextBridgeEnabled = true
-            replaceHelperPairingSecret = true
+    /// Read-only pairing summary for the spec 040 editor section: pairing
+    /// arrives by QR scan, so the editor only reports what the profile
+    /// already carries. `nil` means not paired.
+    private var helperPairedSummary: String? {
+        guard isEditing else {
+            return nil
         }
-        if result.capabilities.video {
-            helperVideoPairingSecret = result.secret
-            formState.helperVideoEnabled = true
-            replaceHelperVideoPairingSecret = true
+        let text = editingProfile?.helperTextBridge?.isEnabled == true
+        let video = editingProfile?.helperVideo?.isEnabled == true
+        guard text || video else {
+            return nil
         }
+        return "Paired · text \(text ? "on" : "off") · video \(video ? "on" : "off")"
     }
 
     private func resolveHelperTextBridge(

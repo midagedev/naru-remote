@@ -5,6 +5,10 @@ public struct ConnectionGridView: View {
     private let cards: [ConnectionGridCard]
     private let onSelect: (ConnectionGridCard.ID) -> Void
     private let onAddProfile: () -> Void
+    /// Spec 040: "QR 찍어 추가하기" — opens the pairing scanner instead of
+    /// the manual editor. Optional so existing call sites and previews
+    /// keep compiling; the button hides when it is `nil`.
+    private let onScanPairCode: (() -> Void)?
     private let onDiagnostics: ((ConnectionGridCard.ID) -> Void)?
     private let onEdit: ((ConnectionGridCard.ID) -> Void)?
     private let onDelete: ((ConnectionGridCard.ID) -> Void)?
@@ -21,6 +25,7 @@ public struct ConnectionGridView: View {
         cards: [ConnectionGridCard],
         onSelect: @escaping (ConnectionGridCard.ID) -> Void,
         onAddProfile: @escaping () -> Void,
+        onScanPairCode: (() -> Void)? = nil,
         onDiagnostics: ((ConnectionGridCard.ID) -> Void)? = nil,
         onEdit: ((ConnectionGridCard.ID) -> Void)? = nil,
         onDelete: ((ConnectionGridCard.ID) -> Void)? = nil,
@@ -30,6 +35,7 @@ public struct ConnectionGridView: View {
         self.cards = cards
         self.onSelect = onSelect
         self.onAddProfile = onAddProfile
+        self.onScanPairCode = onScanPairCode
         self.onDiagnostics = onDiagnostics
         self.onEdit = onEdit
         self.onDelete = onDelete
@@ -99,6 +105,21 @@ public struct ConnectionGridView: View {
                     .help("About Naru Remote")
                     .accessibilityLabel("About Naru Remote")
                     .accessibilityIdentifier("naru.connection.grid.about")
+                }
+
+                if let onScanPairCode {
+                    Button {
+                        onScanPairCode()
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.bordered)
+                    .clipShape(Circle())
+                    .help("QR 찍어 추가하기")
+                    .accessibilityLabel("Add via QR code")
+                    .accessibilityIdentifier("naru.connection.grid.scanPair")
                 }
 
                 Button {

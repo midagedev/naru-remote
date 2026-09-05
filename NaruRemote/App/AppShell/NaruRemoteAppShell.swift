@@ -14,6 +14,11 @@ public struct NaruRemoteAppShell: View {
 
     @StateObject private var model: NaruRemoteAppModel
     @State private var showsProfileEditor = false
+    /// Spec 040 QR pairing: the scanner sheet and the decoded-offer
+    /// confirm sheet. `pendingPairingOffer` is also the deep-link landing
+    /// state for `naru://pair?code=…`.
+    @State private var showsPairingScanner = false
+    @State private var pendingPairingOffer: NaruPairingPendingOffer?
     /// Screenshot/UI-test pin only. Which primary surface is on is *derived*
     /// from session facts by `RemoteControlSurfacePolicy` — see
     /// `showsRemoteControlSurface`. Nothing flips a route on tap any more:
@@ -519,6 +524,7 @@ public struct NaruRemoteAppShell: View {
                 if isEmptyHome {
                     EmptyHomeView(
                         onAddProfile: { showsProfileEditor = true },
+                        onScanPairCode: { showsPairingScanner = true },
                         onAbout: { showsAbout = true }
                     )
                 } else if showsConnectionGrid {
@@ -526,6 +532,7 @@ public struct NaruRemoteAppShell: View {
                         cards: snapshot.connectionGridCards,
                         onSelect: openConnection,
                         onAddProfile: { showsProfileEditor = true },
+                        onScanPairCode: { showsPairingScanner = true },
                         onDiagnostics: openDiagnostics,
                         onEdit: editProfile,
                         onDelete: performProfileDeletion,
@@ -705,6 +712,7 @@ public struct NaruRemoteAppShell: View {
                 // title, one primary action, nothing else).
                 EmptyHomeView(
                     onAddProfile: { showsProfileEditor = true },
+                    onScanPairCode: { showsPairingScanner = true },
                     onAbout: { showsAbout = true }
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -757,6 +765,13 @@ public struct NaruRemoteAppShell: View {
             )
             .diagnosticsSheetPresentation()
         }
+        .modifier(
+            NaruPairingFlowSurface(
+                model: model,
+                showsPairingScanner: $showsPairingScanner,
+                pendingPairingOffer: $pendingPairingOffer
+            )
+        )
         .sheet(isPresented: $showsProfileEditor) {
             ProfileEditorView(
                 onTest: { host, port, password in
@@ -1369,4 +1384,105 @@ private extension View {
         self
         #endif
     }
+}
+
+/// Spec 040 QR pairing surfaces, extracted from the shell body: the
+/// scanner sheet, the confirm sheet, the invalid-link alert, and the
+/// `naru://pair` deep-link entry. Kept in one modifier so the shell's
+/// already-long modifier chain stays type-checkable and every decoded
+/// offer — scanner, deep link, test hook — funnels through one presenter.
+private struct NaruPairingFlowSurface: ViewModifier {
+    private let model: NaruRemoteAppModel
+    @Binding private var showsPairingScanner: Bool
+    @Binding private var pendingPairingOffer: NaruPairingPendingOffer?
+    @State private var showsInvalidPairingLink = false
+
+    init(
+        model: NaruRemoteAppModel,
+        showsPairingScanner: Binding<Bool>,
+        pendingPairingOffer: Binding<NaruPairingPendingOffer?>
+    ) {
+        self.model = model
+        self._showsPairingScanner = showsPairingScanner
+        self._pendingPairingOffer = pendingPairingOffer
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showsPairingScanner) {
+                NaruPairingScanView { offer in
+                    presentPairingOffer(offer)
+                }
+            }
+            .sheet(item: $pendingPairingOffer) { pending in
+                NaruPairingConfirmView(pending: pending) { profile, credentials in
+                    if pending.replacesProfileID == nil {
+                        await model.addProfile(
+                            profile,
+                            password: credentials.vncPassword,
+                            helperPairingSecret: credentials.helperPairingSecret,
+                            helperVideoPairingSecret: credentials.helperVideoPairingSecret
+                        )
+                    } else {
+                        await model.editProfile(
+                            profile,
+                            password: credentials.vncPassword,
+                            helperPairingSecret: credentials.helperPairingSecret,
+                            helperVideoPairingSecret: credentials.helperVideoPairingSecret
+                        )
+                    }
+                }
+            }
+            .alert(
+                "Couldn't open pairing link",
+                isPresented: $showsInvalidPairingLink
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("This link isn't a Naru pairing code. Re-run `NaruHelper --pair` on your Mac and scan the new code.")
+            }
+            .onOpenURL { url in
+                handlePairingURL(url)
+            }
+            #if DEBUG
+            .onAppear {
+                presentLaunchEnvironmentPairingCodeIfAvailable()
+            }
+            #endif
+    }
+
+    private func presentPairingOffer(_ offer: NaruPairingOffer) {
+        pendingPairingOffer = NaruPairingPendingOffer(
+            offer: offer,
+            replacesProfileID: NaruPairingProfileFactory.existingProfileID(
+                for: offer,
+                in: model.profiles
+            )
+        )
+    }
+
+    private func handlePairingURL(_ url: URL) {
+        guard let offer = try? NaruPairingOfferWire.decode(url.absoluteString) else {
+            showsInvalidPairingLink = true
+            return
+        }
+        presentPairingOffer(offer)
+    }
+
+    #if DEBUG
+    /// XCUITest/UAT hook — the simulator has no camera, so UI gates inject
+    /// a full pairing code through the launch environment and land on the
+    /// same confirm sheet a scan produces. No-op in production.
+    private func presentLaunchEnvironmentPairingCodeIfAvailable() {
+        guard let raw = ProcessInfo.processInfo.environment["NARU_TEST_PAIRING_CODE"],
+              !raw.isEmpty,
+              pendingPairingOffer == nil
+        else {
+            return
+        }
+        if let offer = try? NaruPairingOfferWire.decode(raw) {
+            presentPairingOffer(offer)
+        }
+    }
+    #endif
 }
