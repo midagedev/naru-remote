@@ -32,6 +32,12 @@ let package = Package(
         .executable(
             name: "NaruHelper",
             targets: ["NaruHelper"]
+        ),
+        // Spec 041: the macOS menu bar app consumes the Kit as a local
+        // package product; the CLI remains an executable over the same target.
+        .library(
+            name: "NaruHelperKit",
+            targets: ["NaruHelperKit"]
         )
     ],
     dependencies: [

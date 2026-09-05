@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-08-27 KST.
+Updated: 2026-09-05 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -278,6 +278,41 @@ same PR.
    trailing-whitespace files, zero `TODO`/`FIXME` in shipped code, one `try!` in
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
+
+00l. **`specs/041` Naru Helper menu bar app — specified 2026-09-05, next
+   to plan.** Founder decision after the first real QR pairing: "응 메뉴바
+   앱으로 가야해". The helper's shipping form becomes one signed, notarized
+   `Naru Helper.app` in the menu bar that owns pairing (QR in a window),
+   both listeners in one process, permission state with a route to System
+   Settings, login-item auto-start, revoke, and Copy Diagnostics. The wire
+   does not change — TestFlight build 19 must pair against it with no
+   phone change (matrix row). The CLI stays for benchmarks/CI only.
+   Absorbs the P1 "helper production packaging" item below and closes
+   spec 006 T028 (helper-side revoke). Plan must settle: the macOS app
+   target (XcodeGen vs. SwiftPM bundle), the store's absent-vs-transient
+   read distinction (FR-007 — today revoke would be a no-op), and the
+   notarization flow reusing the App Store Connect key.
+
+00k. **`specs/040` QR pairing sync — implemented 2026-09-04.** Orca-pattern
+   pairing end to end: `NaruHelper --pair` mints a per-run token and
+   renders a terminal QR (`naru://pair?code=…`, CoreImage half-blocks, no
+   new dependency) with a permission preflight; listeners verify the
+   pairing state file per connection, so rotation takes effect without a
+   restart and old QRs die on the next `--pair`. The iPhone gains the
+   `naru://` URL scheme, an in-app scanner ("QR 찍어 추가하기" on the grid
+   header and the empty home) with a paste fallback, and a confirm sheet
+   that saves profile + VNC password + helper token through the existing
+   Keychain path; the profile editor's helper options/token entry are
+   gone (read-only state remains) per the founder's "not an option in the
+   regular connection" direction. Gates: `swift test` 1843 green, iPhone
+   sim build + `QrPairingScreenshotsUITests` green
+   (`artifacts/screenshots/qr-pairing/`), `--pair` QR verified live on
+   this Mac. Founder physical pass done 2026-09-05: TestFlight build 19
+   scanned a real `--pair` QR and connected. Measured on that pass: the
+   terminal QR is 93 columns × 47 rows (499-byte offer, level M) — it
+   wraps in an 80-column window, which is one reason the founder moved the
+   helper to a menu bar app (`specs/041`). **Open:** editor-embedded
+   Revoke button deferred (model revoke surfaces exist).
 
 00j. **Three follow-ups the 039 audit surfaced and did not take.**
    (a) **`NaruRemoteAppModel.swift` is 10,219 lines.** It owns session
@@ -673,10 +708,9 @@ same PR.
   at the three-display Mac, and check `nc -vz <mac> 5901 5902` — per-display
   ports, if `specs/008/research.md:44` is right about modern macOS, would be a
   better answer than cropping.
-- **Specify helper production packaging before implementation** — menu-bar app
-  wrapper, notarization, launchd auto-start, capability/status disclosure, and
-  revoke/disable UX need a new Spec Kit feature. Today the helper is a dev-only
-  CLI (`.build/release/NaruHelper`) plus the `NaruHelperDev.app` TCC wrapper.
+- **Helper production packaging** — specified as `specs/041-helper-menu-bar-app`
+  (2026-09-05, see 00l above). Until it lands the helper is a dev-only CLI
+  (`.build/release/NaruHelper`) plus the `NaruHelperDev.app` TCC wrapper.
 - **Real single-profile helper availability probe** — replace the
   refresh-all+poll pattern used by helper onboarding (noted in
   `specs/010-helper-onboarding/plan.md`).

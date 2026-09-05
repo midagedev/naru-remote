@@ -33,7 +33,12 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
 
     private let expectedPairingSecret: String
     private let expectedProfileFingerprint: String
+    /// Spec 041 FR-007: `nil` from a provider means the pairing state is
+    /// gone — refusal, never a launch-time fallback.
+    private let pairingSecretProvider: (@Sendable () -> String?)?
+    private let profileFingerprintProvider: (@Sendable () -> String?)?
     private let revocationStore: any NaruHelperPairingRevocationStore
+    private let onAuthorizedRequest: (@Sendable () -> Void)?
     private let capabilityProvider: CapabilityProvider
     private let startStreamProvider: StartStreamProvider
     private let hevcEncodeSupportProbe: @Sendable () -> Bool
@@ -41,14 +46,20 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
     public init(
         expectedPairingSecret: String,
         expectedProfileFingerprint: String,
+        pairingSecretProvider: (@Sendable () -> String?)? = nil,
+        profileFingerprintProvider: (@Sendable () -> String?)? = nil,
         revocationStore: any NaruHelperPairingRevocationStore = InMemoryNaruHelperPairingRevocationStore(),
+        onAuthorizedRequest: (@Sendable () -> Void)? = nil,
         capabilityProvider: @escaping CapabilityProvider,
         startStreamProvider: @escaping StartStreamProvider = Self.defaultStartStreamResponse,
         hevcEncodeSupportProbe: @escaping @Sendable () -> Bool = defaultHEVCEncodeSupportProbe
     ) {
         self.expectedPairingSecret = expectedPairingSecret
         self.expectedProfileFingerprint = expectedProfileFingerprint
+        self.pairingSecretProvider = pairingSecretProvider
+        self.profileFingerprintProvider = profileFingerprintProvider
         self.revocationStore = revocationStore
+        self.onAuthorizedRequest = onAuthorizedRequest
         self.capabilityProvider = capabilityProvider
         self.startStreamProvider = startStreamProvider
         self.hevcEncodeSupportProbe = hevcEncodeSupportProbe
@@ -168,14 +179,47 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
             )
         }
 
-        guard envelope.profileFingerprint == expectedProfileFingerprint else {
+        // Rotation (spec 040 FR-002) and revoke (spec 041 FR-007): when
+        // providers are attached, every authorization reads the *current*
+        // pairing state, so a token minted by a later `--pair` run takes
+        // effect without restarting the listener, a superseded token is
+        // refused from its next handshake, and a `nil` answer — the state
+        // file is gone — is a refusal. The fixed configuration strings are
+        // consulted only when no provider is attached (the env-pinned
+        // benchmark path).
+        let currentFingerprint: String
+        if let profileFingerprintProvider {
+            guard let providedFingerprint = profileFingerprintProvider() else {
+                return NaruHelperVideoTransportAuthorizationResult(
+                    status: .rejected,
+                    safeFailureCode: .revoked
+                )
+            }
+            currentFingerprint = providedFingerprint
+        } else {
+            currentFingerprint = expectedProfileFingerprint
+        }
+        let currentSecret: String
+        if let pairingSecretProvider {
+            guard let providedSecret = pairingSecretProvider() else {
+                return NaruHelperVideoTransportAuthorizationResult(
+                    status: .rejected,
+                    safeFailureCode: .revoked
+                )
+            }
+            currentSecret = providedSecret
+        } else {
+            currentSecret = expectedPairingSecret
+        }
+
+        guard envelope.profileFingerprint == currentFingerprint else {
             return NaruHelperVideoTransportAuthorizationResult(
                 status: .rejected,
                 safeFailureCode: .authFailed
             )
         }
 
-        guard !revocationStore.isRevoked(pairingSecret: expectedPairingSecret) else {
+        guard !revocationStore.isRevoked(pairingSecret: currentSecret) else {
             return NaruHelperVideoTransportAuthorizationResult(
                 status: .rejected,
                 safeFailureCode: .revoked
@@ -187,7 +231,7 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
             requestID: envelope.requestID,
             messageType: envelope.messageType,
             profileFingerprint: envelope.profileFingerprint,
-            pairingSecret: expectedPairingSecret
+            pairingSecret: currentSecret
         ) else {
             return NaruHelperVideoTransportAuthorizationResult(
                 status: .rejected,
@@ -195,6 +239,7 @@ public struct NaruHelperVideoTransportRequestHandler: Sendable {
             )
         }
 
+        onAuthorizedRequest?()
         return .accepted
     }
 

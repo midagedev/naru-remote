@@ -23,6 +23,25 @@ public struct NaruHelperVideoListenConfiguration: Equatable, Sendable {
     public var pairingSecret: String
     public var profileFingerprint: String
     public var port: UInt16
+    /// Rotation providers (spec 040 FR-002), attached by the CLI when the
+    /// listener runs from pairing state rather than env vars — never
+    /// parsed from argv. When nil, the fixed configuration strings apply.
+    /// Spec 041 FR-007: an attached provider may answer `nil` (pairing
+    /// state gone) — the handler refuses, it never falls back to the
+    /// fixed strings.
+    public var pairingSecretProvider: (@Sendable () -> String?)?
+    public var profileFingerprintProvider: (@Sendable () -> String?)?
+
+    public static func == (lhs: NaruHelperVideoListenConfiguration, rhs: NaruHelperVideoListenConfiguration) -> Bool {
+        // Providers are behavior, not value — equality covers the parsed
+        // wire-relevant fields only.
+        lhs.pairingSecret == rhs.pairingSecret
+            && lhs.profileFingerprint == rhs.profileFingerprint
+            && lhs.port == rhs.port
+            && lhs.sourceMode == rhs.sourceMode
+            && lhs.frameCount == rhs.frameCount
+    }
+
     public var sourceMode: NaruHelperVideoListenSourceMode
     /// A value of `0` means the listen runtime serves a sustained stream until
     /// the client disconnects. Benchmarks pass a positive value to keep runs
@@ -209,12 +228,16 @@ public struct NaruHelperVideoListenRuntime: Sendable {
     public func makeServer(
         accessUnitSource overrideAccessUnitSource: (any NaruHelperVideoAccessUnitSource)? = nil,
         capabilityProvider overrideCapabilityProvider: NaruHelperVideoTransportRequestHandler
-            .CapabilityProvider? = nil
+            .CapabilityProvider? = nil,
+        onAuthorizedRequest: (@Sendable () -> Void)? = nil
     ) throws -> NaruHelperVideoStreamNetworkServer {
         let accessUnitSource = try overrideAccessUnitSource ?? makeAccessUnitSource()
         let requestHandler = NaruHelperVideoTransportRequestHandler(
             expectedPairingSecret: configuration.pairingSecret,
             expectedProfileFingerprint: configuration.profileFingerprint,
+            pairingSecretProvider: configuration.pairingSecretProvider,
+            profileFingerprintProvider: configuration.profileFingerprintProvider,
+            onAuthorizedRequest: onAuthorizedRequest,
             capabilityProvider: overrideCapabilityProvider ?? defaultCapabilityProvider(),
             startStreamProvider: defaultStartStreamProvider()
         )

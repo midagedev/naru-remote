@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Developer ID export options for `scripts/release-naru-helper.sh`
+  (Naru Helper, spec 041): `method: developer-id` produces the
+  direct-distribution form of the app, signed with the Developer ID
+  Application certificate of team XEF9KH7N43 — the form notarization
+  and stapling then finish.
+
+  Nothing secret lives here: the team ID is already in the repo's project
+  specs, and the App Store Connect API key and issuer stay in
+  ~/.appstoreconnect (never in the repo).
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>developer-id</string>
+    <key>teamID</key>
+    <string>XEF9KH7N43</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>

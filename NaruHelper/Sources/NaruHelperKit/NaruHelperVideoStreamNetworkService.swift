@@ -8,6 +8,13 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
     private let pipeline: NaruHelperVideoStreamFramePipeline
     private let queue: DispatchQueue
     private let listener: NWListener
+    private let requestedPort: UInt16?
+
+    /// Spec 041 FR-002: listener state as fixed-catalog values, driven from
+    /// `NWListener.stateUpdateHandler`. Settable before or after ``start()``.
+    public var onStateChange: (@Sendable (NaruHelperListenerState) -> Void)? {
+        didSet { installStateHandler() }
+    }
 
     public init(
         port: UInt16,
@@ -23,6 +30,7 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
         }
         self.pipeline = pipeline
         self.queue = queue
+        self.requestedPort = port
         self.listener = try NWListener(using: .tcp, on: endpointPort)
     }
 
@@ -36,6 +44,7 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
         }
         self.pipeline = pipeline
         self.queue = queue
+        self.requestedPort = nil
         self.listener = try NWListener(using: .tcp)
     }
 
@@ -44,6 +53,7 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
     }
 
     public func start() {
+        installStateHandler()
         listener.newConnectionHandler = { [pipeline, queue] connection in
             connection.start(queue: queue)
             Self.receiveStartStreamFrame(on: connection, pipeline: pipeline)
@@ -53,6 +63,16 @@ public final class NaruHelperVideoStreamNetworkServer: @unchecked Sendable {
 
     public func cancel() {
         listener.cancel()
+    }
+
+    /// Idempotent: safe to call from ``onStateChange``'s didSet and again
+    /// in ``start()`` regardless of wiring order.
+    private func installStateHandler() {
+        NaruHelperListenerState.install(
+            on: listener,
+            requestedPort: requestedPort,
+            onChange: onStateChange
+        )
     }
 
     private static func receiveStartStreamFrame(

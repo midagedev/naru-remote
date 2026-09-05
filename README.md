@@ -55,8 +55,11 @@ design target and the iPad is graceful scaling, not the other way round.
   screen.
 - **Staged diagnostics** — DNS, TCP, RFB handshake, auth, first frame — so a
   connection that fails tells you *where* it failed.
-- **Naru Helper** (optional) — a small Mac companion for hardware-video streaming
-  and native text insertion. The basic viewer and the text path work without it.
+- **Naru Helper** (optional) — a Mac menu bar app for hardware-video streaming
+  and native text insertion, installed from
+  [GitHub Releases](https://github.com/midagedev/naru-remote/releases/latest).
+  It shows a QR the phone scans to pair. The basic viewer and the text path
+  work without it.
 
 ## What it deliberately does not do
 

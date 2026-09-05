@@ -129,12 +129,14 @@ Three layers, enforced by the SwiftPM target graph in `Package.swift`
   injection. `Features/*` are presentation-only views.
 - **`NaruRemote`** (`NaruRemote/iOSApp/`) — installable entry point; only
   this layer wires concrete persistence/Keychain/PiP implementations.
-- **`NaruHelper`** (`NaruHelper/Sources/`, targets in the root
-  `Package.swift`) — optional macOS host helper CLI. Text bridge
-  `--listen` (port 5974, Accessibility permission) and video stream
-  `--video-listen` (port 5975, Screen Recording permission), HMAC-SHA256
-  pairing. The MVP viewer + text path must keep working without it
-  (constitution §V).
+- **`NaruHelper`** — optional macOS host helper. Ships as the menu bar
+  app `Naru Helper` (`NaruHelper/App/`, XcodeGen spec
+  `NaruHelper/project.yml`, spec 041): one process runs the text bridge
+  (port 5974, Accessibility permission) and the video stream (port 5975,
+  Screen Recording permission) behind HMAC-SHA256 pairing. The CLI
+  (`NaruHelper/Sources/`, targets in the root `Package.swift`) is kept
+  for benchmarks/automation. The MVP viewer + text path must keep
+  working without it (constitution §V).
 
 RFB capability protocols live in
 `Sources/NaruRemoteCore/VNC/RFBClientBoundary.swift`. `NaruRemoteAppModel`
@@ -179,8 +181,29 @@ xcodebuild -project NaruRemote.xcodeproj -scheme NaruRemote \
 # Deterministic fake RFB server for manual integration
 swift run FakeRFBServer --fixture TestFixtures/FakeRFBServer/Fixtures/noauth-first-frame.hex --port 5901
 
-# macOS host helper (dev): secrets via env indirection only, never argv
+# Helper app (spec 041): the shipping form — a signed, notarized menu bar
+# app. The release pipeline is scripts/release-naru-helper.sh.
+xcodegen generate --spec NaruHelper/project.yml
+xcodebuild -project NaruHelper/NaruHelper.xcodeproj -scheme NaruHelperApp \
+  -destination 'platform=macOS' build
+scripts/release-naru-helper.sh --dry-run
+
+# macOS host helper (dev): secrets via env indirection only, never argv.
+# Launch contract (measured 2026-09-04, spec 040): `--listen` and
+# `--video-listen` are EXCLUSIVE per process — passing both silently runs
+# only the text listener; `--video-listen` additionally REQUIRES
+# `--profile-fingerprint-env`. Both listeners also run state-file mode:
+# with no env flags they read `~/.naru/helper-pairing-state.json`
+# (verified per connection, so rotation applies without a restart).
+# QR pairing (spec 040): `--pair` mints a fresh token, prints a terminal
+# QR (`naru://pair?code=…`) plus permission preflight, and rotates on
+# every run — `--vnc-password-env VAR` optionally includes the VNC
+# password in the offer.
 swift build -c release
+.build/release/NaruHelper --pair
+.build/release/NaruHelper --listen
+.build/release/NaruHelper --video-listen
+# Explicit env pinning (benchmarks/CI) still works unchanged:
 NARU_HELPER_TOKEN=<secret> .build/release/NaruHelper --listen --token-env NARU_HELPER_TOKEN --port 5974
 
 # Live-verification probes/gates against a real Mac + physical iPhone

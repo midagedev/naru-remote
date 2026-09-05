@@ -28,20 +28,29 @@ public final class InMemoryNaruHelperPairingRevocationStore: NaruHelperPairingRe
 public struct NaruHelperNetworkRequestHandler: Sendable {
     public typealias CapabilityProvider = @Sendable () -> NaruHelperCapabilityResponse
     public typealias InsertHandler = @Sendable (NaruHelperInsertTextRequest) -> NaruHelperInsertTextResponse
+    /// Spec 041 FR-007: `nil` means the pairing state is gone (revoked or
+    /// never paired) — never a cue to fall back to a launch-time secret.
+    public typealias PairingSecretProvider = @Sendable () -> String?
 
     private let expectedPairingSecret: String
+    private let pairingSecretProvider: PairingSecretProvider?
     private let revocationStore: any NaruHelperPairingRevocationStore
+    private let onAuthorizedRequest: (@Sendable () -> Void)?
     private let capabilityProvider: CapabilityProvider
     private let insertHandler: InsertHandler
 
     public init(
         expectedPairingSecret: String,
+        pairingSecretProvider: PairingSecretProvider? = nil,
         revocationStore: any NaruHelperPairingRevocationStore = InMemoryNaruHelperPairingRevocationStore(),
+        onAuthorizedRequest: (@Sendable () -> Void)? = nil,
         capabilityProvider: @escaping CapabilityProvider,
         insertHandler: @escaping InsertHandler
     ) {
         self.expectedPairingSecret = expectedPairingSecret
+        self.pairingSecretProvider = pairingSecretProvider
         self.revocationStore = revocationStore
+        self.onAuthorizedRequest = onAuthorizedRequest
         self.capabilityProvider = capabilityProvider
         self.insertHandler = insertHandler
     }
@@ -51,13 +60,31 @@ public struct NaruHelperNetworkRequestHandler: Sendable {
             return failure(requestID: request.requestID, code: .versionUnsupported)
         }
 
-        guard request.pairingSecret == expectedPairingSecret else {
+        // Rotation (spec 040 FR-002) and revoke (spec 041 FR-007): with a
+        // provider attached the handshake reads the current pairing state
+        // per request, so a token minted by a later `--pair` run is honored
+        // immediately, a superseded token is refused, and a `nil` answer —
+        // the state file is gone — is a refusal. `expectedPairingSecret`
+        // is consulted only when no provider is attached (the env-pinned
+        // benchmark path).
+        let currentSecret: String
+        if let pairingSecretProvider {
+            guard let providedSecret = pairingSecretProvider() else {
+                return failure(requestID: request.requestID, code: .revoked)
+            }
+            currentSecret = providedSecret
+        } else {
+            currentSecret = expectedPairingSecret
+        }
+        guard request.pairingSecret == currentSecret else {
             return failure(requestID: request.requestID, code: .revoked)
         }
 
         if revocationStore.isRevoked(pairingSecret: request.pairingSecret) {
             return failure(requestID: request.requestID, code: .revoked)
         }
+
+        onAuthorizedRequest?()
 
         switch request.command {
         case .capability:
@@ -118,6 +145,13 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
     private let handler: NaruHelperNetworkRequestHandler
     private let queue: DispatchQueue
     private let listener: NWListener
+    private let requestedPort: UInt16?
+
+    /// Spec 041 FR-002: listener state as fixed-catalog values, driven from
+    /// `NWListener.stateUpdateHandler`. Settable before or after ``start()``.
+    public var onStateChange: (@Sendable (NaruHelperListenerState) -> Void)? {
+        didSet { installStateHandler() }
+    }
 
     public init(
         port: UInt16 = UInt16(naruHelperTextBridgeDefaultPort),
@@ -129,6 +163,7 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
         }
         self.handler = handler
         self.queue = queue
+        self.requestedPort = port
         self.listener = try NWListener(using: .tcp, on: endpointPort)
     }
 
@@ -138,6 +173,7 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
     ) throws {
         self.handler = handler
         self.queue = queue
+        self.requestedPort = nil
         self.listener = try NWListener(using: .tcp)
     }
 
@@ -146,6 +182,7 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
     }
 
     public func start() {
+        installStateHandler()
         listener.newConnectionHandler = { [handler, queue] connection in
             connection.start(queue: queue)
             Self.receiveRequest(on: connection, handler: handler)
@@ -155,6 +192,16 @@ public final class NaruHelperNetworkServer: @unchecked Sendable {
 
     public func cancel() {
         listener.cancel()
+    }
+
+    /// Idempotent: safe to call from ``onStateChange``'s didSet and again
+    /// in ``start()`` regardless of wiring order.
+    private func installStateHandler() {
+        NaruHelperListenerState.install(
+            on: listener,
+            requestedPort: requestedPort,
+            onChange: onStateChange
+        )
     }
 
     private static func receiveRequest(
