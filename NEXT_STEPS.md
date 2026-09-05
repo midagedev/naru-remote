@@ -294,9 +294,9 @@ same PR.
    stays for benchmarks/CI. `scripts/release-naru-helper.sh` archives with
    Developer ID, notarizes, staples, assesses, records, and optionally
    publishes a GitHub Release. Gates: `swift test` 1867 green, app
-   `xcodebuild build` green. **Open:** (a) founder pass per
-   `specs/041-helper-menu-bar-app/quickstart.md` — first-launch grants, real
-   pairing, reboot, revoke; (b) the macOS XCUITest runner needs a one-time
+   `xcodebuild build` green. Founder pass 2026-09-06: grants, real pairing from TestFlight
+   build 19, live session — works. **Open:** (a) quickstart §4–5 not yet
+   reported — reboot with **Start at login**, revoke; (b) the macOS XCUITest runner needs a one-time
    "Enable UI Automation" approval on this Mac before the app's UI tests can
    run (they are written and compile; screenshots were taken from the same
    fixture launch); (c) first real `scripts/release-naru-helper.sh` run;

@@ -5,6 +5,9 @@ person-facing checklist; section 6 is the release run that produces what
 sections 1–2 consume. Expected outcome per the spec: download to first
 paired handshake in under three minutes with no terminal opened.
 
+> Founder pass 2026-09-06 (Debug build from DerivedData, TestFlight build 19):
+> §1–3 confirmed working. §4–6 still to run.
+
 ## 1. Download and first launch
 
 1. Download `Naru-Helper-<version>.zip` from

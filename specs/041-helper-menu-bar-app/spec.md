@@ -16,9 +16,11 @@ spctl → GitHub Release), dry-run verified to fail fast. **Residual:**
 (1) macOS XCUITest on this Mac is gated by a one-time "Enable UI
 Automation" authentication — `xcodebuild … test` for the app is red until a
 person approves it once; the PNGs came from the same fixture launch via
-`screencapture`. (2) Founder physical pass (quickstart §1–5): grants, real
-pairing from TestFlight build 19, reboot with **Start at login**, revoke.
-(3) First real release run (quickstart §6) — never executed by an agent.
+`screencapture`. (2) Founder physical pass 2026-09-06 morning: the Debug app launched from
+DerivedData, grants given through the window's Open Settings… routes, a real
+QR scanned with TestFlight build 19, and a live helper session — founder:
+"이제 되는거 같네". Not separately reported: the reboot-with-login-item and
+revoke steps of quickstart §4–5. (3) First real release run (quickstart §6) — never executed by an agent.
 (4) No app icon yet (system default).
 **Product**: Naru Remote
 **Input**: Founder, 2026-09-05, after pairing a TestFlight build against the
