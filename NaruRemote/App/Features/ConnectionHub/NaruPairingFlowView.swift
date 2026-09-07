@@ -19,6 +19,10 @@ import AVFoundation
 public struct NaruPairingScanView: View {
     @Environment(\.dismiss) private var dismiss
     private let onDecoded: @MainActor (NaruPairingOffer) -> Void
+    /// Spec 042 (P4/FR-002): one-tap escape hatch to the manual add form.
+    /// Optional with a `nil` default so existing call sites keep
+    /// compiling; the button renders only when the shell passes it.
+    private let onEnterManually: (@MainActor () -> Void)?
 
     @State private var pastedCode = ""
     @State private var failureMessage: String?
@@ -27,14 +31,38 @@ public struct NaruPairingScanView: View {
     @State private var cameraPermission: AVAuthorizationStatus = .notDetermined
     #endif
 
-    public init(onDecoded: @escaping @MainActor (NaruPairingOffer) -> Void) {
+    public init(
+        onDecoded: @escaping @MainActor (NaruPairingOffer) -> Void,
+        onEnterManually: (@MainActor () -> Void)? = nil
+    ) {
         self.onDecoded = onDecoded
+        self.onEnterManually = onEnterManually
     }
 
     public var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    // Spec 042 (P4/FR-002): the scanner is a shortcut, not
+                    // a gate — the first text on the screen says the helper
+                    // is optional and that any VNC host works by address.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Naru Helper is optional. Any Mac or Linux screen-sharing host can be added by address — this scanner is a shortcut for Macs that run Naru Helper.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("naru.pairing.scan.helperOptionalNote")
+
+                        if let onEnterManually {
+                            Button("Enter VNC details instead") {
+                                onEnterManually()
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("naru.pairing.scan.enterManually")
+                        }
+                    }
+
                     #if os(iOS) && canImport(UIKit)
                     if cameraPermission == .authorized {
                         NaruPairingCodeScanner(
@@ -93,7 +121,7 @@ public struct NaruPairingScanView: View {
                             .accessibilityIdentifier("naru.pairing.scan.failure")
                     }
 
-                    Text("Open Naru Helper on your Mac and choose “Pair with iPhone…” (or run NaruHelper --pair in Terminal) to show a fresh code. Every code creates a new pairing token; older codes stop working.")
+                    Text("On the Mac, choose “Pair with iPhone…” in the Naru Helper menu bar app to show a fresh code. Every code creates a new pairing token; older codes stop working.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Need the Mac side? Get Naru Helper from the project's GitHub Releases page.")
@@ -106,7 +134,7 @@ public struct NaruPairingScanView: View {
                 .padding(16)
             }
             .background(NaruColors.canvas)
-            .navigationTitle("QR 찍어 추가하기")
+            .navigationTitle("Add by QR")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -177,9 +205,9 @@ public struct NaruPairingScanView: View {
         case .inputTooLong:
             "That code is too long to be a Naru pairing code."
         case .malformedURL, .malformedCode:
-            "This isn't a Naru pairing code. Scan the QR printed by `NaruHelper --pair` on your Mac."
+            "This isn't a Naru pairing code. Scan the QR from “Pair with iPhone…” in the Naru Helper menu bar app on your Mac."
         case .malformedPayload, .invalidField:
-            "This pairing code didn't pass validation. Re-run `--pair` on the Mac and scan the new code."
+            "This pairing code didn't pass validation. Choose “Pair with iPhone…” in the Naru Helper menu bar app again and scan the new code."
         case .unsupportedVersion:
             "This pairing code came from a different version. Update Naru on the Mac and the phone."
         case .noReachableAddress:
@@ -308,6 +336,10 @@ public struct NaruPairingConfirmView: View {
     private let onSave: @MainActor (ConnectionProfile, ProfileEditorCredentialUpdate) async -> Void
 
     @State private var isSaving = false
+    /// Spec 042 (FR-003): helper ports are details, not the headline — the
+    /// VNC endpoint rows stand on their own and helper specifics wait
+    /// collapsed until asked for.
+    @State private var showsHelperDetails = false
 
     public init(
         pending: NaruPairingPendingOffer,
@@ -328,7 +360,10 @@ public struct NaruPairingConfirmView: View {
                     LabeledContent("Computer", value: pending.offer.host.label)
                     LabeledContent("Address", value: primaryAddress)
                     LabeledContent("Screen sharing", value: "port \(pending.offer.host.vncPort)")
-                    LabeledContent("Helper", value: "text \(pending.offer.helper.textPort) · video \(pending.offer.helper.videoPort)")
+                    DisclosureGroup("Helper (optional)", isExpanded: $showsHelperDetails) {
+                        LabeledContent("Helper", value: "text \(pending.offer.helper.textPort) · video \(pending.offer.helper.videoPort)")
+                    }
+                    .accessibilityIdentifier("naru.pairing.confirm.helperDisclosure")
                 } header: {
                     Text(pending.replacesProfileID == nil ? "Add this computer?" : "Update the saved profile?")
                 } footer: {
@@ -348,7 +383,7 @@ public struct NaruPairingConfirmView: View {
                 } header: {
                     Text("What gets saved")
                 } footer: {
-                    Text("Basic viewing keeps working without the helper (constitution-level guarantee).")
+                    Text("Basic viewing keeps working without the helper — always, by design.")
                 }
             }
             .navigationTitle("Pair Mac")
@@ -400,9 +435,10 @@ public enum NaruPairingProfileFactory {
         offer.host.magicDns ?? offer.host.addresses[0]
     }
 
-    /// Host match first, label match second: a re-run `--pair` may rotate
-    /// nothing visible while renaming nothing — either way the existing
-    /// profile is updated in place rather than duplicated (US-1 SC-3).
+    /// Host match first, label match second: a re-run of “Pair with
+    /// iPhone…” may rotate nothing visible while renaming nothing — either
+    /// way the existing profile is updated in place rather than duplicated
+    /// (US-1 SC-3).
     public static func existingProfileID(
         for offer: NaruPairingOffer,
         in profiles: [ConnectionProfile]

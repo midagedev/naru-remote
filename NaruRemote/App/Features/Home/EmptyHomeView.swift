@@ -7,9 +7,11 @@ import SwiftUI
 /// discoverable when the user reaches them.
 public struct EmptyHomeView: View {
     private let onAddProfile: () -> Void
-    /// Spec 040: QR pairing entry — the fastest first connection is a scan
-    /// of `NaruHelper --pair`'s terminal QR, so the empty home offers it
-    /// beside the manual editor rather than burying it behind one.
+    /// QR pairing entry (spec 040; hierarchy spec 042 FR-001) — a shortcut
+    /// for Macs running Naru Helper. Secondary to the manual editor on
+    /// purpose: adding by address is the product, the QR only accelerates
+    /// the helper case, so it renders as small text with an "optional"
+    /// caption, never as a second primary button.
     private let onScanPairCode: (() -> Void)?
     /// About & Feedback (spec 039 FR-002). The grid header carries the same
     /// entry, but the grid does not exist until a profile does — and a user
@@ -64,15 +66,24 @@ public struct EmptyHomeView: View {
                 .accessibilityIdentifier("naru.home.empty.addProfile")
 
                 if let onScanPairCode {
-                    Button(action: onScanPairCode) {
-                        Label("QR 찍어 추가하기", systemImage: "qrcode.viewfinder")
-                            .font(.body.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                    // Spec 042 FR-001: plain borderless text at subheadline
+                    // scale — deliberately sharing neither control size nor
+                    // style with the prominent "Add a Computer" above it.
+                    VStack(spacing: 4) {
+                        Button(action: onScanPairCode) {
+                            Label("Add by QR (Naru Helper)", systemImage: "qrcode.viewfinder")
+                                .font(.subheadline)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("naru.home.empty.scanPair")
+
+                        Text("Optional — for Macs running Naru Helper.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("naru.home.empty.scanPair")
                 }
             }
 

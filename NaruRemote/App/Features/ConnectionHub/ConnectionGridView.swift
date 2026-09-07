@@ -5,9 +5,11 @@ public struct ConnectionGridView: View {
     private let cards: [ConnectionGridCard]
     private let onSelect: (ConnectionGridCard.ID) -> Void
     private let onAddProfile: () -> Void
-    /// Spec 040: "QR 찍어 추가하기" — opens the pairing scanner instead of
-    /// the manual editor. Optional so existing call sites and previews
-    /// keep compiling; the button hides when it is `nil`.
+    /// Spec 040/042: "Add by QR (Naru Helper)" — opens the pairing scanner
+    /// instead of the manual editor. An accelerator for Macs running Naru
+    /// Helper, secondary to the manual add button (FR-001). Optional so
+    /// existing call sites and previews keep compiling; the button hides
+    /// when it is `nil`.
     private let onScanPairCode: (() -> Void)?
     private let onDiagnostics: ((ConnectionGridCard.ID) -> Void)?
     private let onEdit: ((ConnectionGridCard.ID) -> Void)?
@@ -117,8 +119,8 @@ public struct ConnectionGridView: View {
                     }
                     .buttonStyle(.bordered)
                     .clipShape(Circle())
-                    .help("QR 찍어 추가하기")
-                    .accessibilityLabel("Add via QR code")
+                    .help("Add by QR (Naru Helper, optional)")
+                    .accessibilityLabel("Add by QR, optional, for Macs running Naru Helper")
                     .accessibilityIdentifier("naru.connection.grid.scanPair")
                 }
 

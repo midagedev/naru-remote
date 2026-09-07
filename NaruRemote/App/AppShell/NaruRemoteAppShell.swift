@@ -769,7 +769,17 @@ public struct NaruRemoteAppShell: View {
             NaruPairingFlowSurface(
                 model: model,
                 showsPairingScanner: $showsPairingScanner,
-                pendingPairingOffer: $pendingPairingOffer
+                pendingPairingOffer: $pendingPairingOffer,
+                // Spec 042 FR-002: the scanner's "Enter VNC details instead"
+                // lands on the same editor as "Add a Computer". The scanner
+                // sheet must finish dismissing before the editor sheet is
+                // presented — two sheets in one transaction lose the second.
+                onEnterManually: {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        showsProfileEditor = true
+                    }
+                }
             )
         )
         .sheet(isPresented: $showsProfileEditor) {
@@ -1401,23 +1411,36 @@ private struct NaruPairingFlowSurface: ViewModifier {
     @Binding private var showsPairingScanner: Bool
     @Binding private var pendingPairingOffer: NaruPairingPendingOffer?
     @State private var showsInvalidPairingLink = false
+    /// Spec 042 FR-002: opens the manual profile editor after the scanner
+    /// sheet has been dismissed. `nil` hides the scanner's button.
+    private let onEnterManually: (@MainActor () -> Void)?
 
     init(
         model: NaruRemoteAppModel,
         showsPairingScanner: Binding<Bool>,
-        pendingPairingOffer: Binding<NaruPairingPendingOffer?>
+        pendingPairingOffer: Binding<NaruPairingPendingOffer?>,
+        onEnterManually: (@MainActor () -> Void)? = nil
     ) {
         self.model = model
         self._showsPairingScanner = showsPairingScanner
         self._pendingPairingOffer = pendingPairingOffer
+        self.onEnterManually = onEnterManually
     }
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $showsPairingScanner) {
-                NaruPairingScanView { offer in
-                    presentPairingOffer(offer)
-                }
+                NaruPairingScanView(
+                    onDecoded: { offer in
+                        presentPairingOffer(offer)
+                    },
+                    onEnterManually: onEnterManually.map { openEditor in
+                        {
+                            showsPairingScanner = false
+                            openEditor()
+                        }
+                    }
+                )
             }
             .sheet(item: $pendingPairingOffer) { pending in
                 NaruPairingConfirmView(pending: pending) { profile, credentials in
