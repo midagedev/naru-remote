@@ -42,6 +42,14 @@ public struct SessionViewportView: View {
     private let pipWatchStatusText: String
     private let isPiPWatching: Bool
     private let usesHelperVideoPrimaryPreview: Bool
+    /// Spec 042 FR-004: renders the compact transport marker while helper
+    /// video is carrying frames. The shell derives this from
+    /// `snapshot.visualTransportMode == .helperVideo`; VNC renders nothing.
+    private let showsHelperVideoTransportMarker: Bool
+    /// Spec 042 FR-005: one-line dismissible catalog notice shown when an
+    /// expected helper-video session is on VNC.
+    private let helperVideoFallbackNotice: HelperVideoFallbackNotice?
+    private let onDismissHelperVideoFallbackNotice: (() -> Void)?
     private let onRunChecks: (() -> Void)?
     private let onConnect: (() -> Void)?
     private let onDisconnect: (() -> Void)?
@@ -233,6 +241,11 @@ public struct SessionViewportView: View {
     private static let minZoomScale: CGFloat = 1.0
     private static let maxZoomScale: CGFloat = 4.0
     nonisolated static let controlRevealMinimumHitHeight: CGFloat = 44
+    /// Spec 042 FR-004: the transport marker never exceeds 22 pt of height.
+    private static let helperVideoTransportMarkerMaximumHeight: CGFloat = 22
+    /// Top inset (8) + marker height (22) + gap (4): the fallback notice's
+    /// top inset while the marker line is present, so the two never overlap.
+    private static let helperVideoTransportMarkerLineInset: CGFloat = 34
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
     public init(
@@ -249,6 +262,9 @@ public struct SessionViewportView: View {
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
         usesHelperVideoPrimaryPreview: Bool = false,
+        showsHelperVideoTransportMarker: Bool = false,
+        helperVideoFallbackNotice: HelperVideoFallbackNotice? = nil,
+        onDismissHelperVideoFallbackNotice: (() -> Void)? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
         trackpadCursor: TrackpadCursor = TrackpadCursor(),
         pipLayerHost: PiPLayerHost? = nil,
@@ -320,6 +336,9 @@ public struct SessionViewportView: View {
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
         self.usesHelperVideoPrimaryPreview = usesHelperVideoPrimaryPreview
+        self.showsHelperVideoTransportMarker = showsHelperVideoTransportMarker
+        self.helperVideoFallbackNotice = helperVideoFallbackNotice
+        self.onDismissHelperVideoFallbackNotice = onDismissHelperVideoFallbackNotice
         self.pointerControlMode = pointerControlMode
         self.trackpadCursor = trackpadCursor
         self.pipLayerHost = pipLayerHost
@@ -386,6 +405,9 @@ public struct SessionViewportView: View {
         pipWatchStatusText: String = "PiP after first frame",
         isPiPWatching: Bool = false,
         usesHelperVideoPrimaryPreview: Bool = false,
+        showsHelperVideoTransportMarker: Bool = false,
+        helperVideoFallbackNotice: HelperVideoFallbackNotice? = nil,
+        onDismissHelperVideoFallbackNotice: (() -> Void)? = nil,
         pointerControlMode: PointerControlMode = .directTouch,
         trackpadCursor: TrackpadCursor = TrackpadCursor(),
         onRunChecks: (() -> Void)? = nil,
@@ -455,6 +477,9 @@ public struct SessionViewportView: View {
         self.pipWatchStatusText = pipWatchStatusText
         self.isPiPWatching = isPiPWatching
         self.usesHelperVideoPrimaryPreview = usesHelperVideoPrimaryPreview
+        self.showsHelperVideoTransportMarker = showsHelperVideoTransportMarker
+        self.helperVideoFallbackNotice = helperVideoFallbackNotice
+        self.onDismissHelperVideoFallbackNotice = onDismissHelperVideoFallbackNotice
         self.pointerControlMode = pointerControlMode
         self.trackpadCursor = trackpadCursor
         self.onRunChecks = onRunChecks
@@ -712,6 +737,32 @@ public struct SessionViewportView: View {
                     .accessibilityIdentifier("naru.session.reconnectBadge")
             }
         }
+        // Spec 042 FR-004: the transport marker renders only while helper
+        // video is the live visual transport; VNC gets no badge (P2). It is
+        // informational chrome, so it never intercepts touches.
+        .overlay(alignment: .topLeading) {
+            if showsHelperVideoTransportMarker {
+                Label("Helper", systemImage: "play.rectangle.fill")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(height: Self.helperVideoTransportMarkerMaximumHeight)
+                    .padding(8)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("naru.session.transportMarker")
+            }
+        }
+        // Spec 042 FR-005: the once-per-session fallback notice sits at the
+        // top, beneath the marker line when both are present, so the two
+        // never overlap and neither approaches the input dock at the bottom.
+        .overlay(alignment: .top) {
+            if let helperVideoFallbackNotice {
+                helperVideoFallbackNoticeView(helperVideoFallbackNotice)
+                    .padding(.top, showsHelperVideoTransportMarker ? Self.helperVideoTransportMarkerLineInset : 8)
+                    .padding(.horizontal, 8)
+            }
+        }
         // Behind the opaque fill above: in the hierarchy, never on screen.
         .background { pipContentLayerMount }
         .accessibilityIdentifier("naru.session.viewport")
@@ -719,6 +770,31 @@ public struct SessionViewportView: View {
 
     private var viewportCornerRadius: CGFloat {
         fillsAvailableHeight ? 0 : 8
+    }
+
+    /// Spec 042 FR-005: one line, fixed catalog copy, capsule background,
+    /// dismissible. Only the dismiss button is hit-testable.
+    private func helperVideoFallbackNoticeView(_ notice: HelperVideoFallbackNotice) -> some View {
+        HStack(spacing: 6) {
+            Text(notice.title)
+                .font(.footnote)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Button {
+                onDismissHelperVideoFallbackNotice?()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .padding(4)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .accessibilityIdentifier("naru.session.helperVideoFallbackNotice")
     }
 
     private var previewCornerRadius: CGFloat {

@@ -1262,6 +1262,11 @@ private struct SessionViewportFrameBridge: View {
             pipWatchStatusText: model.pipWatchStatusText,
             isPiPWatching: snapshot.pipWatchSession?.state == .watching,
             usesHelperVideoPrimaryPreview: snapshot.visualTransportMode == .helperVideo,
+            showsHelperVideoTransportMarker: snapshot.visualTransportMode == .helperVideo,
+            helperVideoFallbackNotice: model.helperVideoFallbackNotice,
+            onDismissHelperVideoFallbackNotice: {
+                model.dismissHelperVideoFallbackNotice()
+            },
             pointerControlMode: model.pointerControlMode,
             trackpadCursor: trackpadCursorStore.cursor,
             pipLayerHost: model.pipLayerHost,

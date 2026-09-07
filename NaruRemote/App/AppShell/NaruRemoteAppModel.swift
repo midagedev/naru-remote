@@ -250,6 +250,12 @@ public final class NaruRemoteAppModel: ObservableObject {
     @Published public private(set) var helperVideoStreamHealth: HelperVideoStreamHealth
     @Published public private(set) var helperVideoVisualSelectionFailureReason:
         HelperVideoVisualSelectionFailureReason?
+    /// Once-per-session fallback notice (spec 042 FR-005): set the first
+    /// time a session that expects helper video (profile has helper video
+    /// enabled and not revoked) is refused at start or falls back to VNC
+    /// mid-session. Fixed catalog values only — never a raw error, host,
+    /// or profile identity (constitution §IV).
+    @Published public private(set) var helperVideoFallbackNotice: HelperVideoFallbackNotice?
     /// Pending remote→local clipboard review.  Set when an incoming
     /// `ServerCutText` payload arrives on the active connection,
     /// cleared on Accept, Dismiss, or profile change.  See
@@ -511,6 +517,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var streamPacingWakeGeneration: UInt64 = 0
     private var pendingFocusedInputConnectionQuality: ConnectionQuality?
     private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
+    /// Session ID that already showed the helper-video fallback notice.
+    /// The latch survives dismissal; only `resetVisualTransportState()`
+    /// (session end, fresh connect, profile change) clears it.
+    private var helperVideoFallbackNoticeShownForSessionID: RemoteSession.ID?
     private var pendingFocusedInputIncomingClipboard: IncomingClipboardReview?
     private var isFocusedInputSendFeedbackClearPending = false
     private var viewportInteractionFrameStrategy: ViewportInteractionFrameStrategy?
@@ -726,6 +736,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         self.profileReachability = snapshot.profileReachability
         self.helperTextBridgeState = snapshot.helperTextBridgeState
         self.visualTransportMode = snapshot.visualTransportMode
+        self.helperVideoFallbackNotice = snapshot.helperVideoFallbackNotice
+        if snapshot.helperVideoFallbackNotice != nil {
+            helperVideoFallbackNoticeShownForSessionID = snapshot.session?.id
+        }
         self.helperVideoProfileState = snapshot.helperVideoProfileState
         self.helperVideoStreamDescriptor = snapshot.helperVideoStreamDescriptor
         self.helperVideoStreamHealth = snapshot.helperVideoStreamHealth
@@ -1284,6 +1298,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             profileReachability: profileReachability,
             helperTextBridgeState: helperTextBridgeState,
             visualTransportMode: visualTransportMode,
+            helperVideoFallbackNotice: helperVideoFallbackNotice,
             helperVideoProfileState: helperVideoProfileState,
             helperVideoStreamDescriptor: helperVideoStreamDescriptor,
             helperVideoStreamHealth: helperVideoStreamHealth,
@@ -1342,6 +1357,16 @@ public final class NaruRemoteAppModel: ObservableObject {
             }
         }
         helperVideoProfileState[profileID] = state
+        // Spec 042 FR-005: a refused helper-video start lands here with the
+        // true failure code while the transport is still VNC (the runner's
+        // `markProfileFailure` and the pre-runner bootstrap failures both
+        // funnel through this setter). Arm the once-per-session notice; the
+        // arm itself re-checks the active session, the profile's helper
+        // configuration, and the latch.
+        if visualTransportMode != .helperVideo,
+           let failureCode = state.lastFailureCode {
+            armHelperVideoFallbackNotice(failureCode: failureCode, profileID: profileID)
+        }
         guard profileID == session?.profileID,
               visualTransportMode == .helperVideo,
               state.shouldUseVNCVisualFallback
@@ -1428,6 +1453,7 @@ public final class NaruRemoteAppModel: ObservableObject {
         health: HelperVideoStreamHealth,
         profileID: ConnectionProfile.ID?
     ) {
+        let wasHelperVideoPrimary = visualTransportMode == .helperVideo
         pendingFocusedInputHelperVideoHealth = nil
         visualTransportMode = .vncFramebuffer
         helperVideoStreamDescriptor = nil
@@ -1439,6 +1465,17 @@ public final class NaruRemoteAppModel: ObservableObject {
             fallbackCountBucket: health.fallbackCountBucket == .none ? .one : health.fallbackCountBucket
         )
         helperVideoVisualSelectionFailureReason = .streamHealthRequiresVNCFallback
+        // Spec 042 FR-005: a mid-session drop (helper video WAS carrying
+        // frames) announces the catalog stream-stalled reason. When helper
+        // video was never selected, this is the health half of a refused
+        // start — the true failure code arrives moments later through
+        // `setHelperVideoProfileState`, which arms the notice itself.
+        if wasHelperVideoPrimary {
+            armHelperVideoFallbackNotice(
+                failureCode: .fallbackToVNC,
+                profileID: profileID ?? session?.profileID
+            )
+        }
 
         guard let profileID else {
             return
@@ -1455,6 +1492,41 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperVideoStreamDescriptor = nil
         helperVideoStreamHealth = HelperVideoStreamHealth()
         helperVideoVisualSelectionFailureReason = nil
+        helperVideoFallbackNotice = nil
+        helperVideoFallbackNoticeShownForSessionID = nil
+    }
+
+    /// Clears the visible helper-video fallback notice. The per-session
+    /// latch stays armed, so a second fallback in the same session stays
+    /// silent (spec 042 FR-005).
+    public func dismissHelperVideoFallbackNotice() {
+        helperVideoFallbackNotice = nil
+    }
+
+    /// Arms the once-per-session fallback notice (spec 042 FR-005). Both
+    /// the notice and the latch are set only when ALL hold: an active
+    /// session that still accepts media callbacks, the refusal belongs to
+    /// that session's profile and the currently selected profile, the
+    /// profile's helper video is enabled and not revoked, and this session
+    /// has not shown a notice yet.
+    private func armHelperVideoFallbackNotice(
+        failureCode: HelperVideoFailureCode,
+        profileID: ConnectionProfile.ID?
+    ) {
+        guard let activeSession = session,
+              activeSession.state.acceptsSessionScopedMediaCallbacks,
+              activeSession.profileID == profileID,
+              selectedProfileID == activeSession.profileID,
+              let configuration = profiles.first(where: { $0.id == activeSession.profileID })?
+                  .helperVideo,
+              configuration.isEnabled,
+              !configuration.isRevoked,
+              helperVideoFallbackNoticeShownForSessionID != activeSession.id
+        else {
+            return
+        }
+        helperVideoFallbackNotice = HelperVideoFallbackNotice.notice(for: failureCode)
+        helperVideoFallbackNoticeShownForSessionID = activeSession.id
     }
 
     public func disableHelperVideo(for profileID: ConnectionProfile.ID? = nil) async {

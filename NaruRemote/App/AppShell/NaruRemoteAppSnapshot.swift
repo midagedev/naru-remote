@@ -961,6 +961,61 @@ public enum VisualTransportMode: String, Codable, Equatable, CaseIterable, Senda
     case helperVideo
 }
 
+/// Fixed-catalog reason shown once per session when helper video was
+/// expected but the session is carrying VNC (spec 042 FR-005). Titles are
+/// static strings only — no address, hostname, error description, or
+/// profile identity ever enters them (constitution §IV).
+public enum HelperVideoFallbackNotice: String, Codable, Equatable, CaseIterable, Sendable {
+    case permissionMissing
+    case helperUnreachable
+    case streamStalled
+    case revoked
+    case codecUnsupported
+    case privateNetworkRequired
+    case other
+
+    public var title: String {
+        switch self {
+        case .permissionMissing:
+            return "Helper video off — Mac needs Screen Recording permission"
+        case .helperUnreachable:
+            return "Helper video off — Naru Helper not reachable"
+        case .streamStalled:
+            return "Helper video off — stream stalled, showing VNC"
+        case .revoked:
+            return "Helper video off — pairing revoked on the Mac"
+        case .codecUnsupported:
+            return "Helper video off — codec not supported"
+        case .privateNetworkRequired:
+            return "Helper video off — private network required"
+        case .other:
+            return "Helper video off — showing VNC"
+        }
+    }
+
+    /// Derives the catalog notice from a `HelperVideoFailureCode`, the same
+    /// shape as the model's `helperVideoAvailability(for:)` mapping. Pure
+    /// and total: every failure code lands in exactly one catalog case.
+    public static func notice(for code: HelperVideoFailureCode) -> HelperVideoFallbackNotice {
+        switch code {
+        case .permissionMissing:
+            return .permissionMissing
+        case .transportFailed, .transportProtectionRequired:
+            return .helperUnreachable
+        case .streamStalled, .fallbackToVNC:
+            return .streamStalled
+        case .revoked:
+            return .revoked
+        case .codecUnsupported:
+            return .codecUnsupported
+        case .privateNetworkRequired:
+            return .privateNetworkRequired
+        case .notConfigured, .disabled, .authFailed, .decoderRejected:
+            return .other
+        }
+    }
+}
+
 public struct RemoteFramebufferCoordinateSpace: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -1039,6 +1094,10 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
     /// The active visual source for the session viewport. VNC remains
     /// the control/input transport even when helper video is selected.
     public var visualTransportMode: VisualTransportMode
+    /// Once-per-session catalog notice explaining why an expected helper
+    /// video session is showing VNC instead (spec 042 FR-005). `nil` on
+    /// VNC-only profiles and while helper video is carrying frames.
+    public var helperVideoFallbackNotice: HelperVideoFallbackNotice?
     /// Memory-only helper video readiness keyed by profile id. Raw helper
     /// endpoints, pairing tokens, host names, and frame payloads never
     /// live here.
@@ -1108,6 +1167,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         profileReachability: [ConnectionProfile.ID: ProfileReachabilityState] = [:],
         helperTextBridgeState: [ConnectionProfile.ID: HelperTextBridgeProfileState] = [:],
         visualTransportMode: VisualTransportMode = .vncFramebuffer,
+        helperVideoFallbackNotice: HelperVideoFallbackNotice? = nil,
         helperVideoProfileState: [ConnectionProfile.ID: HelperVideoProfileState] = [:],
         helperVideoStreamDescriptor: HelperVideoStreamDescriptor? = nil,
         helperVideoStreamHealth: HelperVideoStreamHealth = HelperVideoStreamHealth(),
@@ -1136,6 +1196,7 @@ public struct NaruRemoteAppSnapshot: Equatable, Sendable {
         self.profileReachability = profileReachability
         self.helperTextBridgeState = helperTextBridgeState
         self.visualTransportMode = visualTransportMode
+        self.helperVideoFallbackNotice = helperVideoFallbackNotice
         self.helperVideoProfileState = helperVideoProfileState
         self.helperVideoStreamDescriptor = helperVideoStreamDescriptor
         self.helperVideoStreamHealth = helperVideoStreamHealth
