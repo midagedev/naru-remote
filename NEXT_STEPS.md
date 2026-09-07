@@ -279,26 +279,40 @@ same PR.
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
 
-00m. **`specs/042` VNC-first, helper-optional presentation — draft 2026-09-07,
-   awaiting founder review.** From the first physical helper-video session:
-   two cursors in trackpad mode (ScreenCaptureKit bakes the Mac pointer in
-   while Naru draws its own), pinch zoom dead over helper video, no way to
-   tell which transport is live, and the VNC framebuffer still streaming
-   (~420 KB/s measured) under the video. Founder direction: "기본은 vnc로
-   별도로 표시할 필요 없고 헬퍼모드일때 추가 표시를 두고 싶고 … qr버튼을
-   눌렀을때 이건 도우미 정도이고 일반 vnc정보 입력해서 호스트 등록이
-   가능하다고 잘 드러났으면 좋겠어". Six principles (VNC is the product; no
-   badge by default; fallback announced once with a catalog reason; QR is
-   an accelerator; behaviour parity; one card per computer). "Separate VNC
-   and helper cards" was raised and rejected — duplicated credentials and a
-   transport choice made before the helper's availability is known. Also
-   surfaced this session and folded in: the helper app never *requested*
-   Screen Recording, so macOS never listed it under Privacy & Security
-   (fixed in `HelperAppModel.openPermissionSettings`, 2026-09-07); opening
-   **Pair with iPhone…** rotates the token, so reaching the permission
-   buttons kills the current pairing (spec 041 FR-003 side effect — 042
-   plan should move the permission rows out of the minting window or make
-   minting explicit).
+00m. **`specs/042` VNC-first, helper-optional presentation — implemented
+   2026-09-07, founder device pass open.** From the first physical
+   helper-video session: two cursors in trackpad mode (ScreenCaptureKit baked
+   the Mac pointer in while Naru drew its own), pinch zoom dead over helper
+   video, no way to tell which transport was live, and the VNC framebuffer
+   still streaming (~420 KB/s measured) under the video. Founder direction:
+   "기본은 vnc로 별도로 표시할 필요 없고 헬퍼모드일때 추가 표시를 두고 싶고 …
+   qr버튼을 눌렀을때 이건 도우미 정도이고 일반 vnc정보 입력해서 호스트 등록이
+   가능하다고 잘 드러났으면 좋겠어". Landed: empty home / scanner / confirm
+   sheet re-ranked so manual add is the one primary action and the QR path
+   reads as optional ("Enter VNC details instead" on the scanner); a 22 pt
+   "Helper" marker only while video is primary plus a once-per-session
+   catalog fallback notice; the start request carries the phone's pointer
+   mode and the helper captures without the system cursor in trackpad mode
+   (tolerant wire field — old phones and helpers keep interoperating); pinch
+   restored over the whole hero viewport and a provisional coordinate space
+   closes the gestureless window before `ServerInit`; the frame pump parks
+   (no `FramebufferUpdateRequest`) after the first full frame while helper
+   video is healthy primary and resumes with a full request on fallback
+   (R3 measured against live Screen Sharing: after 120 s of silence a full
+   request is answered in ~2.3 s with a damage-only set); per-profile
+   "Screen source" pin (`automatic` / `Screen sharing only`) shown only when
+   a pairing exists. Also folded in: the helper app never *requested* Screen
+   Recording so macOS never listed it (fixed in
+   `HelperAppModel.openPermissionSettings`). **Open:** (a) founder device
+   pass — SC-2 one cursor + pinch anywhere on screen in a trackpad
+   helper-video session, SC-3 `nettop` shows `screensharingd` near-silent
+   while video is primary; (b) US-1 acceptance 2 — the profile editor still
+   carries a "Naru Helper" section with `NaruHelper --pair` copy (stale since
+   spec 041; the shell's bad-link alert says the same) — move it out of the
+   add form and reword; (c) opening **Pair with iPhone…** rotates the token,
+   so reaching the permission buttons kills the current pairing (spec 041
+   FR-003 side effect — move the permission rows out of the minting window
+   or make minting explicit).
 
 00l. **`specs/041` Naru Helper menu bar app — implemented 2026-09-06, physical
    pass open.** Founder decision after the first real QR pairing: "응 메뉴바

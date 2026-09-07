@@ -10,6 +10,8 @@ state changes; the lead reviews the diff, re-runs gates, commits.
 
 ## Round A — entry hierarchy and copy (P1, P4; FR-001..003)
 
+**Landed 2026-09-07 (b4632eea).**
+
 Writable: `NaruRemote/App/Features/Home/EmptyHomeView.swift`,
 `NaruRemote/App/Features/ConnectionHub/ConnectionGridView.swift`,
 `NaruRemote/App/Features/ConnectionHub/NaruPairingFlowView.swift`,
@@ -43,6 +45,8 @@ new callback is the lead's (plan decision 6).
   does not judge the PNGs; an opus vision round does.
 
 ## Round B — transport marker and fallback notice (P2, P3; FR-004, FR-005, FR-010)
+
+**Landed 2026-09-07 (273777c9).**
 
 Writable: `NaruRemote/App/AppShell/NaruRemoteAppModel.swift`,
 `NaruRemote/App/AppShell/NaruRemoteAppSnapshot.swift`,
@@ -80,6 +84,8 @@ new `NaruRemote/Tests/NaruRemoteAppTests/HelperVideoFallbackNoticeTests.swift`.
 
 ## Round C — pointer mode on the wire, cursor off in trackpad (P5; FR-007)
 
+**Landed 2026-09-07 (60bcfc0e).**
+
 Writable: `NaruRemote/Sources/NaruRemoteCore/HelperVideo/HelperVideoTransport.swift`,
 `NaruRemote/Tests/NaruRemoteCoreTests/HelperVideoTransportTests.swift` (or the
 existing transport codec test file),
@@ -104,6 +110,8 @@ existing transport codec test file),
 
 ## Round E-inv — pinch parity root cause (P5; FR-009; R2) — investigation only
 
+**Landed 2026-09-07 (with Round D).**
+
 Writable: new `NaruRemote/Tests/NaruRemoteAppTests/HelperVideoPreviewGestureTests.swift`
 and/or new `NaruRemote/UITests/HelperVideoPinchUITests.swift`;
 `specs/042-vnc-first-helper-optional/research.md` §R2. All product files
@@ -118,6 +126,8 @@ read-only.
   failing test that D must turn green; fill §R2.
 
 ## Round D — after B, C, E-inv (P5, P6; FR-006, FR-008, FR-009)
+
+**Landed 2026-09-07.** T-D5 was done by the lead before D (shell wiring of `onEnterManually`). FR-008 amended during authoring: the first full frame is still requested; the pump parks after it.
 
 Writable: `NaruRemote/App/AppShell/NaruRemoteAppModel.swift`,
 `NaruRemote/App/Features/SessionViewer/SessionViewportView.swift`,

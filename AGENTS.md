@@ -103,7 +103,7 @@ implemented (viewport request regions on every profile once zoomed;
 under load — savings there are workload-dependent; correctness unaffected;
 physical poor-network pass residual) · 018 Adaptive Server Downscale: implemented · 019–039: see
 `NEXT_STEPS.md` · 040 QR Pairing Sync: implemented · 041 Helper Menu Bar
-App: implemented · 042 VNC-First, Helper-Optional: in progress.
+App: implemented · 042 VNC-First, Helper-Optional: implemented (founder device pass open).
 <!-- SPECKIT END -->
 
 ## Architecture
