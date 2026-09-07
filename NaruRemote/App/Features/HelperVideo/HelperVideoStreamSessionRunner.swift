@@ -11,10 +11,20 @@ public protocol HelperVideoAccessUnitRendering: AnyObject {
     func flush() async
 
     func prepare(codec: HelperVideoCodec) async
+
+    /// Spec 042 FR-009: the decoded video geometry the renderer has actually
+    /// seen, used to publish a *provisional* input coordinate space while the
+    /// RFB handshake is still pending so the helper-video preview owns a
+    /// gesture surface before `ServerInit` lands. Renderers that cannot
+    /// report geometry keep the default (`nil`) and the model simply waits
+    /// for `ServerInit` as before.
+    func cachedFormatDimensions() async -> RemoteFramebufferCoordinateSpace?
 }
 
 extension HelperVideoAccessUnitRendering {
     public func prepare(codec: HelperVideoCodec) async {}
+
+    public func cachedFormatDimensions() async -> RemoteFramebufferCoordinateSpace? { nil }
 }
 
 @MainActor
@@ -60,6 +70,11 @@ private final class HelperVideoMainActorRendererBox: @unchecked Sendable {
     @MainActor
     func prepare(codec: HelperVideoCodec) async {
         await renderer.prepare(codec: codec)
+    }
+
+    @MainActor
+    func cachedFormatDimensions() async -> RemoteFramebufferCoordinateSpace? {
+        await renderer.cachedFormatDimensions()
     }
 }
 
@@ -292,10 +307,16 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                             droppedAccessUnitCount += 1
                             if didPublishHealthy && !didPublishBackpressureHealth {
                                 didPublishBackpressureHealth = true
+                                // Spec 042 FR-009: read the decoded geometry
+                                // before publishing so a still-pending RFB
+                                // handshake gets its provisional gesture
+                                // surface in the same hop.
+                                let provisionalSpace = await renderer.cachedFormatDimensions()
                                 await model.updateHelperVideoStreamHealth(
                                     healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
                                     sessionID: sessionID,
-                                    profileID: profileID
+                                    profileID: profileID,
+                                    provisionalInputCoordinateSpace: provisionalSpace
                                 )
                             }
                             if recoveryPolicy.isBudgetExhausted {
@@ -315,10 +336,19 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
                             displayableFrameCount += 1
                             if !didPublishHealthy {
                                 didPublishHealthy = true
+                                // Spec 042 FR-009: read the decoded geometry
+                                // before publishing health so the model can
+                                // install the provisional input coordinate
+                                // space atomically with the healthy state —
+                                // while the RFB handshake is still pending,
+                                // the viewport would otherwise have no
+                                // gesture surface over a playing video.
+                                let provisionalSpace = await renderer.cachedFormatDimensions()
                                 await model.updateHelperVideoStreamHealth(
                                     healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
                                     sessionID: sessionID,
-                                    profileID: profileID
+                                    profileID: profileID,
+                                    provisionalInputCoordinateSpace: provisionalSpace
                                 )
                                 await markProfileAvailable(
                                     sessionID: sessionID,
@@ -592,10 +622,16 @@ public final class HelperVideoStreamSessionRunner: @unchecked Sendable {
             )
         }
 
+        // Spec 042 FR-009: read the decoded geometry before publishing
+        // health so the model installs the provisional input coordinate
+        // space atomically with the healthy state (see the event-stream
+        // path above for the full rationale).
+        let provisionalSpace = await renderer.cachedFormatDimensions()
         await model.updateHelperVideoStreamHealth(
             healthyHealth(droppedAccessUnitCount: droppedAccessUnitCount),
             sessionID: sessionID,
-            profileID: profileID
+            profileID: profileID,
+            provisionalInputCoordinateSpace: provisionalSpace
         )
         await markProfileAvailable(
             sessionID: sessionID,

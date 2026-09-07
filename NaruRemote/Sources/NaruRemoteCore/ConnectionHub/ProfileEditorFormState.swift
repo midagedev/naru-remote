@@ -23,6 +23,10 @@ public struct ProfileEditorFormState: Equatable, Sendable {
     public var helperHost: String
     public var helperPort: String
     public var helperVideoEnabled: Bool
+    /// Spec 042 FR-006: which visual transport this profile's *next*
+    /// connect uses. Default `automatic`; `vncOnly` never starts helper
+    /// video for the profile.
+    public var helperVideoTransportPreference: HelperVideoTransportPreference
 
     public init(
         displayName: String = "",
@@ -31,7 +35,8 @@ public struct ProfileEditorFormState: Equatable, Sendable {
         helperTextBridgeEnabled: Bool = false,
         helperHost: String = "",
         helperPort: String = String(naruHelperTextBridgeDefaultPort),
-        helperVideoEnabled: Bool = false
+        helperVideoEnabled: Bool = false,
+        helperVideoTransportPreference: HelperVideoTransportPreference = .automatic
     ) {
         self.displayName = displayName
         self.host = host
@@ -40,6 +45,7 @@ public struct ProfileEditorFormState: Equatable, Sendable {
         self.helperHost = helperHost
         self.helperPort = helperPort
         self.helperVideoEnabled = helperVideoEnabled
+        self.helperVideoTransportPreference = helperVideoTransportPreference
     }
 
     // MARK: - Field-level validation

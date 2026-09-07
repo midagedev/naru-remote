@@ -515,6 +515,13 @@ public final class NaruRemoteAppModel: ObservableObject {
     private var transientFrameDeliveryInteractionTask: Task<Void, Never>?
     private var transientFrameDeliveryInteractionExpiresAt: ContinuousClock.Instant?
     private var streamPacingWakeGeneration: UInt64 = 0
+    /// Spec 042 FR-008 (amended 2026-09-07): frame-pump loops parked while
+    /// helper video is the healthy primary visual transport. The loop
+    /// suspends on these continuations — it does not poll — and only
+    /// `wakeSuspendedFramebufferRequestLoops()` (visual-transport fallback,
+    /// transport reset, helper-health transition, stream cancellation)
+    /// resumes them.
+    private var helperVideoPrimaryFramebufferRequestSuspensions: [CheckedContinuation<Void, Never>] = []
     private var pendingFocusedInputConnectionQuality: ConnectionQuality?
     private var pendingFocusedInputHelperVideoHealth: HelperVideoStreamHealth?
     /// Session ID that already showed the helper-video fallback notice.
@@ -1434,13 +1441,24 @@ public final class NaruRemoteAppModel: ObservableObject {
     public func updateHelperVideoStreamHealth(
         _ health: HelperVideoStreamHealth,
         sessionID: RemoteSession.ID? = nil,
-        profileID: ConnectionProfile.ID? = nil
+        profileID: ConnectionProfile.ID? = nil,
+        provisionalInputCoordinateSpace: RemoteFramebufferCoordinateSpace? = nil
     ) {
         guard isCurrentHelperVideoCallback(sessionID: sessionID, profileID: profileID) else {
             return
         }
         guard health.shouldUseVNCVisualFallback else {
             publishHelperVideoStreamHealth(health)
+            // Spec 042 FR-009: a healthy helper-video stream must expose a
+            // gesture surface even while the RFB handshake is still pending.
+            // The runner (which owns the renderer) reads the decoded video
+            // geometry before publishing health and passes it here, so the
+            // provisional space and the healthy state land in the same
+            // MainActor hop — no window where health is visible but the
+            // viewport still has no input surface.
+            if let provisionalInputCoordinateSpace {
+                adoptProvisionalInputCoordinateSpace(provisionalInputCoordinateSpace)
+            }
             return
         }
         fallbackToVNCVisualTransport(
@@ -1477,6 +1495,9 @@ public final class NaruRemoteAppModel: ObservableObject {
             )
         }
 
+        // Spec 042 FR-008: the transport just turned VNC — resume any frame
+        // pump parked for helper video so the fallback frame arrives.
+        wakeSuspendedFramebufferRequestLoops()
         guard let profileID else {
             return
         }
@@ -1494,6 +1515,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         helperVideoVisualSelectionFailureReason = nil
         helperVideoFallbackNotice = nil
         helperVideoFallbackNoticeShownForSessionID = nil
+        // Spec 042 FR-008: transport state is gone — a frame pump parked for
+        // helper video must not stay parked past this point.
+        wakeSuspendedFramebufferRequestLoops()
     }
 
     /// Clears the visible helper-video fallback notice. The per-session
@@ -1507,8 +1531,10 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// the notice and the latch are set only when ALL hold: an active
     /// session that still accepts media callbacks, the refusal belongs to
     /// that session's profile and the currently selected profile, the
-    /// profile's helper video is enabled and not revoked, and this session
-    /// has not shown a notice yet.
+    /// profile's helper video is enabled and not revoked, the profile is
+    /// not pinned to screen sharing only (spec 042 FR-006 — a `.vncOnly`
+    /// user asked for VNC, so being on it is not a fallback), and this
+    /// session has not shown a notice yet.
     private func armHelperVideoFallbackNotice(
         failureCode: HelperVideoFailureCode,
         profileID: ConnectionProfile.ID?
@@ -1521,6 +1547,7 @@ public final class NaruRemoteAppModel: ObservableObject {
                   .helperVideo,
               configuration.isEnabled,
               !configuration.isRevoked,
+              configuration.transportPreference != .vncOnly,
               helperVideoFallbackNoticeShownForSessionID != activeSession.id
         else {
             return
@@ -1590,7 +1617,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             isRevoked: isRevoked,
             pairingSecretRef: existingConfiguration?.pairingSecretRef,
             pairingFingerprint: existingConfiguration?.pairingFingerprint
-                ?? helperVideoProfileState[profileID]?.pairingFingerprint
+                ?? helperVideoProfileState[profileID]?.pairingFingerprint,
+            // Spec 042 FR-006: revoking/disabling forgets the secret, not
+            // the user's screen-source choice.
+            transportPreference: existingConfiguration?.transportPreference ?? .automatic
         )
         profiles[index] = profileToSave
 
@@ -2210,6 +2240,13 @@ public final class NaruRemoteAppModel: ObservableObject {
         else {
             return
         }
+        // Spec 042 FR-006: "Screen sharing only" pins this profile's visual
+        // transport to VNC — applies next connect. It is a user choice, not
+        // a failure, so return before any bootstrap-state mutation could
+        // record one (no failure code, no availability change, no notice).
+        guard configuration.transportPreference != .vncOnly else {
+            return
+        }
         guard profile.hostKind != .advancedManualPublicEndpoint else {
             markHelperVideoBootstrapFailure(
                 .privateNetworkRequired,
@@ -2420,7 +2457,10 @@ public final class NaruRemoteAppModel: ObservableObject {
             isSystemLowPowerModeEnabled: lowPowerModeProvider(),
             thermalState: thermalStateProvider(),
             isNetworkConstrained: networkPathConditionsProvider().isConstrained,
-            deviceSupportsHEVCDecode: hevcDecodeSupportProvider()
+            deviceSupportsHEVCDecode: hevcDecodeSupportProvider(),
+            // Spec 042 FR-007: the helper needs the phone's pointer mode at
+            // start (`.trackpad` ⇒ don't bake the system cursor into frames).
+            pointerControlMode: pointerControlMode
         ).requestBody
     }
 
@@ -4162,6 +4202,30 @@ public final class NaruRemoteAppModel: ObservableObject {
                         pump.cancel()
                         return
                     }
+                    // Spec 042 FR-008 (amended 2026-09-07): while helper
+                    // video is the healthy primary visual transport, stop
+                    // issuing FramebufferUpdateRequests once the session's
+                    // first full frame has been delivered; the RFB
+                    // connection stays open for pointer, key, and clipboard.
+                    // The loop parks — it does not sample — and on resume
+                    // the pump is reset so the next request is full
+                    // (non-incremental) even though frames were already
+                    // delivered.
+                    let didSuspendFramebufferRequestsForHelperVideoPrimary =
+                        await self.suspendFramebufferRequestLoopForHelperVideoPrimaryIfNeeded(
+                            pumpDeliveredFrameCount: pump.deliveredFrameCount
+                        )
+                    if Task.isCancelled {
+                        pump.cancel()
+                        return
+                    }
+                    guard await self.isCurrentStream(streamID, sessionID: pendingSession.id, profileID: profile.id) else {
+                        pump.cancel()
+                        return
+                    }
+                    if didSuspendFramebufferRequestsForHelperVideoPrimary {
+                        pump.reset()
+                    }
                     let requestTimeout = configuration.requestTimeout
                     // Sample the request→frame round-trip so the
                     // connection-quality chip reflects real latency
@@ -4429,6 +4493,77 @@ public final class NaruRemoteAppModel: ObservableObject {
             && helperVideoStreamHealth.state == .healthy
     }
 
+    /// Spec 042 FR-008 (amended 2026-09-07): parks the calling frame-pump
+    /// loop while helper video is the healthy primary visual transport and
+    /// the session's first full frame has already been delivered. The first
+    /// frame is exempt so the session always holds a fallback picture and
+    /// the input coordinate space (helper video is selected before the RFB
+    /// handshake, so without the exemption a helper-video session would
+    /// never hold a framebuffer).
+    ///
+    /// Returns `true` only when the loop actually parked and has since been
+    /// resumed by `wakeSuspendedFramebufferRequestLoops()` — the caller then
+    /// resets the pump so the next request is a full (non-incremental) one.
+    /// A wake that arrives while the transport is still helper-video-primary
+    /// re-parks at enrollment and never returns to the caller, so health
+    /// republishes cannot churn the pump.
+    private func suspendFramebufferRequestLoopForHelperVideoPrimaryIfNeeded(
+        pumpDeliveredFrameCount: Int
+    ) async -> Bool {
+        guard pumpDeliveredFrameCount >= 1,
+              isHelperVideoHealthyPrimaryVisualTransport
+        else {
+            return false
+        }
+        if !sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary {
+            sessionStreamStats.helperVideoPrimaryFramebufferRequestSuspensionCount += 1
+        }
+        sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary = true
+        // Re-park until the predicate is really false. `wakeSuspendedFramebufferRequestLoops`
+        // is deliberately over-fired (every health publish, including a
+        // still-healthy republish, wakes us); returning on such a wake would
+        // cost one FULL framebuffer request per republish — the exact
+        // bandwidth FR-008 removes. Lead addition 2026-09-07 after Round D.
+        repeat {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    // Re-check at enrollment: the wake may have fired between
+                    // the caller's guard and this MainActor hop, and a task
+                    // cancelled before registration would otherwise park a
+                    // continuation nothing ever resumes.
+                    guard !Task.isCancelled,
+                          isHelperVideoHealthyPrimaryVisualTransport
+                    else {
+                        continuation.resume()
+                        return
+                    }
+                    helperVideoPrimaryFramebufferRequestSuspensions.append(continuation)
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.wakeSuspendedFramebufferRequestLoops()
+                }
+            }
+        } while !Task.isCancelled && isHelperVideoHealthyPrimaryVisualTransport
+        sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary = false
+        return true
+    }
+
+    /// Resumes every parked frame-pump loop. Called from
+    /// `fallbackToVNCVisualTransport`, `resetVisualTransportState`, and
+    /// `publishHelperVideoStreamHealth` — the three sites where the
+    /// helper-video-primary predicate can turn false — plus task
+    /// cancellation. Waking is safe to over-fire: a loop that is still
+    /// suspended by design re-parks before requesting anything.
+    private func wakeSuspendedFramebufferRequestLoops() {
+        guard !helperVideoPrimaryFramebufferRequestSuspensions.isEmpty else {
+            return
+        }
+        let parked = helperVideoPrimaryFramebufferRequestSuspensions
+        helperVideoPrimaryFramebufferRequestSuspensions = []
+        parked.forEach { $0.resume() }
+    }
+
     private func publishSessionFrame(
         framebuffer: RFBRawFramebuffer,
         dirtyRectangles: [RFBFrameDamageRect]?,
@@ -4458,6 +4593,7 @@ public final class NaruRemoteAppModel: ObservableObject {
     private func clearSessionFrame() {
         latestFramebuffer = nil
         inputCoordinateSpace = nil
+        isInputCoordinateSpaceProvisional = false
         latestFrameDirtyRectangles = nil
         latestFrameChangedPixelCount = nil
         latestServerCursor = nil
@@ -4469,8 +4605,80 @@ public final class NaruRemoteAppModel: ObservableObject {
     }
 
     private func setInputCoordinateSpace(width: Int, height: Int) {
+        let previousSpace = inputCoordinateSpace
+        let shouldRescaleTrackpadCursor = isInputCoordinateSpaceProvisional
         inputCoordinateSpace = RemoteFramebufferCoordinateSpace(width: width, height: height)
+        isInputCoordinateSpaceProvisional = false
+        if shouldRescaleTrackpadCursor,
+           let previousSpace,
+           let newSpace = inputCoordinateSpace,
+           resolvedTrackpadCursor.isVisible {
+            // Spec 042 FR-009: the real geometry replaced the provisional
+            // one (helper decoder dimensions → `ServerInit`). Keep the
+            // cursor on the same relative spot on screen instead of letting
+            // it jump; one publish, then the space is authoritative.
+            publishTrackpadCursor(
+                TrackpadCursor(
+                    position: Self.rescaledTrackpadCursorPosition(
+                        resolvedTrackpadCursor.position,
+                        from: previousSpace,
+                        to: newSpace
+                    ),
+                    isVisible: true
+                ),
+                immediately: true
+            )
+        }
         centerTrackpadCursorIfUnplaced()
+    }
+
+    /// True while `inputCoordinateSpace` came from the helper video
+    /// decoder's cached format dimensions rather than the RFB
+    /// `ServerInit` (spec 042 FR-009). The first `ServerInit` replaces
+    /// the provisional space and rescales the trackpad cursor into it,
+    /// once; later coordinate-space changes (DesktopSize resize) must not
+    /// rescale a cursor the user has already positioned.
+    private var isInputCoordinateSpaceProvisional = false
+
+    /// Spec 042 FR-009: helper video is selected before the RFB connect
+    /// even starts, so a healthy stream can show moving video while
+    /// `ServerInit` is still pending — and with `latestFramebuffer` and
+    /// `inputCoordinateSpace` both nil, the viewport renders
+    /// `helperVideoLayerPreviewWithoutFramebuffer` with no input overlay
+    /// at all: pinch, pan, and taps are dead over a playing video. The
+    /// decoded video geometry is a faithful stand-in for the remote
+    /// coordinate space (same screen, same aspect), so adopt it
+    /// provisionally. Gestures in this window stay local no-ops on the
+    /// wire exactly as before; only the gesture surface exists early.
+    private func adoptProvisionalInputCoordinateSpace(_ space: RemoteFramebufferCoordinateSpace) {
+        guard visualTransportMode == .helperVideo,
+              inputCoordinateSpace == nil,
+              latestFramebuffer == nil
+        else {
+            return
+        }
+        isInputCoordinateSpaceProvisional = true
+        inputCoordinateSpace = space
+        centerTrackpadCursorIfUnplaced()
+    }
+
+    /// Scales a trackpad cursor position from one remote coordinate space
+    /// to another proportionally, rounded and clamped to the new bounds
+    /// (spec 042 FR-009). Pure static so the provisional→`ServerInit`
+    /// handoff is unit-pinnable without a live session.
+    static func rescaledTrackpadCursorPosition(
+        _ position: CGPoint,
+        from previousSpace: RemoteFramebufferCoordinateSpace,
+        to newSpace: RemoteFramebufferCoordinateSpace
+    ) -> CGPoint {
+        let xScale = CGFloat(newSpace.width) / CGFloat(previousSpace.width)
+        let yScale = CGFloat(newSpace.height) / CGFloat(previousSpace.height)
+        let maxX = CGFloat(max(newSpace.width - 1, 0))
+        let maxY = CGFloat(max(newSpace.height - 1, 0))
+        return CGPoint(
+            x: min(max((position.x * xScale).rounded(), 0), maxX),
+            y: min(max((position.y * yScale).rounded(), 0), maxY)
+        )
     }
 
     /// Place the trackpad cursor the moment the remote coordinate space
@@ -4534,6 +4742,7 @@ public final class NaruRemoteAppModel: ObservableObject {
             : nil
         let usesViewportInteractionPacing = frameDeliveryPriority == .viewportNavigation
             && isViewportInteractionActive
+        // Spec 042 FR-008 (2026-09-07): the pump suspends instead of sampling while helper video is primary; this interval no longer paces anything.
         let helperVideoPrimaryVNCSamplingInterval = isHelperVideoHealthyPrimaryVisualTransport
             ? StreamPressurePacingDefaults.helperVideoPrimaryVNCFallbackSamplingIntervalSeconds
             : nil
@@ -4922,6 +5131,10 @@ public final class NaruRemoteAppModel: ObservableObject {
         guard isFocusedInputChromeCoalescingActive else {
             pendingFocusedInputHelperVideoHealth = nil
             helperVideoStreamHealth = health
+            // Spec 042 FR-008: a health transition (including a stream
+            // stopping for deliberate reconfiguration) must wake any pump
+            // parked for helper video; a still-healthy republish re-parks.
+            wakeSuspendedFramebufferRequestLoops()
             return
         }
 
@@ -4943,6 +5156,9 @@ public final class NaruRemoteAppModel: ObservableObject {
         if let health = pendingFocusedInputHelperVideoHealth {
             pendingFocusedInputHelperVideoHealth = nil
             helperVideoStreamHealth = health
+            // Spec 042 FR-008: the coalesced health write is the same
+            // transition the direct publish path wakes on.
+            wakeSuspendedFramebufferRequestLoops()
         }
 
         if let review = pendingFocusedInputIncomingClipboard {
@@ -6360,6 +6576,19 @@ public final class NaruRemoteAppModel: ObservableObject {
     /// RFB PointerEvent is emitted here.  Entering trackpad mode centers
     /// the cursor on the live framebuffer (or a default when no frame
     /// has arrived); leaving it hides the cursor.
+    ///
+    /// Spec 042 FR-007 (Round D): while a helper-video stream is running
+    /// for the active session, the toggle also RESTARTS that stream so
+    /// the new start request carries the new pointer mode. There is no
+    /// wire message for a live pointer-mode switch — the helper's
+    /// `updateConfiguration` path is unverified (research §R1) — so a
+    /// restart through the known-good start path is the delivery
+    /// mechanism. A user mode switch is not a failure: the restart arms
+    /// no fallback notice, bumps no fallback bucket, and records no
+    /// failure code. If the stream was primary, the transport marker
+    /// disappears and returns with the new stream; the VNC frame pump
+    /// resumes while it is gone (spec 042 FR-008) and suspends again
+    /// once the restarted stream is healthy.
     public func togglePointerControlMode() {
         switch pointerControlMode {
         case .directTouch:
@@ -6371,6 +6600,35 @@ public final class NaruRemoteAppModel: ObservableObject {
             hiddenCursor.isVisible = false
             publishTrackpadCursor(hiddenCursor, immediately: true)
         }
+        restartHelperVideoStreamForPointerModeChange()
+    }
+
+    /// Spec 042 FR-007: re-start the active helper-video stream so the
+    /// start request carries the pointer mode the toggle just selected
+    /// (`helperVideoStartRequestBody()` reads the live mode). No-op when
+    /// no helper-video stream is running or helper video is not the live
+    /// transport — a later connect picks the mode up on its own, and a
+    /// mode switch must never resurrect a transport that fell back to
+    /// VNC.
+    private func restartHelperVideoStreamForPointerModeChange() {
+        guard visualTransportMode == .helperVideo,
+              activeHelperVideoStreamTask != nil,
+              let activeSession = session,
+              activeSession.state.acceptsSessionScopedMediaCallbacks,
+              let profile = profiles.first(where: { $0.id == activeSession.profileID })
+        else {
+            return
+        }
+        // The stop half of a session end: cancels the stream task and
+        // resets the visual transport, which also wakes any frame pump
+        // parked for helper video (spec 042 FR-008). The old task's
+        // deferred `clearHelperVideoStreamBootstrap(id:)` is a no-op
+        // against the new bootstrap ID — the same race session switches
+        // already rely on.
+        stopHelperVideoStreamBootstrap()
+        resetVisualTransportState()
+        // The same start path a connect uses.
+        startHelperVideoStreamIfConfigured(profile: profile, sessionID: activeSession.id)
     }
 
     /// Resolve a trackpad-mode gesture sampled from the viewport view
@@ -9302,6 +9560,12 @@ public final class NaruRemoteAppModel: ObservableObject {
 
     private var shouldSendOutOfBandPointerInputFramebufferUpdateNudge: Bool {
         frameStreamConfiguration.requestPipelineDepth <= 1
+            // Spec 042 FR-008 (amended 2026-09-07): while helper video is
+            // the healthy primary visual transport the RFB connection
+            // carries no framebuffer requests at all — the visible picture
+            // is the video stream, so a pointer-driven refresh nudge has
+            // nothing to refresh.
+            && !isHelperVideoHealthyPrimaryVisualTransport
     }
 
     private func schedulePointerInputFramebufferUpdateNudge(after delay: TimeInterval) {

@@ -30,22 +30,38 @@ public struct HelperTextBridgeConnectionConfiguration: Codable, Equatable, Senda
     }
 }
 
+/// Spec 042 FR-006: which visual transport a profile's session should
+/// use. `automatic` is the pre-042 behaviour (helper video when the
+/// helper is reachable, VNC otherwise); `vncOnly` pins the profile to
+/// VNC so helper video never starts for it. Applies at the *next*
+/// connect — a running session is not torn down mid-stream.
+public enum HelperVideoTransportPreference: String, Codable, Equatable, CaseIterable, Sendable {
+    case automatic
+    case vncOnly
+}
+
 public struct HelperVideoConnectionConfiguration: Codable, Equatable, Sendable {
     public var isEnabled: Bool
     public var isRevoked: Bool
     public var pairingSecretRef: String?
     public var pairingFingerprint: String?
+    /// Spec 042 FR-006: `.vncOnly` keeps this profile on screen sharing.
+    /// Stored independently of `isRevoked` — revoking pairing forgets the
+    /// secret, not the user's transport choice, so re-pairing restores it.
+    public var transportPreference: HelperVideoTransportPreference
 
     public init(
         isEnabled: Bool = false,
         isRevoked: Bool = false,
         pairingSecretRef: String? = nil,
-        pairingFingerprint: String? = nil
+        pairingFingerprint: String? = nil,
+        transportPreference: HelperVideoTransportPreference = .automatic
     ) {
         self.isEnabled = isRevoked ? false : isEnabled
         self.isRevoked = isRevoked
         self.pairingSecretRef = isRevoked ? nil : pairingSecretRef?.nilIfBlank
         self.pairingFingerprint = isRevoked ? nil : pairingFingerprint?.nilIfBlank
+        self.transportPreference = transportPreference
     }
 }
 
@@ -55,15 +71,25 @@ public extension HelperVideoConnectionConfiguration {
         case isRevoked
         case pairingSecretRef
         case pairingFingerprint
+        case transportPreference
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Raw string, not the enum: an unknown raw value (a future client
+        // wrote a new case) must fall back to `.automatic` rather than
+        // fail the whole profile decode. Absent key (a pre-042 store)
+        // lands on the same default.
+        let preferenceRaw = try container.decodeIfPresent(
+            String.self,
+            forKey: .transportPreference
+        )
         self.init(
             isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false,
             isRevoked: try container.decodeIfPresent(Bool.self, forKey: .isRevoked) ?? false,
             pairingSecretRef: try container.decodeIfPresent(String.self, forKey: .pairingSecretRef),
-            pairingFingerprint: try container.decodeIfPresent(String.self, forKey: .pairingFingerprint)
+            pairingFingerprint: try container.decodeIfPresent(String.self, forKey: .pairingFingerprint),
+            transportPreference: HelperVideoTransportPreference(rawValue: preferenceRaw ?? "") ?? .automatic
         )
     }
 }

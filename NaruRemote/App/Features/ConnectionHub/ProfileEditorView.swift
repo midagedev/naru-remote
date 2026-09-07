@@ -158,7 +158,8 @@ public struct ProfileEditorView: View {
             helperTextBridgeEnabled: helperConfig?.isEnabled ?? false,
             helperHost: helperConfig?.host ?? "",
             helperPort: String(helperConfig?.port ?? naruHelperTextBridgeDefaultPort),
-            helperVideoEnabled: profile.helperVideo?.isEnabled ?? false
+            helperVideoEnabled: profile.helperVideo?.isEnabled ?? false,
+            helperVideoTransportPreference: profile.helperVideo?.transportPreference ?? .automatic
         ))
         _password = State(initialValue: "")
         _helperPairingSecret = State(initialValue: "")
@@ -263,6 +264,20 @@ public struct ProfileEditorView: View {
                         Text("Pair with the QR your Mac prints for `NaruHelper --pair` — scan it from the Connections screen. Fast video, confirmed Korean text, and Live type-through come with pairing; basic viewing works without it.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        // Spec 042 FR-006: the one setting a paired profile
+                        // gets. The preference applies at the NEXT connect —
+                        // changing it here never tears down a running session.
+                        if hasExistingHelperVideoPairingSecret || formState.helperVideoEnabled {
+                            Picker("Screen source", selection: $formState.helperVideoTransportPreference) {
+                                Text("Automatic").tag(HelperVideoTransportPreference.automatic)
+                                Text("Screen sharing only").tag(HelperVideoTransportPreference.vncOnly)
+                            }
+                            .accessibilityIdentifier("naru.profile.editor.helperVideoTransportPreference")
+                            Text(helperVideoTransportPreferenceFooter)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -526,6 +541,14 @@ public struct ProfileEditorView: View {
         return "Paired · text \(text ? "on" : "off") · video \(video ? "on" : "off")"
     }
 
+    /// Per-selection caption under the screen-source picker (spec 042
+    /// FR-006). Fixed catalog copy — no invented variants.
+    private var helperVideoTransportPreferenceFooter: String {
+        formState.helperVideoTransportPreference == .automatic
+            ? "Helper video when the Mac's helper is reachable; screen sharing otherwise."
+            : "Never start helper video for this computer."
+    }
+
     private func resolveHelperTextBridge(
         profileID: ConnectionProfile.ID,
         existingConfiguration: HelperTextBridgeConnectionConfiguration?
@@ -594,7 +617,8 @@ public struct ProfileEditorView: View {
                     isEnabled: false,
                     isRevoked: false,
                     pairingSecretRef: existingConfiguration.pairingSecretRef,
-                    pairingFingerprint: existingConfiguration.pairingFingerprint
+                    pairingFingerprint: existingConfiguration.pairingFingerprint,
+                    transportPreference: formState.helperVideoTransportPreference
                 ),
                 pairingSecretUpdate: nil
             )
@@ -627,7 +651,8 @@ public struct ProfileEditorView: View {
                 isEnabled: true,
                 isRevoked: false,
                 pairingSecretRef: secretRef,
-                pairingFingerprint: fingerprint
+                pairingFingerprint: fingerprint,
+                transportPreference: formState.helperVideoTransportPreference
             ),
             pairingSecretUpdate: secretUpdate
         )

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `042-vnc-first-helper-optional`
 **Created**: 2026-09-07
-**Status**: Active — founder approved the principles 2026-09-07 ("진행해줘"); plan, research, tasks, quickstart in this directory; implementation in flight
+**Status**: Implemented 2026-09-07 — founder approved the principles ("진행해줘"); Rounds A–E landed (copy and hierarchy, marker + once-per-session notice, pointer mode on the wire with the cursor off in trackpad mode, pinch fix, VNC framebuffer requests parked while helper video is primary, per-profile transport pin). Gates: `swift test` App 718 / Core 674 / FakeRFBServerKit 69 / Kit 170 green, iPhone simulator build green. **Open — founder device pass** (SC-2 one cursor + pinch over the whole viewport, SC-3 `nettop` shows `screensharingd` quiet while video is primary) and US-1 acceptance 2 (the profile editor still shows a "Naru Helper" section with `NaruHelper --pair` copy — not yet moved out of the add form).
 **Product**: Naru Remote
 **Input**: Founder, 2026-09-07, after the first end-to-end helper-video
 session on a physical iPhone against the spec 041 menu bar app. Three
@@ -211,8 +211,15 @@ A user who does not want helper video on a given Mac sets the profile's
   configuration without restarting the stream where the API allows,
   otherwise restarts it.
 - **FR-008** While `.helperVideo` is active the RFB client stops issuing
-  `FramebufferUpdateRequest`s (incremental or full) and resumes them on
+  `FramebufferUpdateRequest`s after the session's first full frame has
+  been delivered (that one frame is the fallback picture and the source of
+  the input coordinate space; helper video is selected before the RFB
+  handshake, so without it a helper-video session would never hold a
+  framebuffer) and resumes with a full (non-incremental) request on
   fallback. The RFB connection stays open for pointer, key, and clipboard.
+  Amended 2026-09-07 during Round D authoring: the original "incremental
+  or full" wording contradicted the steady-state pin in
+  `HelperVideoPreviewGestureTests`.
 - **FR-009** Pinch, pan, double-tap zoom, and trackpad gestures over the
   helper-video preview go through the same `ViewportTransform` path as
   the Metal framebuffer view; the display-layer transform is derived

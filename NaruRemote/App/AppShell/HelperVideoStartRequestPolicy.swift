@@ -9,19 +9,27 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
     /// (`isExpensive`) is intentionally not an input — constitution §VI.
     var isNetworkConstrained: Bool
     var deviceSupportsHEVCDecode: Bool
+    /// Spec 042 FR-007 (phone side): the pointer mode the phone is in when
+    /// the stream starts. The helper needs it up front — `.trackpad` means
+    /// the phone draws its own cursor glyph and the helper must not bake
+    /// the system cursor into captured frames. Default `.trackpad` (the
+    /// app's default pointer mode).
+    var pointerControlMode: PointerControlMode
 
     init(
         streamPowerMode: StreamPowerMode,
         isSystemLowPowerModeEnabled: Bool,
         thermalState: SessionStreamThermalState,
         isNetworkConstrained: Bool,
-        deviceSupportsHEVCDecode: Bool
+        deviceSupportsHEVCDecode: Bool,
+        pointerControlMode: PointerControlMode = .trackpad
     ) {
         self.streamPowerMode = streamPowerMode
         self.isSystemLowPowerModeEnabled = isSystemLowPowerModeEnabled
         self.thermalState = thermalState
         self.isNetworkConstrained = isNetworkConstrained
         self.deviceSupportsHEVCDecode = deviceSupportsHEVCDecode
+        self.pointerControlMode = pointerControlMode
     }
 
     var requestBody: HelperVideoStartStreamRequestBody {
@@ -30,8 +38,19 @@ struct HelperVideoStartRequestPolicy: Equatable, Sendable {
             latencyMode: .lowLatency,
             qualityBucket: .readability,
             maxFrameRateBucket: frameRateBucket,
-            acceptsHEVC: deviceSupportsHEVCDecode ? true : nil
+            acceptsHEVC: deviceSupportsHEVCDecode ? true : nil,
+            // Never nil: the helper's cursor rendering depends on knowing
+            // the phone's mode, and nil would silently mean the legacy
+            // "always bake the cursor" behaviour (spec 042 FR-007).
+            pointerMode: pointerMode
         )
+    }
+
+    private var pointerMode: HelperVideoPointerMode {
+        switch pointerControlMode {
+        case .trackpad: return .trackpad
+        case .directTouch: return .directTouch
+        }
     }
 
     private var frameRateBucket: HelperVideoFrameRateBucket {

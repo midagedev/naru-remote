@@ -73,6 +73,14 @@ public struct SessionStreamStats: Equatable, Sendable {
     public var activeInputPacingSampleCount: Int
     public var viewportInteractionPacingSampleCount: Int
     public var helperVideoPrimaryVNCSamplingPacingSampleCount: Int
+    /// Spec 042 FR-008 (amended 2026-09-07): the frame pump parks instead of
+    /// sampling while helper video is the healthy primary visual transport.
+    /// These two fields let a HUD or diagnostic export tell that state apart
+    /// from a stall: how many suspension episodes the session entered, and
+    /// whether one is open right now. Aggregate only — no content, no
+    /// coordinates (constitution §IV).
+    public var helperVideoPrimaryFramebufferRequestSuspensionCount: Int
+    public var isFramebufferRequestSuspendedByHelperVideoPrimary: Bool
     public var viewportInteractionRequestPauseCount: Int
     public var viewportInteractionRequestPausePollCount: Int
     public var viewportInteractionRequestPauseMillisecondsTotal: Int
@@ -159,6 +167,8 @@ public struct SessionStreamStats: Equatable, Sendable {
         activeInputPacingSampleCount: Int = 0,
         viewportInteractionPacingSampleCount: Int = 0,
         helperVideoPrimaryVNCSamplingPacingSampleCount: Int = 0,
+        helperVideoPrimaryFramebufferRequestSuspensionCount: Int = 0,
+        isFramebufferRequestSuspendedByHelperVideoPrimary: Bool = false,
         viewportInteractionRequestPauseCount: Int = 0,
         viewportInteractionRequestPausePollCount: Int = 0,
         viewportInteractionRequestPauseMillisecondsTotal: Int = 0,
@@ -248,6 +258,12 @@ public struct SessionStreamStats: Equatable, Sendable {
             max(helperVideoPrimaryVNCSamplingPacingSampleCount, 0),
             self.streamPacingDelaySampleCount
         )
+        self.helperVideoPrimaryFramebufferRequestSuspensionCount = max(
+            helperVideoPrimaryFramebufferRequestSuspensionCount,
+            0
+        )
+        self.isFramebufferRequestSuspendedByHelperVideoPrimary =
+            isFramebufferRequestSuspendedByHelperVideoPrimary
         self.viewportInteractionRequestPauseCount = max(viewportInteractionRequestPauseCount, 0)
         self.viewportInteractionRequestPausePollCount = max(viewportInteractionRequestPausePollCount, 0)
         self.viewportInteractionRequestPauseMillisecondsTotal = max(

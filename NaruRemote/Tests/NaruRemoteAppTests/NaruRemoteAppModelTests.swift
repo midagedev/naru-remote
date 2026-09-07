@@ -4371,7 +4371,39 @@ final class NaruRemoteAppModelTests: XCTestCase {
         XCTAssertEqual(connector.renegotiatedPreferences, [])
     }
 
-    func testHelperVideoPrimarySamplesVNCFallbackAndKeepsControlPathActive() async throws {
+    /// Spec 042 FR-008 (amended 2026-09-07) rewrote this test's premise. The
+    /// pre-amendment version (`testHelperVideoPrimarySamplesVNCFallback…`)
+    /// asserted that while helper video was healthy primary the pump kept
+    /// SAMPLING VNC at `helperVideoPrimaryVNCFallbackSamplingIntervalSeconds`
+    /// — the exact behaviour FR-008 deleted. Under the amendment the pump
+    /// parks after the first full frame and issues no request until
+    /// fallback. Two determinism facts keep this test race-free, both
+    /// learned from hangs during the rewrite:
+    ///
+    /// 1. Helper health must land before frame 1's pacing decision, or the
+    ///    decision runs without the helper-primary interval and the first
+    ///    gate sleep never happens. `SynchronousConnectGate` reproduces the
+    ///    production ordering (`startHelperVideoStreamIfConfigured` before
+    ///    `startFrameStream`) by holding the RFB connect until health is
+    ///    published.
+    /// 2. `frameInterval` must be positive. The pacing policy's zero-delay
+    ///    bypass (SessionStreamPacingPolicy.swift:64-76) returns delay 0
+    ///    without consulting the active-input floor once helper video is no
+    ///    longer primary, so with `frameInterval: 0` the post-fallback loop
+    ///    free-runs, no second gate sleep is ever recorded, and the
+    ///    transient-input assertion below becomes unreachable. With a
+    ///    positive interval the post-fallback decision (active input beats
+    ///    every other floor: max(1/24, …)) parks in the pacing gate, which
+    ///    also keeps request 3 gated behind `releaseNext()` so the request
+    ///    ledger assertions are exact.
+    ///
+    /// What survives from the pre-amendment test unchanged: the transitional
+    /// pacing decision after frame 1, the pointer control-plane contract, the
+    /// post-fallback input pacing interval, and the final framebuffer/stat
+    /// assertions. What replaces the sampling assertions: the suspension
+    /// stats and the connector's request ledger proving the loop parked
+    /// instead of polling.
+    func testHelperVideoPrimarySuspendsFramebufferRequestsAndKeepsControlPathActive() async throws {
         let helperVideoSecretRef = "helper-video-token:desk"
         let profile = try ConnectionProfile(
             displayName: "Desk",
@@ -4389,13 +4421,26 @@ final class NaruRemoteAppModelTests: XCTestCase {
                 fill: RFBColor(red: UInt8(red), green: 20, blue: 30)
             )
         }
+        // The RFB connect is held until helper video is healthy-primary.
+        // Without this gate the helper bootstrap races frame 1's pacing
+        // decision on the MainActor: when the decision wins, its delay
+        // excludes the helper-primary interval and the first gate sleep
+        // never happens — the sleep ledger then never grows and the
+        // unbounded waitForWaitCount below hangs forever.
+        let connectGate = SynchronousConnectGate()
         let connector = FakeStreamingConnector(
             width: 2,
             height: 1,
             name: "Desk",
             framebuffers: framebuffers,
-            frameUpdateDelay: 0.08
+            frameUpdateDelay: 0.08,
+            connectGate: connectGate
         )
+        // frameInterval is positive on purpose: the pacing policy's
+        // zero-delay bypass (SessionStreamPacingPolicy.swift:64-76) skips
+        // the active-input floor entirely once helper video is no longer
+        // primary, which would make the post-fallback transient-input
+        // sleep asserted below unreachable.
         let helperRecorder = HelperVideoStartRecorder(
             result: Self.helperVideoStartResult(
                 descriptor: HelperVideoStreamDescriptor(codecProfile: .baseline),
@@ -4411,7 +4456,7 @@ final class NaruRemoteAppModelTests: XCTestCase {
             credentialStore: InMemoryConnectionCredentialStore(
                 passwords: [helperVideoSecretRef: "helper-video-secret"]
             ),
-            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 0),
+            frameStreamConfiguration: RFBFramePumpConfiguration(maxFrames: 3, frameInterval: 1.0 / 60.0),
             connectorFactory: { connector },
             helperVideoStartStream: { profile, pairingSecret, pairingFingerprint, requestBody, maxServerFrames in
                 try await helperRecorder.start(
@@ -4437,12 +4482,25 @@ final class NaruRemoteAppModelTests: XCTestCase {
         defer {
             model.disconnect()
         }
+        defer {
+            connectGate.release()
+        }
 
         await model.connectSelectedProfile()
+        // Helper video goes healthy-primary while the RFB connect is still
+        // gated, so frame 1's pacing decision deterministically sees the
+        // helper-primary interval (the ordering the production model uses:
+        // `startHelperVideoStreamIfConfigured` before `startFrameStream`).
         try await waitForHelperVideoHealth(model, state: .healthy)
+        try await settle(while: { !connectGate.hasEntered })
+        connectGate.release()
         try await waitForLatestFramebuffer(model)
         try await pacingGate.waitForWaitCount(1)
 
+        // Frame 1 was requested and delivered before the park, and its
+        // pacing decision still carries the helper-primary interval — the
+        // transitional sleep the loop takes on its way into the suspension.
+        // Under FR-008 no request follows that sleep.
         var delays = await pacingGate.delays
         let firstDelay = try XCTUnwrap(delays.first)
         XCTAssertEqual(
@@ -4452,6 +4510,12 @@ final class NaruRemoteAppModelTests: XCTestCase {
         )
         XCTAssertEqual(model.snapshot.visualTransportMode, .helperVideo)
         XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 1)
+        // Still inside the transitional pacing sleep: the park happens on
+        // the next loop iteration, not yet.
+        XCTAssertEqual(
+            model.snapshot.sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary,
+            false
+        )
 
         model.sendTapAt(viewPoint: CGPoint(x: 1, y: 0.5), viewSize: CGSize(width: 2, height: 1))
         try await waitForPointerEvents(connector, count: 2)
@@ -4461,8 +4525,26 @@ final class NaruRemoteAppModelTests: XCTestCase {
             "VNC must remain the control plane while helper-video owns the visual plane."
         )
 
+        // Release the transitional sleep: the loop re-enters at the top,
+        // sees helper video healthy-primary with a delivered first frame,
+        // and parks on the FR-008 suspension.
         await pacingGate.releaseNext()
-        try await pacingGate.waitForWaitCount(2)
+        try await settle(while: {
+            !model.snapshot.sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary
+        })
+        XCTAssertEqual(
+            model.snapshot.sessionStreamStats.helperVideoPrimaryFramebufferRequestSuspensionCount,
+            1
+        )
+        // Parked means parked: the connector has seen exactly the bootstrap
+        // request and would have served framebuffers[1] had the pump kept
+        // sampling. It must not.
+        XCTAssertEqual(connector.frameUpdateRequests, [false])
+        XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers[0])
+
+        // Fallback wakes the parked loop; the resumed pump is reset so the
+        // next request is full (non-incremental) even though a frame was
+        // already delivered.
         model.updateHelperVideoStreamHealth(
             HelperVideoStreamHealth(
                 state: .stalled,
@@ -4471,21 +4553,32 @@ final class NaruRemoteAppModelTests: XCTestCase {
             )
         )
         XCTAssertEqual(model.snapshot.visualTransportMode, .vncFramebuffer)
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers[1] })
+        XCTAssertEqual(connector.frameUpdateRequests, [false, false])
+        XCTAssertEqual(
+            model.snapshot.sessionStreamStats.isFramebufferRequestSuspendedByHelperVideoPrimary,
+            false
+        )
 
-        await pacingGate.releaseNext()
-        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers[2] })
-
+        // Frame 2's decision: the tap's transient-input window is still
+        // open, so the active-input floor (1/24 s) beats every other floor
+        // and the loop parks in the pacing gate — which also keeps request
+        // 3 gated behind the releaseNext below, so the ledger assertions
+        // above are exact rather than raced.
+        try await pacingGate.waitForWaitCount(2)
         delays = await pacingGate.delays
-        XCTAssertEqual(delays.count, 2)
         XCTAssertEqual(
             delays[1],
             StreamPressurePacingDefaults.transientInputContentFrameIntervalSeconds,
             accuracy: 0.0001,
             "Pointer input should temporarily sample the VNC control plane faster than the helper-video fallback cadence."
         )
+        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
+
+        await pacingGate.releaseNext()
+        try await settle(while: { model.snapshot.latestFramebuffer != framebuffers[2] })
         XCTAssertEqual(model.snapshot.latestFramebuffer, framebuffers[2])
         XCTAssertEqual(model.snapshot.sessionStreamStats.helperVideoPrimaryVNCSamplingPacingSampleCount, 1)
-        XCTAssertEqual(model.snapshot.sessionStreamStats.activeInputPacingSampleCount, 1)
     }
 
     func testHelperVideoFallbackWakesVNCFallbackSamplingSleepEarly() async throws {
@@ -8784,16 +8877,30 @@ private actor PacingSleepGate {
         sleepWaiters.removeFirst().resume()
     }
 
-    func waitForWaitCount(_ expectedCount: Int) async throws {
+    /// Bounded (lead, 2026-09-07): the unbounded version parked a whole
+    /// `swift test` run for 42 minutes when the pump under test stopped
+    /// sleeping (spec 042 FR-008 rewrite). A wait that cannot be satisfied
+    /// must fail with the ledger it saw, not hang the suite.
+    func waitForWaitCount(
+        _ expectedCount: Int,
+        timeout: Duration = .seconds(10),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
         guard recordedDelays.count < expectedCount else {
             return
         }
-        await withCheckedContinuation { continuation in
-            if recordedDelays.count >= expectedCount {
-                continuation.resume()
-            } else {
-                countWaiters.append((expectedCount, continuation))
+        let deadline = ContinuousClock.now + timeout
+        while recordedDelays.count < expectedCount {
+            if ContinuousClock.now >= deadline {
+                XCTFail(
+                    "Pacing gate never reached \(expectedCount) sleeps within \(timeout); recorded \(recordedDelays)",
+                    file: file,
+                    line: line
+                )
+                throw CancellationError()
             }
+            try await Task.sleep(for: .milliseconds(10))
         }
     }
 }

@@ -1918,6 +1918,7 @@ public struct SessionViewportView: View {
             sampleBufferLayerPreview(
                 framebuffer: framebuffer,
                 aspectRatio: aspectRatio,
+                usesViewportFrame: usesViewportFrame,
                 layer: helperVideoLayerHost.layer,
                 accessibilityIdentifier: "naru.session.helperVideoDisplayLayer",
                 accessibilityLabel: "Remote helper video",
@@ -1930,6 +1931,7 @@ public struct SessionViewportView: View {
             sampleBufferLayerPreview(
                 framebuffer: framebuffer,
                 aspectRatio: aspectRatio,
+                usesViewportFrame: false,
                 layer: pipLayerHost.layer,
                 accessibilityIdentifier: "naru.session.pipDisplayLayer",
                 accessibilityLabel: "Remote framebuffer in Picture-in-Picture display layer",
@@ -1951,15 +1953,17 @@ public struct SessionViewportView: View {
     }
 
     #if os(iOS) && canImport(UIKit) && canImport(AVFoundation) && canImport(CoreMedia) && canImport(CoreVideo)
+    @ViewBuilder
     private func sampleBufferLayerPreview(
         framebuffer: RFBRawFramebuffer,
         aspectRatio: CGFloat,
+        usesViewportFrame: Bool,
         layer: AVSampleBufferDisplayLayer,
         accessibilityIdentifier: String,
         accessibilityLabel: String,
         appliesLayerViewportTransform: Bool
     ) -> some View {
-        GeometryReader { proxy in
+        let content = GeometryReader { proxy in
             let coordinateSpace = coordinateSpace(for: framebuffer)
             let usesHotInputOverlay = appliesLayerViewportTransform
                 && Self.usesMetalHotInputOverlay(
@@ -1967,6 +1971,11 @@ public struct SessionViewportView: View {
                     usesHelperVideoPrimaryPreview: usesHelperVideoPrimaryPreview,
                     metalFramebufferInputSupported: Self.metalFramebufferInputSupported
                 )
+            let gestureSurfaceSize = Self.helperPreviewGestureSurfaceSize(
+                usesViewportFrame: usesViewportFrame,
+                aspectRatio: aspectRatio,
+                containerSize: proxy.size
+            )
             let displayLayer = PiPSampleBufferDisplayLayerView(
                 layer: layer,
                 accessibilityIdentifier: accessibilityIdentifier,
@@ -1974,6 +1983,7 @@ public struct SessionViewportView: View {
                 viewportScale: appliesLayerViewportTransform ? zoomScale : 1,
                 viewportOffset: appliesLayerViewportTransform ? panOffset : .zero
             )
+                .frame(width: gestureSurfaceSize.width, height: gestureSurfaceSize.height)
                 .onAppear {
                     syncPiPViewport(framebuffer: framebuffer, viewSize: proxy.size)
                 }
@@ -2006,8 +2016,20 @@ public struct SessionViewportView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: previewCornerRadius))
-        .aspectRatio(aspectRatio, contentMode: .fit)
-        .accessibilityIdentifier("naru.session.framebufferPreview")
+
+        // Mirrors `metalOrSampledPreview`: when the caller framed this
+        // preview to the container (hero mode), an aspect-fit here would
+        // shrink both the layer and the gesture surface back into the fit
+        // band — the spec 042 FR-009 pinch defect. The layer still
+        // letterboxes its video content internally.
+        if usesViewportFrame {
+            content
+                .accessibilityIdentifier("naru.session.framebufferPreview")
+        } else {
+            content
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .accessibilityIdentifier("naru.session.framebufferPreview")
+        }
     }
 
     @ViewBuilder
@@ -2299,6 +2321,26 @@ public struct SessionViewportView: View {
             return min(max(ratio, 0.5), 2.5)
         }
         return 4.0 / 3.0
+    }
+
+    /// Sizes the helper-video (and PiP) sample-buffer preview's gesture
+    /// surface. Spec 042 FR-009: in hero mode (`usesViewportFrame`) the
+    /// caller frames the preview to the full container, and the gesture
+    /// surface must follow that frame — the display layer letterboxes the
+    /// video itself (`videoGravity = .resizeAspect`), so shrinking the
+    /// layer to the aspect-fit band would shrink the hot input overlay
+    /// too and pinch gestures would die outside the band. Outside hero
+    /// mode the surface is the aspect-fit band, matching the
+    /// pre-042 geometry (and the `metalOrSampledPreview` contract).
+    static func helperPreviewGestureSurfaceSize(
+        usesViewportFrame: Bool,
+        aspectRatio: CGFloat,
+        containerSize: CGSize
+    ) -> CGSize {
+        guard usesViewportFrame else {
+            return aspectFitSize(aspectRatio: aspectRatio, containerSize: containerSize)
+        }
+        return containerSize
     }
 
     static func aspectFitSize(aspectRatio: CGFloat, containerSize: CGSize) -> CGSize {

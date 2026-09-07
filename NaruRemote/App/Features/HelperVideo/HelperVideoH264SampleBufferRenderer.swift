@@ -423,6 +423,10 @@ private actor HelperVideoH264SampleBufferPreparationPipeline {
     func reset() {
         factory.reset()
     }
+
+    func cachedFormatDimensions() -> HelperVideoH264FrameDimensions? {
+        factory.cachedFormatDimensions
+    }
 }
 
 public final class HelperVideoH264SampleBufferRenderer {
@@ -479,6 +483,16 @@ extension HelperVideoH264SampleBufferRenderer: HelperVideoAccessUnitRendering {
 
     public func prepare(codec: HelperVideoCodec) async {
         await preparationPipeline.prepare(codec: codec)
+    }
+
+    public func cachedFormatDimensions() async -> RemoteFramebufferCoordinateSpace? {
+        guard let dimensions = await preparationPipeline.cachedFormatDimensions() else {
+            return nil
+        }
+        return RemoteFramebufferCoordinateSpace(
+            width: Int(dimensions.width),
+            height: Int(dimensions.height)
+        )
     }
 }
 
