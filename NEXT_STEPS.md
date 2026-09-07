@@ -279,6 +279,27 @@ same PR.
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
 
+00m. **`specs/042` VNC-first, helper-optional presentation — draft 2026-09-07,
+   awaiting founder review.** From the first physical helper-video session:
+   two cursors in trackpad mode (ScreenCaptureKit bakes the Mac pointer in
+   while Naru draws its own), pinch zoom dead over helper video, no way to
+   tell which transport is live, and the VNC framebuffer still streaming
+   (~420 KB/s measured) under the video. Founder direction: "기본은 vnc로
+   별도로 표시할 필요 없고 헬퍼모드일때 추가 표시를 두고 싶고 … qr버튼을
+   눌렀을때 이건 도우미 정도이고 일반 vnc정보 입력해서 호스트 등록이
+   가능하다고 잘 드러났으면 좋겠어". Six principles (VNC is the product; no
+   badge by default; fallback announced once with a catalog reason; QR is
+   an accelerator; behaviour parity; one card per computer). "Separate VNC
+   and helper cards" was raised and rejected — duplicated credentials and a
+   transport choice made before the helper's availability is known. Also
+   surfaced this session and folded in: the helper app never *requested*
+   Screen Recording, so macOS never listed it under Privacy & Security
+   (fixed in `HelperAppModel.openPermissionSettings`, 2026-09-07); opening
+   **Pair with iPhone…** rotates the token, so reaching the permission
+   buttons kills the current pairing (spec 041 FR-003 side effect — 042
+   plan should move the permission rows out of the minting window or make
+   minting explicit).
+
 00l. **`specs/041` Naru Helper menu bar app — implemented 2026-09-06, physical
    pass open.** Founder decision after the first real QR pairing: "응 메뉴바
    앱으로 가야해". The helper's shipping form is now `Naru Helper.app`
