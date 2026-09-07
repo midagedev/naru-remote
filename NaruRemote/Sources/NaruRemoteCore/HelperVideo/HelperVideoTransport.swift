@@ -124,6 +124,14 @@ public struct HelperVideoWireEnvelope<Body: Codable & Equatable & Sendable>: Cod
     }
 }
 
+/// The phone's pointer mode (spec 042 FR-007). `.trackpad` means the phone
+/// draws its own cursor glyph and sends absolute pointer events at that glyph,
+/// so the helper must not also bake the system cursor into captured frames.
+public enum HelperVideoPointerMode: String, Codable, Equatable, CaseIterable, Sendable {
+    case trackpad
+    case directTouch
+}
+
 public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
     public var codec: HelperVideoCodec
     public var latencyMode: HelperVideoLatencyMode
@@ -132,19 +140,27 @@ public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
     /// Offer-only. The `codec` field stays `.h264` so legacy helpers never
     /// see an unknown enum value. Omitted from JSON when nil.
     public var acceptsHEVC: Bool?
+    /// Compatibility follows the `acceptsHEVC` rule: omitted from JSON when
+    /// nil, and an absent key, an unknown raw value (older/newer peer), or a
+    /// wrong-typed JSON value all decode as `nil` — which is today's
+    /// behaviour (`showsCursor = true`) — so the handshake never breaks over
+    /// this field (spec 042 FR-007).
+    public var pointerMode: HelperVideoPointerMode?
 
     public init(
         codec: HelperVideoCodec = .h264,
         latencyMode: HelperVideoLatencyMode = .lowLatency,
         qualityBucket: HelperVideoQualityBucket = .readability,
         maxFrameRateBucket: HelperVideoFrameRateBucket = .upTo30,
-        acceptsHEVC: Bool? = nil
+        acceptsHEVC: Bool? = nil,
+        pointerMode: HelperVideoPointerMode? = nil
     ) {
         self.codec = codec
         self.latencyMode = latencyMode
         self.qualityBucket = qualityBucket
         self.maxFrameRateBucket = maxFrameRateBucket
         self.acceptsHEVC = acceptsHEVC
+        self.pointerMode = pointerMode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -153,6 +169,24 @@ public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
         case qualityBucket
         case maxFrameRateBucket
         case acceptsHEVC
+        case pointerMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        codec = try container.decode(HelperVideoCodec.self, forKey: .codec)
+        latencyMode = try container.decode(HelperVideoLatencyMode.self, forKey: .latencyMode)
+        qualityBucket = try container.decode(HelperVideoQualityBucket.self, forKey: .qualityBucket)
+        maxFrameRateBucket = try container.decode(
+            HelperVideoFrameRateBucket.self,
+            forKey: .maxFrameRateBucket
+        )
+        acceptsHEVC = try container.decodeIfPresent(Bool.self, forKey: .acceptsHEVC)
+        // Tolerant by design (see the `pointerMode` doc comment): decode as a
+        // raw string and map; `try?` also swallows a wrong-typed value.
+        pointerMode = (try? container.decodeIfPresent(String.self, forKey: .pointerMode))
+            .flatMap { $0 }
+            .flatMap(HelperVideoPointerMode.init(rawValue:))
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -162,6 +196,7 @@ public struct HelperVideoStartStreamRequestBody: Codable, Equatable, Sendable {
         try container.encode(qualityBucket, forKey: .qualityBucket)
         try container.encode(maxFrameRateBucket, forKey: .maxFrameRateBucket)
         try container.encodeIfPresent(acceptsHEVC, forKey: .acceptsHEVC)
+        try container.encodeIfPresent(pointerMode, forKey: .pointerMode)
     }
 }
 

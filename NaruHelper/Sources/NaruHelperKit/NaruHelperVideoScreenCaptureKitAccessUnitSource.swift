@@ -30,6 +30,17 @@ public protocol NaruHelperVideoScreenCaptureKitPixelBufferProvider: Sendable {
         frameRateBucket: HelperVideoFrameRateBucket,
         qualityBucket: HelperVideoQualityBucket
     ) throws -> [CVPixelBuffer]
+
+    /// Spec 042 FR-007: the phone's pointer mode decides whether the system
+    /// cursor is baked into the captured frames. Implementations written
+    /// before this requirement ignore the extra input through the extension
+    /// default, which forwards `nil` (cursor shown — today's behaviour).
+    func pixelBuffers(
+        frameLimit: Int,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> [CVPixelBuffer]
 }
 
 public protocol NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider:
@@ -40,6 +51,45 @@ public protocol NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider:
         frameRateBucket: HelperVideoFrameRateBucket,
         qualityBucket: HelperVideoQualityBucket
     ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error>
+
+    /// Spec 042 FR-007 — the pointer-mode variant of the stream request, see
+    /// `pixelBuffers(frameLimit:frameRateBucket:qualityBucket:pointerMode:)`.
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error>
+}
+
+public extension NaruHelperVideoScreenCaptureKitPixelBufferProvider {
+    func pixelBuffers(
+        frameLimit: Int,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> [CVPixelBuffer] {
+        try pixelBuffers(
+            frameLimit: frameLimit,
+            frameRateBucket: frameRateBucket,
+            qualityBucket: qualityBucket
+        )
+    }
+}
+
+public extension NaruHelperVideoScreenCaptureKitPixelBufferStreamProvider {
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
+        try pixelBufferStream(
+            frameLimit: frameLimit,
+            frameRateBucket: frameRateBucket,
+            qualityBucket: qualityBucket
+        )
+    }
 }
 
 public struct NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy:
@@ -49,22 +99,30 @@ public struct NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy:
     public var outputWidth: Int
     public var outputHeight: Int
     public var queueDepth: Int
+    /// Spec 042 FR-007: `false` only when the phone reported trackpad mode —
+    /// the phone draws its own cursor glyph, so the baked system pointer must
+    /// not also appear in the frame. Legacy requests (`nil`) and
+    /// `.directTouch` keep today's behaviour (`true`).
+    public var showsCursor: Bool
 
     public init(
         outputWidth: Int,
         outputHeight: Int,
-        queueDepth: Int
+        queueDepth: Int,
+        showsCursor: Bool = true
     ) {
         self.outputWidth = max(outputWidth, 2)
         self.outputHeight = max(outputHeight, 2)
         self.queueDepth = min(max(queueDepth, 1), 8)
+        self.showsCursor = showsCursor
     }
 
     public static func make(
         displayWidth: Int,
         displayHeight: Int,
         frameLimit: Int?,
-        qualityBucket: HelperVideoQualityBucket
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode? = nil
     ) -> Self {
         let sourceWidth = max(displayWidth, 2)
         let sourceHeight = max(displayHeight, 2)
@@ -77,7 +135,8 @@ public struct NaruHelperVideoScreenCaptureKitCaptureConfigurationPolicy:
         return Self(
             outputWidth: scaledSize.width,
             outputHeight: scaledSize.height,
-            queueDepth: frameLimit == nil ? 3 : 5
+            queueDepth: frameLimit == nil ? 3 : 5,
+            showsCursor: pointerMode != .trackpad
         )
     }
 
@@ -241,6 +300,78 @@ public struct NaruHelperVideoScreenCaptureKitWindowFallbackDescriptor:
     }
 }
 
+/// Owns the `SCStream` while a live helper-video capture runs (spec 042
+/// FR-007). The streaming capture attaches on start and detaches on stop;
+/// `updatePointerMode(_:)` is the mid-session pointer-mode switch — an
+/// in-place `SCStream.updateConfiguration(_:)` attempt whose live effect on
+/// `showsCursor` could not be verified from the swift-test host (research
+/// §R1: that host's ScreenCaptureKit content is TCC-redacted, so the
+/// reliable switch is the next start request carrying the mode, which is
+/// measured working end-to-end). Surfacing this handle to the phone is
+/// Round D's wire work.
+public final class NaruHelperVideoScreenCaptureKitRunningStream: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stream: SCStream?
+    private let configuration: SCStreamConfiguration
+    private var mode: HelperVideoPointerMode?
+
+    public init(
+        configuration: SCStreamConfiguration,
+        pointerMode: HelperVideoPointerMode? = nil
+    ) {
+        self.configuration = configuration
+        self.mode = pointerMode
+    }
+
+    public var pointerMode: HelperVideoPointerMode? {
+        lock.withLock { mode }
+    }
+
+    /// Attach the running `SCStream` this controller reconfigures. Kit-internal:
+    /// only the capture path that created the stream calls this.
+    func attach(_ stream: SCStream) {
+        lock.withLock {
+            self.stream = stream
+        }
+    }
+
+    /// Detach on stop; later calls become no-ops and the next start request
+    /// carries the mode instead.
+    func detach() {
+        lock.withLock {
+            stream = nil
+        }
+    }
+
+    /// Spec 042 FR-007 / research §R1: stores the mode and, while a stream is
+    /// attached, asks `SCStream.updateConfiguration(_:)` to apply the changed
+    /// `showsCursor` in place. The in-test live measurement of that call was
+    /// blocked by macOS TCC content redaction on this Mac (CGPreflight true,
+    /// static placeholder screenshots that ignore `showsCursor`, idle-only
+    /// streams — research §R1 records the exact API results), so treat this
+    /// as a cheap best-effort path, not a guarantee: if the OS ignores a
+    /// mid-stream `showsCursor` change the stream keeps its prior cursor
+    /// state, and the switch lands on the next start request, which carries
+    /// the mode — that path is measured working end-to-end via the external
+    /// helper harness.
+    public func updatePointerMode(_ mode: HelperVideoPointerMode?) async throws {
+        let attachedStream = lock.withLock { () -> SCStream? in
+            self.mode = mode
+            guard let attachedStream = stream else {
+                return nil
+            }
+            configuration.showsCursor = mode != .trackpad
+            return attachedStream
+        }
+        // No live stream (never started, or already stopped): nothing to
+        // reconfigure — the stored mode is what the next start request uses.
+        guard let attachedStream else {
+            return
+        }
+        try await attachedStream.updateConfiguration(configuration)
+    }
+}
+
 public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAccessUnitSource {
     /// A value of `0` means an unbounded stream for `accessUnitStream(...)`.
     /// The legacy finite `accessUnits(...)` API still captures at least one
@@ -293,7 +424,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         let pixelBuffers = try pixelBufferProvider.pixelBuffers(
             frameLimit: finiteFrameCount,
             frameRateBucket: request.maxFrameRateBucket,
-            qualityBucket: request.qualityBucket
+            qualityBucket: request.qualityBucket,
+            pointerMode: request.pointerMode
         )
         guard let first = pixelBuffers.first else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError.noCapturedFrames
@@ -362,7 +494,8 @@ public struct NaruHelperVideoScreenCaptureKitAccessUnitSource: NaruHelperVideoAc
         let pixelBufferStream = try streamProvider.pixelBufferStream(
             frameLimit: frameCount > 0 ? frameCount : nil,
             frameRateBucket: request.maxFrameRateBucket,
-            qualityBucket: request.qualityBucket
+            qualityBucket: request.qualityBucket,
+            pointerMode: request.pointerMode
         )
         let pixelBufferStreamBox = LiveNaruHelperVideoScreenCaptureKitPixelBufferStreamBox(
             stream: pixelBufferStream
@@ -505,6 +638,20 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
         frameRateBucket: HelperVideoFrameRateBucket,
         qualityBucket: HelperVideoQualityBucket
     ) throws -> [CVPixelBuffer] {
+        try pixelBuffers(
+            frameLimit: frameLimit,
+            frameRateBucket: frameRateBucket,
+            qualityBucket: qualityBucket,
+            pointerMode: nil
+        )
+    }
+
+    func pixelBuffers(
+        frameLimit: Int,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> [CVPixelBuffer] {
         guard CGPreflightScreenCaptureAccess() else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .screenRecordingPermissionMissing
@@ -517,7 +664,8 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
                 let captured = try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture(
                     frameLimit: frameLimit,
                     frameRateBucket: frameRateBucket,
-                    qualityBucket: qualityBucket
+                    qualityBucket: qualityBucket,
+                    pointerMode: pointerMode
                 ).capture()
                 resultBox.store(.success(captured))
             } catch {
@@ -540,6 +688,20 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
         frameRateBucket: HelperVideoFrameRateBucket,
         qualityBucket: HelperVideoQualityBucket
     ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
+        try pixelBufferStream(
+            frameLimit: frameLimit,
+            frameRateBucket: frameRateBucket,
+            qualityBucket: qualityBucket,
+            pointerMode: nil
+        )
+    }
+
+    func pixelBufferStream(
+        frameLimit: Int?,
+        frameRateBucket: HelperVideoFrameRateBucket,
+        qualityBucket: HelperVideoQualityBucket,
+        pointerMode: HelperVideoPointerMode?
+    ) throws -> AsyncThrowingStream<CVPixelBuffer, any Error> {
         guard CGPreflightScreenCaptureAccess() else {
             throw NaruHelperVideoScreenCaptureKitAccessUnitSourceError
                 .screenRecordingPermissionMissing
@@ -554,6 +716,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitPixelBufferProvider:
                         frameLimit: frameLimit,
                         frameRateBucket: frameRateBucket,
                         qualityBucket: qualityBucket,
+                        pointerMode: pointerMode,
                         continuation: continuation
                     )
                     try await capture.captureUntilFinished()
@@ -624,6 +787,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
     var frameLimit: Int
     var frameRateBucket: HelperVideoFrameRateBucket
     var qualityBucket: HelperVideoQualityBucket
+    var pointerMode: HelperVideoPointerMode?
 
     func capture() async throws -> [CapturedPixelBuffer] {
         let displayWakeAssertion = LiveNaruHelperVideoScreenCaptureKitDisplayWakeAssertion()
@@ -643,7 +807,8 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
             displayWidth: target.width,
             displayHeight: target.height,
             frameLimit: frameLimit,
-            qualityBucket: qualityBucket
+            qualityBucket: qualityBucket,
+            pointerMode: pointerMode
         )
         configuration.width = policy.outputWidth
         configuration.height = policy.outputHeight
@@ -651,7 +816,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitFiniteCapture {
         configuration.queueDepth = policy.queueDepth
         configuration.minimumFrameInterval = frameRateBucket.screenCaptureMinimumFrameInterval
         configuration.capturesAudio = false
-        configuration.showsCursor = true
+        configuration.showsCursor = policy.showsCursor
 
         let collector = LiveNaruHelperVideoScreenCaptureKitFrameCollector(
             frameLimit: max(frameLimit, 1)
@@ -835,6 +1000,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
     var frameLimit: Int?
     var frameRateBucket: HelperVideoFrameRateBucket
     var qualityBucket: HelperVideoQualityBucket
+    var pointerMode: HelperVideoPointerMode?
     let continuation: AsyncThrowingStream<CVPixelBuffer, any Error>.Continuation
 
     func captureUntilFinished() async throws {
@@ -856,7 +1022,8 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
             displayWidth: target.width,
             displayHeight: target.height,
             frameLimit: frameLimit,
-            qualityBucket: qualityBucket
+            qualityBucket: qualityBucket,
+            pointerMode: pointerMode
         )
         configuration.width = policy.outputWidth
         configuration.height = policy.outputHeight
@@ -864,7 +1031,7 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
         configuration.queueDepth = policy.queueDepth
         configuration.minimumFrameInterval = frameRateBucket.screenCaptureMinimumFrameInterval
         configuration.capturesAudio = false
-        configuration.showsCursor = true
+        configuration.showsCursor = policy.showsCursor
 
         let collector = LiveNaruHelperVideoScreenCaptureKitStreamingFrameCollector(
             frameLimit: frameLimit,
@@ -876,6 +1043,17 @@ private struct LiveNaruHelperVideoScreenCaptureKitStreamingCapture {
             type: .screen,
             sampleHandlerQueue: DispatchQueue(label: "com.naruremote.helper-video-sck-stream-output")
         )
+        // The running-stream owner is what a mid-session `updatePointerMode`
+        // call reconfigures (spec 042 FR-007); it detaches when this capture
+        // stops, and the next start request carries the mode again.
+        let runningStream = NaruHelperVideoScreenCaptureKitRunningStream(
+            configuration: configuration,
+            pointerMode: pointerMode
+        )
+        runningStream.attach(stream)
+        defer {
+            runningStream.detach()
+        }
         try await LiveNaruHelperVideoScreenCaptureKitFiniteCapture.start(stream)
 
         do {
