@@ -399,7 +399,25 @@ final class HelperAppModel: ObservableObject {
         }
     }
 
+    /// User-initiated (a button press), so this is the one place the
+    /// *prompting* request is allowed (spec 041 R4). The request matters
+    /// beyond the dialog it may show: macOS only lists an app under
+    /// Privacy & Security → Screen Recording / Accessibility **after that
+    /// app has asked once**. Without it the Settings pane opens to a list
+    /// the helper is absent from, and the user has no toggle to flip
+    /// (observed 2026-09-06 on the Debug build). The request is the same
+    /// Kit path the CLI's `--request-permissions` uses; the pane is opened
+    /// afterwards regardless of the answer, so a denial still lands the
+    /// user on the toggle. The poll (``refreshPermissions()``) stays
+    /// non-prompting.
     func openPermissionSettings(_ pane: PermissionPane) {
+        switch pane {
+        case .accessibility:
+            _ = NaruHelperTextPermissionRequester.live().request()
+        case .screenRecording:
+            _ = NaruHelperVideoScreenRecordingPermissionRequester.live().request()
+        }
+        refreshPermissions()
         NSWorkspace.shared.open(pane.settingsURL)
     }
 

@@ -37,6 +37,12 @@ relaunching:
   stream. If macOS asks to quit and reopen the app for the grant to take
   effect, do so.
 
+Always go through the **Open Settings…** button of the pairing window rather
+than opening System Settings by hand: the button issues the one prompting
+request first, and macOS only adds an app to those two lists after it has
+asked once. Opening the pane directly shows a list the helper is absent from
+(observed 2026-09-06 on a Debug build; fixed in `HelperAppModel.openPermissionSettings`).
+
 ## 3. Pair with the TestFlight app
 
 1. On the Mac: **Pair with iPhone…** mints a fresh code and shows a QR.
