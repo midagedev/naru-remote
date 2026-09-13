@@ -2332,6 +2332,15 @@ public struct SessionViewportView: View {
     /// too and pinch gestures would die outside the band. Outside hero
     /// mode the surface is the aspect-fit band, matching the
     /// pre-042 geometry (and the `metalOrSampledPreview` contract).
+    ///
+    /// Spec 043 H4, refuted: the zoom transform keeps deriving from the
+    /// VNC framebuffer, not the encoded video size. The helper's encode is
+    /// aspect-preserving to within even-pixel rounding (3024×1964 →
+    /// 960×622, 0.26 % aspect error), so the video's `.resizeAspect` band
+    /// and the framebuffer transform's content rect differ by under a
+    /// point at fit and under 3 pt at 4× zoom (`HelperVideoZoomGeometryTests`
+    /// pins both) — while input must speak framebuffer pixels regardless,
+    /// because RFB `PointerEvent` coordinates are framebuffer pixels.
     static func helperPreviewGestureSurfaceSize(
         usesViewportFrame: Bool,
         aspectRatio: CGFloat,

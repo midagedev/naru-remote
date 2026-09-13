@@ -26,6 +26,24 @@ public struct ScrollTickAccumulator: Equatable, Sendable {
     public private(set) var pendingX: CGFloat = 0
     public private(set) var pendingY: CGFloat = 0
 
+    /// How large a sign-reversing delta must be, in points, before it counts
+    /// as a real direction change rather than jitter (spec 043 FR-003).
+    ///
+    /// Two fingers dragged slowly wobble by a point or two per callback at
+    /// 60–120 Hz — on the axis the user is scrolling along, not just the idle
+    /// one — and the pre-043 rule dropped the pending remainder on *any*
+    /// reversal, so a gentle scroll's credit was reset every second callback
+    /// and never reached the 24-point notch ("스크롤의 양이 엄청 적을때가 있어",
+    /// 2026-09-13). A reversal of at least this many points against the
+    /// pending remainder is a deliberate change of direction (a finger
+    /// changing course delivers several points within a callback or two) and
+    /// still drops the abandoned credit; below it the remainder is merely
+    /// eroded by the wobble, which costs at most this many points of timing
+    /// on the eventual opposite notch. An absolute bound, not a fraction of
+    /// the threshold: the wobble is a property of fingers on glass, not of
+    /// how big a notch is.
+    public static let reversalJitterTolerance: CGFloat = 2
+
     public init() {}
 
     /// Adds one callback's delta and returns the part that is worth whole
@@ -33,7 +51,9 @@ public struct ScrollTickAccumulator: Equatable, Sendable {
     ///
     /// A direction reversal on an axis drops that axis's remainder rather than
     /// spending it backwards: motion the user has already abandoned must not
-    /// arrive as a notch in the opposite direction.
+    /// arrive as a notch in the opposite direction. Reversals within
+    /// `reversalJitterTolerance` points are jitter and do not drop anything
+    /// (spec 043 FR-003).
     ///
     /// Returns `(0, 0)` while the motion is still below one notch, which is
     /// the common case and deliberately cheap.
@@ -67,7 +87,10 @@ public struct ScrollTickAccumulator: Equatable, Sendable {
             return 0
         }
 
-        if pending != 0, (pending < 0) != (delta < 0) {
+        // A reversal large enough to be deliberate drops the abandoned
+        // remainder (the spec 037 rule, kept); wobble-scale reversal does
+        // not (spec 043 FR-003). See `reversalJitterTolerance`.
+        if pending != 0, (pending < 0) != (delta < 0), abs(delta) >= Self.reversalJitterTolerance {
             pending = 0
         }
 

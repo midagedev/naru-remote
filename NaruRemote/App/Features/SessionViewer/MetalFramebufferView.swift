@@ -790,6 +790,16 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
     private var twoFingerInitialSpread: CGFloat?
     private var twoFingerAccumulatedTranslation: CGSize = .zero
 
+    #if DEBUG
+    /// Ring buffer of two-finger intent decisions (spec 043 §9 layer 3):
+    /// one line per decision change, magnitudes and verdict only — never
+    /// touch coordinates (constitution §IV). A future "the gesture went the
+    /// wrong way" report is answered from these lines instead of a device
+    /// replay.
+    private static let twoFingerGestureDebugLogCapacity = 32
+    private var twoFingerGestureDebugLog: [String] = []
+    #endif
+
     /// Coalesces or defers SwiftUI/PiP state mirroring while the Metal
     /// renderer applies the visible viewport transform immediately.
     /// This keeps frame-driven SwiftUI work out of the per-touch
@@ -1386,15 +1396,50 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             return twoFingerIntent
         }
 
-        twoFingerIntent = TwoFingerGestureClassifier.resolve(
-            current: twoFingerIntent,
-            spreadDelta: spread - initialSpread,
-            translationMagnitude: TwoFingerGestureClassifier.magnitude(
-                twoFingerAccumulatedTranslation
-            )
+        let previousIntent = twoFingerIntent
+        let spreadDelta = spread - initialSpread
+        let translationMagnitude = TwoFingerGestureClassifier.magnitude(
+            twoFingerAccumulatedTranslation
         )
+        twoFingerIntent = TwoFingerGestureClassifier.resolve(
+            current: previousIntent,
+            spreadDelta: spreadDelta,
+            translationMagnitude: translationMagnitude
+        )
+        #if DEBUG
+        if twoFingerIntent != previousIntent {
+            recordTwoFingerIntentChange(
+                from: previousIntent,
+                spreadDelta: spreadDelta,
+                translationMagnitude: translationMagnitude
+            )
+        }
+        #endif
         return twoFingerIntent
     }
+
+    #if DEBUG
+    /// Appends one decision line to `twoFingerGestureDebugLog`, evicting the
+    /// oldest beyond capacity. Aggregate distances only (constitution §IV).
+    private func recordTwoFingerIntentChange(
+        from previousIntent: TwoFingerGestureIntent,
+        spreadDelta: CGFloat,
+        translationMagnitude: CGFloat
+    ) {
+        twoFingerGestureDebugLog.append(
+            "\(previousIntent) -> "
+                + TwoFingerGestureClassifier.describe(
+                    spreadDelta: spreadDelta,
+                    translationMagnitude: translationMagnitude
+                )
+        )
+        if twoFingerGestureDebugLog.count > Self.twoFingerGestureDebugLogCapacity {
+            twoFingerGestureDebugLog.removeFirst(
+                twoFingerGestureDebugLog.count - Self.twoFingerGestureDebugLogCapacity
+            )
+        }
+    }
+    #endif
 
     private func resetTwoFingerIntent() {
         twoFingerIntent = .undecided
@@ -1419,18 +1464,26 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
             // tick threshold.
             recognizer.setTranslation(.zero, in: self)
             let delta = CGSize(width: translation.x, height: translation.y)
+            let previousIntent = twoFingerIntent
             let intent = updateTwoFingerIntent(with: recognizer, addingTranslation: delta)
-            // A finger pair that has not committed yet, or that committed to
-            // zoom, must not also scroll the remote.
-            let isFingerPair = recognizer.numberOfTouches == 2
-            if isFingerPair, intent != .scroll {
-                if recognizer.state == .ended {
-                    resetTwoFingerIntent()
-                    scrollEndHandler?()
-                }
-                return
-            }
-            guard translation != .zero else {
+            // What the scroll path receives is the classifier's delivery
+            // policy (spec 043 FR-002), not this handler's own arithmetic:
+            // the resolving callback delivers the travel accumulated while
+            // the gesture was still `.undecided` exactly once, a zoom
+            // gesture delivers nothing on any callback — including this
+            // final one, where the touch count has already dropped to zero,
+            // which is why the gate is the measured baseline
+            // (`twoFingerInitialSpread`), not the instantaneous touch count —
+            // and a hardware trackpad scroll (no baseline ever set) delivers
+            // every callback's delta unchanged.
+            let delivered = TwoFingerGestureClassifier.scrollDelta(
+                previousIntent: previousIntent,
+                resolvedIntent: intent,
+                accumulatedTranslation: twoFingerAccumulatedTranslation,
+                callbackDelta: delta,
+                hasTwoFingerBaseline: twoFingerInitialSpread != nil
+            )
+            guard let delivered, delivered != .zero else {
                 if recognizer.state == .ended {
                     resetTwoFingerIntent()
                     scrollEndHandler?()
@@ -1438,7 +1491,7 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
                 return
             }
             let location = recognizer.location(in: self)
-            handler(location, bounds.size, delta)
+            handler(location, bounds.size, delivered)
             if recognizer.state == .ended {
                 resetTwoFingerIntent()
                 scrollEndHandler?()
