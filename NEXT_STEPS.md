@@ -760,6 +760,15 @@ same PR.
   `specs/010-helper-onboarding/plan.md`).
 - **`specs/006` open tasks** — T028 helper-side revoke/disable, T029
   physical evidence recording, security/privacy review checklist items.
+- **`specs/002` Status is stale** — it reads "Implemented v1 (custom soft
+  keyboard, sticky modifiers, hardware passthrough)", but commit `b6e8a5e9`
+  (2026-08-17, two-mode Type/Compose dock) deleted all three Direct keyboard
+  views and left `onToggleDirectMode` wired to nothing, so Direct Keystroke
+  mode is unreachable from the UI while its model layer (`directKeystrokeMode`,
+  `tapDirectKey`, `KeyboardPage`, the three input surfaces) is fully alive and
+  tested. Decide which is true — retire the mode and its model state, or
+  restore an entry point — and correct the Status either way. Found
+  2026-09-13 while root-causing spec 043 D1.
 - **`specs/002` residual manual tests** — T045 vim smoke, T046 Bluetooth
   Magic Keyboard passthrough (physical device).
 - **`specs/003` residual manual tests** — T032 trackpad/zoom-to-read on
