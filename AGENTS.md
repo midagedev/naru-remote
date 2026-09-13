@@ -78,11 +78,11 @@ highest project rule after explicit user instructions.
   ownership; parallel work only when write sets are disjoint.
 
 <!-- SPECKIT START -->
-Current active feature: `specs/042-vnc-first-helper-optional` (VNC is the
-product and gets no badge; helper video is marked only while live, a
-fallback is announced once with a catalog reason; QR pairing is an
-accelerator; one cursor and pinch parity over helper video; one card per
-computer). Feature index —
+Current active feature: `specs/043-device-pass-input-defects` (three input
+defects found by hand on the device: the typing mode must always come up
+with a keyboard; a pinch must not lose to a swipe merely by crossing the
+lower bar first; no finger travel is silently dropped before a gesture
+resolves or by the sign reversals slow fingers produce). Feature index —
 001 MVP: implemented baseline · 002 Direct Keystroke: implemented v1
 (PRs #28–#35) · 003 Session Experience: implemented · 004 RFB Encodings:
 implemented · 005 Connection Grid Diagnostics: implemented · 006 Helper Text
@@ -103,7 +103,7 @@ implemented (viewport request regions on every profile once zoomed;
 under load — savings there are workload-dependent; correctness unaffected;
 physical poor-network pass residual) · 018 Adaptive Server Downscale: implemented · 019–039: see
 `NEXT_STEPS.md` · 040 QR Pairing Sync: implemented · 041 Helper Menu Bar
-App: implemented · 042 VNC-First, Helper-Optional: implemented (founder device pass open).
+App: implemented · 042 VNC-First, Helper-Optional: implemented · 043 Device-Pass Input Defects: implemented (founder device pass open).
 <!-- SPECKIT END -->
 
 ## Architecture

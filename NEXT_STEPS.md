@@ -279,6 +279,29 @@ same PR.
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
 
+00n. **`specs/043` device-pass input defects — implemented 2026-09-13,
+   founder device pass open.** Three intermittent failures found by hand on
+   the iPhone: the typing mode sometimes came up with no keyboard, pinch
+   misbehaved over helper video, and a two-finger drag scrolled far too
+   little. All three are fixed. Keyboard: switching Type↔Compose rebuilds the
+   row holding the compose editor, first responder is lost, and nothing asked
+   for it back — the two existing triggers both miss that case and the guard
+   read a `@State` mirror that can be stale, so the request was skipped;
+   the decision now reads the responder itself and a mode switch is its own
+   trigger. Zoom and scroll are one machine: the classifier that decides
+   scroll-vs-zoom let a swipe win merely by crossing the lower bar first, so
+   a pinch with hand drift froze as scroll and the zoom never happened; each
+   intent must now beat both its own bar and the other signal, with an exact
+   tie held undecided. Scroll additionally discarded the twelve points it
+   travelled before resolving (half a wheel notch, so short drags did
+   nothing), leaked a zoom gesture's final delta to the remote as scroll, and
+   dropped its accumulated remainder on the sign reversals slow fingers
+   produce constantly. The suspicion that helper-video zoom used the wrong
+   rectangle was **refuted** and pinned with numbers rather than fixed.
+   **Open:** the founder device pass — SC-1 keyboard on every Type↔Compose
+   switch, SC-2 pinch anywhere in a helper-video session, SC-3 a slow
+   two-finger drag scrolling proportionally.
+
 00m. **`specs/042` VNC-first, helper-optional presentation — implemented
    2026-09-07, founder device pass open.** From the first physical
    helper-video session: two cursors in trackpad mode (ScreenCaptureKit baked
@@ -760,15 +783,19 @@ same PR.
   `specs/010-helper-onboarding/plan.md`).
 - **`specs/006` open tasks** — T028 helper-side revoke/disable, T029
   physical evidence recording, security/privacy review checklist items.
-- **`specs/002` Status is stale** — it reads "Implemented v1 (custom soft
-  keyboard, sticky modifiers, hardware passthrough)", but commit `b6e8a5e9`
-  (2026-08-17, two-mode Type/Compose dock) deleted all three Direct keyboard
-  views and left `onToggleDirectMode` wired to nothing, so Direct Keystroke
-  mode is unreachable from the UI while its model layer (`directKeystrokeMode`,
-  `tapDirectKey`, `KeyboardPage`, the three input surfaces) is fully alive and
-  tested. Decide which is true — retire the mode and its model state, or
-  restore an entry point — and correct the Status either way. Found
-  2026-09-13 while root-causing spec 043 D1.
+- **`specs/002` Status contradicts its own retirement, and the retired
+  mode's model layer is still carried.** Spec 011 retired Direct Keystroke
+  as a surface (2026-08-17, `b6e8a5e9`): all three Direct keyboard views
+  were deleted and `onToggleDirectMode` is wired to nothing, so the mode
+  cannot be entered. `specs/002/spec.md` still reads "Implemented v1
+  (custom soft keyboard …)" with no amendment pointing at 011 — fix that
+  line. The real question underneath is what to do with the model layer
+  that survived the retirement: `directKeystrokeMode` with its three input
+  surfaces and `KeyboardPage`, `tapDirectKey`, the sticky-modifier reset
+  paths, six session-boundary resets, and their tests are all live code
+  serving a mode no user can reach. Either delete it or restore an entry
+  point. Found 2026-09-13 while root-causing spec 043 D1, where the
+  founder's "직접키보드 모드" turned out to mean Type mode.
 - **`specs/002` residual manual tests** — T045 vim smoke, T046 Bluetooth
   Magic Keyboard passthrough (physical device).
 - **`specs/003` residual manual tests** — T032 trackpad/zoom-to-read on

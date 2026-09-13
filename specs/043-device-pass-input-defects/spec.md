@@ -2,7 +2,7 @@
 
 **Feature Branch**: `043-device-pass-input-defects`
 **Created**: 2026-09-13
-**Status**: Active — founder reported three defects from the physical device pass 2026-09-13; investigation and fixes in flight
+**Status**: Implemented 2026-09-13 — all three defects root-caused and fixed (commits `cf2bca1b`, `a3f8c527`). Gates: `swift test` Core 693 / App 734 green, iPhone 17 Pro simulator build green. **Open — founder device pass** (SC-1 keyboard on every Type↔Compose switch, SC-2 pinch in a helper-video session, SC-3 slow two-finger scroll). One candidate cause was refuted rather than fixed: the helper-video zoom transform derives from the VNC framebuffer and that is correct (D2). Also surfaced, not resolved: spec 002's Direct Keystroke mode is unreachable from the UI while its Status still claims it shipped — see `NEXT_STEPS.md`.
 **Product**: Naru Remote
 **Input**: Founder, 2026-09-13, on a physical iPhone after the spec 042 work:
 
@@ -27,8 +27,9 @@ unreachable from the UI: its three keyboard views were deleted in that
 commit and `onToggleDirectMode` is now wired to nothing (declared and
 stored in `RemoteInputDockView`, never called). The mode the founder
 calls 직접키보드 is **Type**, and that is the mode this defect is in.
-(Spec 002's Status still says "Implemented v1" — that is stale; recorded
-in `NEXT_STEPS.md`, not fixed here.)
+(Spec 011 retired Direct as a surface in that same commit; spec 002's
+Status was never amended to say so, and the mode's model layer is still
+carried. Recorded in `NEXT_STEPS.md`, not resolved here.)
 
 The defect: switching Type ↔ Compose rebuilds the row that hosts the
 compose editor, so the editor loses first responder — and nothing asks
