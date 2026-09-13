@@ -282,6 +282,18 @@ public struct RemoteInputDockView: View {
                 focusComposeEditorForGrantedExpansionIfNeeded()
             }
         }
+        // Spec 043 FR-005: a mode switch is its own reason to re-ask for the
+        // keyboard. Switching Type↔Compose rebuilds the row that hosts the
+        // editor, so first responder is lost — but the two triggers above
+        // both miss it: the dock instance usually survives (no `onAppear`),
+        // and the mode buttons re-assert an expansion that is already
+        // requested, so `composeExpansionRequested` does not change. Nothing
+        // then asks, and Type mode's editor is invisible, so the user has
+        // nothing to tap. Founder, 2026-09-13: "직접입력모드에 키보드가
+        // 안나탈때가 있어".
+        .onChange(of: liveTypeThroughActive) { _, _ in
+            focusComposeEditorForGrantedExpansionIfNeeded()
+        }
         .onDisappear {
             cancelPendingComposeTextPropagation()
             stopAccessoryRepeat(clearPressDownToken: true)
@@ -811,11 +823,45 @@ public struct RemoteInputDockView: View {
     /// `onChange` (same instance kept). The yield lets the editor mount
     /// before first responder is requested.
     private func focusComposeEditorForGrantedExpansionIfNeeded() {
-        guard composeExpansionRequested,
-              !directKeystrokeMode.isActive,
-              !composeFieldFocused
-        else { return }
+        #if os(iOS) && canImport(UIKit)
+        let editorHasFirstResponder = composeCommitController.isFocused
+        #else
+        let editorHasFirstResponder = composeFieldFocused
+        #endif
+        guard Self.shouldRequestComposeEditorFocus(
+            expansionRequested: composeExpansionRequested,
+            isDirectModeActive: directKeystrokeMode.isActive,
+            mirroredFocusFlag: composeFieldFocused,
+            editorHasFirstResponder: editorHasFirstResponder
+        ) else { return }
         requestComposeEditorFocus()
+    }
+
+    /// Whether the compose editor should be asked for first responder right
+    /// now (spec 043 FR-005).
+    ///
+    /// The answer must come from the editor itself, not from
+    /// `composeFieldFocused`. That `@State` flag is a mirror updated by the
+    /// editor's focus callback, and a dock mode switch can move the editor to
+    /// a different place in the view tree — the old one goes away without
+    /// reporting, so the mirror can still read `true` while nothing holds
+    /// first responder. Guarding on the mirror then skips the request, and in
+    /// Type mode the editor is a 1×1 invisible view, so the user is left with
+    /// no keyboard and nothing on screen to tap. That is the founder's report
+    /// of 2026-09-13: "직접입력모드에 키보드가 안나탈때가 있어".
+    ///
+    /// `mirroredFocusFlag` stays in the signature because it is the only
+    /// signal on platforms without UIKit, where there is no responder to ask.
+    nonisolated static func shouldRequestComposeEditorFocus(
+        expansionRequested: Bool,
+        isDirectModeActive: Bool,
+        mirroredFocusFlag: Bool,
+        editorHasFirstResponder: Bool
+    ) -> Bool {
+        guard expansionRequested, !isDirectModeActive else {
+            return false
+        }
+        return !editorHasFirstResponder
     }
 
     /// Asks for first responder until the editor takes it, or until the
