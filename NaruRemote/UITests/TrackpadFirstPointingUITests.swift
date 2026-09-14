@@ -219,6 +219,86 @@ final class TrackpadFirstPointingUITests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Measures the gap the founder reported (2026-09-14): "트랙패드 모드에서
+    /// 앱에서 그려진 커서와 실제 원격화면에 보이는 커서가 위치가 심하게
+    /// 차이난다."
+    ///
+    /// Prints the app's own idea of the remote pointer — the DEBUG probe value
+    /// on the drawn cursor, in framebuffer pixels — after each of several
+    /// drags. The other half of the measurement is taken on the Mac by the
+    /// caller (`CGEvent(source: nil)?.location`), so the offset between what
+    /// the app draws and where the pointer really is becomes a number rather
+    /// than a judgement about a screenshot.
+    ///
+    /// Constitution §IV: cursor geometry only, nothing user-entered.
+    func testDrawnCursorVersusRemotePointerOffsetProbe() throws {
+        guard let password else {
+            throw XCTSkip("NARU_E2E_PASSWORD not set — skipping cursor offset probe")
+        }
+
+        let profileID = UUID()
+        let credentialRef = "vnc-password:\(profileID.uuidString)"
+        let app = launch(seedProfileID: profileID, credentialRef: credentialRef, password: password)
+
+        let firstCard = app.buttons["naru.connection.grid.card"].firstMatch
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 5))
+        firstCard.tap()
+
+        let diagnosticCorner = app.buttons["naru.session.diagnostics.corner"]
+        XCTAssertTrue(diagnosticCorner.waitForExistence(timeout: 10))
+        let connectDeadline = Date().addingTimeInterval(30)
+        while Date() < connectDeadline, !isConnected(diagnosticCorner) {
+            allowSystemPermissionAlertIfPresent()
+            usleep(250_000)
+        }
+        XCTAssertTrue(isConnected(diagnosticCorner), "Operation diagnostics must report Connected")
+
+        let probe = app.descendants(matching: .any)["naru.session.hotCursor.probe"].firstMatch
+        let surface = app.windows.firstMatch
+
+        // Several unhurried drags, the way a hand moves a trackpad cursor
+        // across a screen. Each one is reported separately: a gap that appears
+        // on one drag and stays is a dropped event, a gap that grows with every
+        // drag is a scale error.
+        let legs: [(from: CGVector, to: CGVector)] = [
+            (CGVector(dx: 0.50, dy: 0.45), CGVector(dx: 0.62, dy: 0.52)),
+            (CGVector(dx: 0.62, dy: 0.52), CGVector(dx: 0.40, dy: 0.60)),
+            (CGVector(dx: 0.40, dy: 0.60), CGVector(dx: 0.58, dy: 0.40)),
+            (CGVector(dx: 0.58, dy: 0.40), CGVector(dx: 0.45, dy: 0.55))
+        ]
+        for (index, leg) in legs.enumerated() {
+            surface.coordinate(withNormalizedOffset: leg.from)
+                .press(
+                    forDuration: 0.08,
+                    thenDragTo: surface.coordinate(withNormalizedOffset: leg.to)
+                )
+            usleep(700_000)
+            let value = (probe.exists ? probe.value as? String : nil) ?? "<probe unavailable>"
+            print("[cursor-offset] leg \(index + 1): app \(value)")
+        }
+
+        // Zoomed is the regime the unzoomed legs above cannot speak for. While
+        // zoomed, trackpad mode couples cursor motion to viewport pan
+        // (`zoomedTrackpadPanCoupling`), so the glyph and the picture are moved
+        // by two different terms of the same equation — the place a geometry
+        // error would hide.
+        surface.pinch(withScale: 3.0, velocity: 2.0)
+        usleep(600_000)
+        for (index, leg) in legs.enumerated() {
+            surface.coordinate(withNormalizedOffset: leg.from)
+                .press(
+                    forDuration: 0.08,
+                    thenDragTo: surface.coordinate(withNormalizedOffset: leg.to)
+                )
+            usleep(700_000)
+            let value = (probe.exists ? probe.value as? String : nil) ?? "<probe unavailable>"
+            print("[cursor-offset] zoomed leg \(index + 1): app \(value)")
+        }
+
+        try saveScreen(named: "trackpad-offset-probe-iphone.png")
+        print("[cursor-offset] capture written to \(outputDirectory)")
+    }
+
     private func isConnected(_ diagnosticCorner: XCUIElement) -> Bool {
         guard let value = diagnosticCorner.value as? String else { return false }
         return value.lowercased().hasPrefix("connected")

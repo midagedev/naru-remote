@@ -84,13 +84,13 @@ public final class PiPSampleBufferDisplayLayerHostingView: UIView {
 
     public func attach(layer newLayer: AVSampleBufferDisplayLayer) {
         if attachedLayer === newLayer {
-            newLayer.frame = bounds
+            SampleBufferLayerViewportGeometry.place(newLayer, in: bounds)
             applyViewportTransform()
             return
         }
 
         attachedLayer?.removeFromSuperlayer()
-        newLayer.frame = bounds
+        SampleBufferLayerViewportGeometry.place(newLayer, in: bounds)
         self.layer.addSublayer(newLayer)
         attachedLayer = newLayer
         applyViewportTransform()
@@ -115,7 +115,9 @@ public final class PiPSampleBufferDisplayLayerHostingView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        attachedLayer?.frame = bounds
+        if let attachedLayer {
+            SampleBufferLayerViewportGeometry.place(attachedLayer, in: bounds)
+        }
         applyViewportTransform()
     }
 
@@ -136,21 +138,11 @@ public final class PiPSampleBufferDisplayLayerHostingView: UIView {
         scale: CGFloat,
         offset: CGSize
     ) {
-        let sanitizedScale = scale.isFinite ? max(scale, 0.0001) : 1
-        let sanitizedOffset = CGSize(
-            width: offset.width.isFinite ? offset.width : 0,
-            height: offset.height.isFinite ? offset.height : 0
+        SampleBufferLayerViewportGeometry.applyViewportTransform(
+            to: layer,
+            scale: scale,
+            offset: offset
         )
-        let transform = CGAffineTransform(
-            translationX: sanitizedOffset.width,
-            y: sanitizedOffset.height
-        )
-        .scaledBy(x: sanitizedScale, y: sanitizedScale)
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.setAffineTransform(transform)
-        CATransaction.commit()
     }
 }
 #endif

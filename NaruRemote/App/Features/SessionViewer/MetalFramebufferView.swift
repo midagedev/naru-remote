@@ -2316,7 +2316,37 @@ public final class MetalFramebufferHostingView: UIView, UIGestureRecognizerDeleg
         if hotCursorView.isHidden {
             hotCursorView.isHidden = false
         }
+        publishHotCursorProbeValue(transform: transform)
         ensureHotCursorViewOnTop()
+    }
+
+    /// DEBUG-only read-out of where the app believes the remote pointer is.
+    ///
+    /// The founder reported the drawn cursor and the real remote cursor sitting
+    /// far apart (2026-09-14). Answering that needs one number the app alone
+    /// cannot produce: the app's intended framebuffer pixel, next to the
+    /// position the remote machine's own window server reports. A UI test can
+    /// read this element; a probe on the Mac reads the other half; the offset
+    /// is then measured instead of eyeballed against a screenshot.
+    ///
+    /// Constitution §IV: cursor geometry, never user-entered content, and never
+    /// logged or persisted. Compiled out of Release entirely, so the submission
+    /// contract's test-hook scan stays clean.
+    private func publishHotCursorProbeValue(transform: ViewportTransform) {
+        #if DEBUG
+        hotCursorView.isAccessibilityElement = true
+        hotCursorView.accessibilityIdentifier = "naru.session.hotCursor.probe"
+        hotCursorView.accessibilityValue = String(
+            format: "fb=%.1f,%.1f size=%.0fx%.0f zoom=%.3f pan=%.1f,%.1f",
+            currentTrackpadCursor.position.x,
+            currentTrackpadCursor.position.y,
+            transform.framebufferSize.width,
+            transform.framebufferSize.height,
+            transform.zoomScale,
+            transform.panOffset.width,
+            transform.panOffset.height
+        )
+        #endif
     }
 
     private func ensureHotCursorViewOnTop() {

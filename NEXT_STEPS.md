@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-09-05 KST.
+Updated: 2026-09-14 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -278,6 +278,48 @@ same PR.
    trailing-whitespace files, zero `TODO`/`FIXME` in shipped code, one `try!` in
    Core, and the only three `print` calls are `#if DEBUG` behind a test
    environment variable.
+
+00o. **`specs/044` helper-video cursor alignment — implemented 2026-09-14,
+   founder device pass open.** The founder, on build 20: "트랙패드 모드에서
+   앱에서 그려진 커서와 실제 원격화면에 보이는 커서가 위치가 심하게
+   차이난다", then "vnc는 잘 동작해 헬퍼가 문제야". Three measurements ruled
+   out everything upstream before a line was changed: RFB pointer events land
+   on their addressed framebuffer pixel with **0 pt of error** against a real
+   Screen Sharing server (3024×1964 px over a 1512×982 pt display, exactly 0.5
+   points per pixel); the app's own cursor matched the Mac's real pointer to
+   the tenth of a point on the simulator, zoomed and unzoomed; and macOS never
+   paints its pointer into the RFB framebuffer at all, so two cursors can only
+   be helper video. The defect was `PiPSampleBufferDisplayLayerHostingView`
+   assigning `layer.frame` on a layer that already carried the viewport
+   transform — undefined for `CALayer`, and Core Animation resolves it by
+   inverting the live transform: measured, bounds 402×874 → 134×291.3 and
+   position (201, 437) → (189, 467), so the video drew unzoomed and displaced
+   while the cursor overlay used the real zoom and pan, recomputed wrong
+   again on every zoom change. Placement now has one owner
+   (`SampleBufferLayerViewportGeometry`, UIKit-free so `swift test` gates it)
+   and sets `bounds`/`position`, which are defined under a transform. Two new
+   permanent probes came out of it: `LiveMacPointerCoordinateSpaceTests` (the
+   wire coordinate contract, plus a characterisation of the server dropping
+   pointer moves for seconds at a time) and a DEBUG cursor read-out the
+   trackpad UI test reads. **Open:** the founder device pass — SC-1 the drawn
+   cursor sits on the baked one anywhere on screen, SC-2 it stays together
+   through zoom and pan, SC-3 the picture opens at the same scale as VNC and
+   does not shrink. It needs a `Naru Helper.app` rebuilt from this tree.
+
+00p. **Helper video is wrong on a multi-display Mac — not yet fixed.** Found
+   while root-causing 044. The helper captures the main display only
+   (`captureDisplay(from:)` picks `CGMainDisplayID`), while the RFB framebuffer
+   — and therefore the app's whole input coordinate space — is the bounding box
+   of every attached display (measured 2026-08-19, and this Mac's windowserver
+   still remembers configurations with externals at origin −2560 and +1512).
+   With more than one screen the video and the coordinate space describe
+   different rectangles, so the drawn cursor, taps and clicks all land
+   somewhere else. The founder was on the built-in display alone for the 044
+   report, which is why it is filed separately rather than fixed there. The
+   shape of the fix is a wire field: the helper declares which rect of the
+   remote coordinate space its video covers, and the viewport maps through it
+   — or, until then, helper video declines to be the primary transport when
+   its geometry cannot match (the 042 fallback-notice path already exists).
 
 00n. **`specs/043` device-pass input defects — implemented 2026-09-13,
    founder device pass open.** Three intermittent failures found by hand on
@@ -787,7 +829,7 @@ same PR.
   mode's model layer is still carried.** Spec 011 retired Direct Keystroke
   as a surface (2026-08-17, `b6e8a5e9`): all three Direct keyboard views
   were deleted and `onToggleDirectMode` is wired to nothing, so the mode
-  cannot be entered. `specs/002/spec.md` still reads "Implemented v1
+  cannot be entered. `specs/002-direct-keystroke-mode/spec.md` still reads "Implemented v1
   (custom soft keyboard …)" with no amendment pointing at 011 — fix that
   line. The real question underneath is what to do with the model layer
   that survived the retirement: `directKeystrokeMode` with its three input
