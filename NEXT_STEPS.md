@@ -1,6 +1,6 @@
 # Next Steps
 
-Updated: 2026-09-14 KST.
+Updated: 2026-09-19 KST.
 
 Cross-feature priority queue for any coding agent (Claude Code, Codex) and
 the founder. Per-feature ground truth stays in each `specs/<n>-<slug>/spec.md`
@@ -305,6 +305,43 @@ same PR.
    cursor sits on the baked one anywhere on screen, SC-2 it stays together
    through zoom and pan, SC-3 the picture opens at the same scale as VNC and
    does not shrink. It needs a `Naru Helper.app` rebuilt from this tree.
+
+00q. **`specs/045` trackpad cursor tip alignment — implemented 2026-09-19,
+   founder device pass open.** The residue of 044, reported on build 21: "여전히
+   마우스 커서가 살짝 어긋나 균일하게 살짝 오른쪽에 보이네", with the remote
+   pointer to the right of the drawn one and the gap shrinking as the viewport
+   zoomed in. Measured off the founder's own screenshots at 3× (1 pt = 3 px):
+   **+8.7 pt at fit zoom, +8.0 pt at maximum zoom** — constant in *view* points,
+   which rules out every error in remote coordinates, since those scale with
+   zoom. Two things were ruled out before any code changed: the video layer and
+   the cursor overlay share the same horizontal mapping expression, so an aspect
+   or pillarbox mismatch cannot displace them horizontally at all; and the
+   helper's own capture is clean (`contentRect` leaves a symmetric 1.15 px
+   pillarbox at 960 wide and none at 1512, and differencing a `showsCursor:
+   true` frame against a `false` one puts the baked pointer within a point of
+   where the window server says it is). The defect was
+   `TrackpadCursorGlyph.measureTipOffsetFromCenter` scanning its alpha buffer
+   bottom-first — a `CGContext`'s bottom-left origin does *not* reverse the
+   buffer's rows, verified with a four-row probe — so it returned the glyph's
+   tail instead of its tip and parked the box 8 pt left of the anchor. The gate
+   is the thing that was missing: nothing in the repository measured where the
+   cursor actually *renders*, and `swift test` on macOS cannot reach the iOS
+   glyph path at all, so the measurement lived in the same function it was
+   supposed to check. `TrackpadCursorApexAlignmentTests` now renders the host
+   view and scans the bitmap independently. **Open:** the founder device pass,
+   SC-1 — the drawn tip sits on the remote pointer at fit zoom and zoomed in.
+
+00r. **The SwiftUI trackpad overlay ignores the server cursor — not fixed.**
+   Found while closing 045. `SessionViewportView.swift`'s
+   `usesSwiftUITrackpadInputOverlay` branch always draws
+   `syntheticCursorOverlay`, even when `serverCursor` is non-nil, while the
+   Metal twin picks the server shape when one exists. It is dead on every
+   Metal-capable iPhone, which is why it is filed rather than fixed, but it is
+   a real divergence between the twins and the next person to touch that branch
+   will inherit it. Related: the founder's helper-video session drew the
+   fallback glyph at all, which means `serverCursor` was nil there — worth
+   knowing whether helper video ever receives a cursor shape, because if it
+   does not, I-beam and resize cursors never reach the phone.
 
 00p. **Helper video is wrong on a multi-display Mac — not yet fixed.** Found
    while root-causing 044. The helper captures the main display only

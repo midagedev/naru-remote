@@ -15,7 +15,7 @@ Naru Remote is an iPhone/iPad VNC viewer for private networks (Tailscale-friendl
 This repo runs Spec Kit. Treat `.specify/memory/constitution.md` as the highest project rule after explicit user instructions.
 
 - **Do not implement a feature that lacks a `specs/<n>-<slug>/spec.md`.** If a request would add new behavior with no spec, stop and ask, or use `$speckit-specify` first.
-- The active feature is pinned in `.specify/feature.json` (currently `specs/044-helper-video-cursor-alignment`). `plan.md`, `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and `quickstart.md` for that feature are authoritative — update them when implementation behavior changes.
+- The active feature is pinned in `.specify/feature.json` (currently `specs/045-trackpad-cursor-apex-alignment`). `plan.md`, `research.md`, `data-model.md`, `tasks.md`, `contracts/`, and `quickstart.md` for that feature are authoritative — update them when implementation behavior changes.
 - Every `specs/<n>-<slug>/spec.md` carries a **Status** line — that is the truth for one feature. Cross-feature priorities live in `NEXT_STEPS.md`; update it in the same PR when you finish or reprioritize work. `docs/ROADMAP.md` is the phase-level narrative of how the product was built and answers neither question.
 - `AGENTS.md` is the equivalent entry point for non-Claude agents (e.g. Codex). When rules here change, keep `AGENTS.md` in sync.
 - Workflow phases: `$speckit-constitution` → `$speckit-specify` → `$speckit-clarify` → `$speckit-plan` → `$speckit-tasks` → `$speckit-implement`.

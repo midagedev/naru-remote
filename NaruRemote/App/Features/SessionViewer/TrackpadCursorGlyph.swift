@@ -135,13 +135,14 @@ enum TrackpadCursorGlyph {
         }
         guard drawn else { return nil }
 
-        // `CGContext` origin is bottom-left; `tipPoint` asks in UIKit
-        // orientation, so the row index is flipped here rather than inside the
-        // pure scan.
+        // No row flip here: drawing the rendered glyph into a same-size
+        // alpha context keeps top-first row order (buffer row 0 is the
+        // displayed top row). A `height - 1 - y` flip scanned bottom-first
+        // and mistook the tail's bottom pixel for the tip, parking the drawn
+        // glyph ~8 pt left of its anchor at every zoom (spec 045).
         let opaqueThreshold: UInt8 = 38 // ~15% alpha: ignore anti-aliased fringe
         guard let tip = tipPoint(width: width, height: height, isOpaque: { x, y in
-            let row = height - 1 - y
-            return alpha[row * width + x] > opaqueThreshold
+            alpha[y * width + x] > opaqueThreshold
         }) else {
             return nil
         }
